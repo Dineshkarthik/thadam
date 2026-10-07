@@ -1,0 +1,30 @@
+---
+source: crates/thadam-arrow/tests/fingerprint.rs
+expression: layout(&example())
+---
+       1  _event_id  fixed_binary(16) NOT NULL
+       2  _ingest_time  ts[us,UTC] NOT NULL
+       3  _source_time  ts[us,UTC]
+       4  _event_time  ts[us,UTC]
+       5  _time_domain  dict<i8,utf8> NOT NULL
+       6  _quality_status  dict<i8,utf8> NOT NULL
+       7  _quality_flags  u32 NOT NULL
+       8  _quality_reason  utf8
+       9  _clock_synced  bool NOT NULL
+      10  _wal_epoch  u64 NOT NULL
+      11  _wal_pos  u64 NOT NULL
+     100  site  dict<i32,utf8>
+     101  robot  dict<i32,utf8>
+      12  sample_idx  u16
+    1000  soc_pct  f32 unit=%
+    1001  seq  u64 NOT NULL
+    1002  motor_temp_c  list<f32> unit=Cel
+   8389120  element  f32
+    1003  pose  struct
+   8389376  x_m  f64 unit=m
+   8389377  frame  utf8
+    1004  grid  list<list<i32>>
+   8389632  element  list<i32>
+     8389633  element  i32
+    1005  mode  utf8
+    1006  captured  ts[us,UTC]

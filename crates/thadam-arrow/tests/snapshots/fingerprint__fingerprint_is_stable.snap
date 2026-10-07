@@ -1,0 +1,5 @@
+---
+source: crates/thadam-arrow/tests/fingerprint.rs
+expression: example().fingerprint_hex()
+---
+1cba283043d3aff6a9083bc5bd7bbcc8
