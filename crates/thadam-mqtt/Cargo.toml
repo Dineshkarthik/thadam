@@ -6,5 +6,34 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+# MQTT 5 through rumqttc's `v5` module. Experimental (ADR-0006): it becomes a
+# supported default only after the conformance suite runs on it in CI.
+v5 = []
+
+[dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true }
+lru = { workspace = true }
+thadam-core = { workspace = true }
+rumqttc = { workspace = true }
+rustls-native-certs = { workspace = true }
+rustls-pki-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
+tokio-rustls = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rcgen = { workspace = true }
+thadam-testkit = { path = "../thadam-testkit" }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full", "test-util"] }
+
 [lints]
 workspace = true
