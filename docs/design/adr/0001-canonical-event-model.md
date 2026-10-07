@@ -87,7 +87,7 @@ An ordered hierarchy of (level, value) pairs (`AssetPath`). `device_id` is just 
 - **Default:** `xxh3_128(epoch, frame_seq, record_index)`. It is deterministic per WAL record and stable across replay, but a broker redelivery receives a different ID because it becomes a new WAL record.
 - **Content-derived:** a dataset may configure `event_id.key` (for example `[site, robot, seq]`). For exploded datasets the ID also incorporates `sample_idx`, as in the demo's `xxh3_128(dataset, site, robot, seq, sample_idx)` **[A]**.
 - **Dedup rule:** deduplication across broker redelivery requires a content-derived ID. A dataset that enables `dedup` without `event_id.key` fails validation. The deterministic default is only meaningful when the payload carries a source sequence or a high-resolution source timestamp. The deduplication behavior itself is in ADR-0011.
-- The lineage columns carry the frame position but not the record index, so a row cannot yet be located inside a frame (open item O4, ADR-0013).
+- The lineage columns carry the frame position but not the record index, so a row cannot yet be located inside a frame (open item O4, closed in PR13 as not written: `thadam-arrow` reserves field ID 13 for a `_wal_record_idx` column; ADR-0013).
 
 ### Envelope columns, interning, and limits
 

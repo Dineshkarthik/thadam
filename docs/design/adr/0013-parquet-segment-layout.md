@@ -2,9 +2,10 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-07
+- **Updated:** 2026-10-07 (PR13 implementation decisions recorded in `thadam-arrow`: field-ID policy (O5 closed), `_wal_record_idx` (O4 closed), unsigned default, list element name, `sample_idx` width, schema fingerprint)
 - **Deciders:** Project owner
 
-**Acceptance.** Accepted by project owner on 2026-10-07 (`docs/design/owner-decisions.md`, section "ADR acceptances"). The unticked items in "Evidence and validation required" (benchmarks W4 and B6 with their `[OPEN]` criteria, the reader compatibility matrix, the unsigned-integer default, O4 and O5) are implementation-time verification in PR13 and PR14, not blockers.
+**Acceptance.** Accepted by project owner on 2026-10-07 (`docs/design/owner-decisions.md`, section "ADR acceptances"). The unticked items in "Evidence and validation required" (benchmarks W4 and B6 with their `[OPEN]` criteria, the reader compatibility matrix, O4 and O5 and the unsigned-integer default) are implementation-time verification in PR13 and PR14, not blockers. PR13 (`thadam-arrow`, commit `4fa3802`) has since closed O4, O5, and the unsigned-integer default; see "PR13 implementation decisions".
 
 ## Context
 
@@ -37,11 +38,11 @@ One row per event, one column per declared field, with a declared schema per dat
 - **Development:** inference is allowed with widening only (I32, then I64, then F64; never narrowing) and a lock after the first file is written.
 - **Unknown fields:** `strict` quarantines the message, `lenient` drops and counts, and an optional `_unmapped` column captures them.
 - **Evolution rules (Iceberg-compatible):** add optional columns; widen `int` to `long` and `float` to `double`; never rename or narrow. Anything else is a new dataset version, `dataset@v2`, which maps to a new topic version and a new key prefix.
-- **Unsigned integers** above `i64::MAX` follow a per-sink unsigned policy (`ArrowOptions.unsigned`). The Parquet default is **[OPEN: to be set in PR13]**: write Parquet unsigned logical types, or map to signed with a range reject. Reader support for unsigned logical types is **[V]**.
+- **Unsigned integers** above `i64::MAX` follow a per-sink unsigned policy (`ArrowOptions.unsigned`). The default is **`Native`** (decided in PR13): write the unsigned Arrow types (`UInt8`, `UInt16`, `UInt32`, `UInt64`), which Parquet stores as unsigned logical types. `Signed` is an option: it maps to the next wider signed type (`Int16`, `Int32`, `Int64`), with `u64` staying `Int64` so a value above `i64::MAX` is rejected with `schema.narrowing`. The policy applies to every unsigned column, envelope columns included, so `Signed` yields a schema with no unsigned type in it. Reader support for unsigned logical types is **[V]** and still unverified in this repository (Iceberg has no unsigned types; Athena and some Trino versions are the open items); see "PR13 implementation decisions".
 
 ### Stable Parquet field IDs from the first release
 
-Every column, including envelope and lineage columns, is written with a stable `PARQUET:field_id` from the first release. The cost now is almost nothing, and retrofitting is hard (maturity review section 15, item 3). **The assignment policy is open item O5.** The options:
+Every column, including envelope and lineage columns, is written with a stable `PARQUET:field_id` from the first release. The cost now is almost nothing, and retrofitting is hard (maturity review section 15, item 3). **The assignment policy was open item O5 and is closed by PR13; the decision is recorded under "PR13 implementation decisions" below.** The options considered were:
 
 1. **Explicit IDs in configuration.** Stable and reviewable, and identical across nodes that share a configuration. Costs: user burden, validation for duplicates and reuse, and a risk of mistakes when editing.
 2. **Auto-assignment in declaration order with a persisted lock.** No user burden. Costs: the lock must be stored somewhere durable (per node, so two nodes with different declaration order could assign different IDs to the same logical column), and removing a field must never free its ID.
@@ -72,7 +73,26 @@ Evidence that decides it: a field-ID round-trip test through the writer and a re
 
 Every dataset carries `_event_id` (FixedSizeBinary(16)), `_ingest_time`, `_source_time`, `_event_time`, `_time_domain`, `_quality_status`, `_quality_flags` (UInt32 bitset), `_quality_reason`, `_clock_synced`, `_wal_epoch`, `_wal_pos`, identity level columns (dictionary strings), and `sample_idx` for exploded datasets. This is the demo plan's superset. Columns prefixed with `_` are reserved for Thadam **[A]**.
 
-**Open item O4 (`_wal_record_idx`).** The default event ID is `xxh3_128(epoch, frame_seq, record_index)`, but the lineage columns carry only the frame position, so a row cannot be mapped back to its record within a frame and the default ID cannot be recomputed from a row. This ADR proposes a `_wal_record_idx` column, UInt32 **[A, OPEN: width]** (a frame is capped at 4 MiB, so a 16-bit index may be too small for tiny records). Its storage cost is to be measured in B6.
+As implemented in `thadam-arrow` (PR13), in column order. Unsigned types are shown under the default `Native` policy; `Signed` widens them. `_event_id`, `_wal_epoch`, and `_wal_pos` are the lineage columns and are written only while `ArrowOptions.lineage_columns` is on (the default).
+
+1. `_event_id`, `FixedSizeBinary(16)` (lineage)
+2. `_ingest_time`, never null
+3. `_source_time`, nullable
+4. `_event_time`, nullable
+5. `_time_domain`, `Dictionary(Int8, Utf8)`
+6. `_quality_status`, `Dictionary(Int8, Utf8)`
+7. `_quality_flags`, `UInt32`
+8. `_quality_reason`, nullable `Utf8`
+9. `_clock_synced`, `Boolean`
+10. `_wal_epoch`, `UInt64` (lineage)
+11. `_wal_pos`, `UInt64` (lineage)
+12. one nullable `Dictionary(Int32, Utf8)` column per identity level
+13. `sample_idx`, nullable **`UInt16`** (exploded datasets only)
+14. the declared fields, in declaration order
+
+All timestamps are UTC, in the unit given by `ArrowOptions.ts_unit` (microseconds by default, nanoseconds opt-in). `sample_idx` is `UInt16`, so a sample index above 65,535 is out of range for the column.
+
+**Open item O4 (`_wal_record_idx`): closed in PR13, not written.** The default event ID is `xxh3_128(epoch, frame_seq, record_index)`, but the lineage columns carry only the frame position, so a row cannot be mapped back to its record within a frame and the default ID cannot be recomputed from a row. This ADR proposed a `_wal_record_idx` column, UInt32 **[A, OPEN: width]** (a frame is capped at 4 MiB, so a 16-bit index may be too small for tiny records). `thadam-arrow` does **not** write the column; field ID 13 is reserved for it, so adding it later is an additive change that cannot collide with another column. Its width and storage cost (B6) are therefore not decided; they are decided if and when the column is added.
 
 ### Writer settings
 
@@ -92,6 +112,35 @@ The finalize sequence (close and SHA-256, `fdatasync`, rename, directory fsync, 
 ### Quarantine segment
 
 A fixed schema: `_wal_epoch`, `_wal_pos`, `_ingest_time`, `source_id`, `topic`, `error_domain`, `error_code`, `reason`, and `raw` (binary, truncated at 64 KiB, with a `raw_truncated` flag). It has its own disk budget (256 MiB in the demo) so a schema change cannot starve normal data. One chain is designated primary for quarantine to avoid double counting (O3).
+
+### PR13 implementation decisions (`thadam-arrow`, commit `4fa3802`)
+
+These close the items this ADR left open for PR13. The facts come from the `thadam-arrow` crate documentation (`columns` module, `options`, `fingerprint`).
+
+**Field-ID policy (O5, closed).** The policy is a mix of the three options above: IDs are partitioned by origin, envelope IDs are fixed by the format, and every other top-level ID is explicit.
+
+| Range | Origin | Assigned by |
+|---|---|---|
+| `1..=99` | envelope and lineage columns | fixed by `thadam-arrow` (format v1) |
+| `100..=199` | identity level columns | explicit, from configuration |
+| `1000..=4_194_303` | declared top-level fields | explicit, from configuration |
+| `8_388_608..` | list elements and record children | derived from the parent ID and tree position |
+
+- **Envelope IDs (format v1):** `_event_id` 1, `_ingest_time` 2, `_source_time` 3, `_event_time` 4, `_time_domain` 5, `_quality_status` 6, `_quality_flags` 7, `_quality_reason` 8, `_clock_synced` 9, `_wal_epoch` 10, `_wal_pos` 11, `sample_idx` 12. **ID 13 is reserved** for `_wal_record_idx` (O4); the column is not written.
+- **Declared top-level IDs are explicit and required.** A declared field must carry an ID in `1000..=4_194_303`; the ID does not depend on declaration order, field removal, restarts, or upgrades. `thadam-arrow` rejects duplicates and out-of-range IDs. **IDs are never reused after a field is removed**, but `thadam-arrow` cannot know history, so keeping that rule is the job of whoever owns the configuration (`thadam-config` and the runtime).
+- **Nested IDs are derived.** A nested field's ID is derived from its top-level field's ID and its position in that field's type tree (depth first, pre-order): `8_388_608 + (id - 1000) * 256 + slot`. A top-level field may have at most 256 nested fields. Nested IDs are unique in the dataset and stable while the field's type is unchanged, including under widening (`list<i32>` to `list<i64>` keeps its shape). Changing a nested type's shape is a new dataset version (evolution rules above), so IDs written on nested field definitions are ignored.
+- **List element name is `element`** in every list type.
+- **Two-node requirement.** Because IDs are explicit in configuration, two nodes that share a configuration produce the same ID for the same logical column. This is what the ADR required of any option.
+- **Not yet wired.** `thadam-config` (PR5) has no key for a field ID or an identity-level ID today (`FieldSpec` carries `name`, `type`, `from`, `required`, `unit`, `convert_to`), and `thadam-arrow` requires them. How the pipeline configuration supplies the IDs, and how the "never reuse" rule is enforced, must be settled before the runtime builds a `DatasetSchema` from a `PipelineSpec` (wave 3).
+- **Evidence so far.** `thadam-arrow` tests cover that field IDs survive an Arrow IPC round trip. The Parquet writer and reader round trip, and the Iceberg compatibility check **[V]**, belong to PR14.
+
+**Unsigned integers (closed).** The default policy is `Native` (`UInt8`, `UInt16`, `UInt32`, `UInt64`); `Signed` is an option (see "Schemas"). Reasons for the default: it matches the envelope types this ADR and the demo plan name (`_quality_flags` is `UInt32`, `_wal_pos` is `UInt64`), it is lossless and has no reject path, and it suits sinks with native unsigned types (ClickHouse, DuckDB, pyarrow). `Signed` is for lakes read by engines or table formats without unsigned types. Reader behavior for unsigned Parquet logical types is unverified in this repository.
+
+**`_wal_record_idx` (O4, closed).** Not written. ID 13 is reserved (see "Envelope and lineage columns").
+
+**Other encoding details.** `sample_idx` is `UInt16`. The list element field is named `element`. `ArrowOptions` also carries `ts_unit` (microseconds by default, nanoseconds opt-in) and `lineage_columns` (on by default).
+
+**Schema fingerprint.** `thadam.schema_fp` carries a 16-byte fingerprint, written in hex in the schema metadata (`thadam.dataset` carries the dataset name). It is SHA-256 over a canonical, versioned encoding of the output columns, truncated to 128 bits. The encoding is defined in `thadam-arrow` and does not use Arrow's `Debug` or `Display`, so an Arrow upgrade cannot change a fingerprint that is already in files. It is domain-separated (`thadam-arrow/schema/v1`) and covers each column's name, nullability, data type tag, and sorted field metadata (which includes the field ID and unit), recursively for lists and structs, so a change to any of these changes the fingerprint; the unsigned policy and timestamp unit are part of it through the column types. Type tags are fixed once released.
 
 ### Superseded by this ADR (ARCHITECTURE.md section 19)
 
@@ -128,7 +177,7 @@ A fixed schema: `_wal_epoch`, `_wal_pos`, `_ingest_time`, `source_id`, `topic`, 
 
 - Declared schemas are required for production, which is friction for new users; development-mode inference softens it.
 - Users querying one device scan files that contain many devices; per-device pruning relies on statistics and dictionary encoding, not on paths.
-- Field-ID assignment needs a durable policy (O5), which adds state.
+- Field-ID assignment needs a durable policy. O5 is closed (explicit IDs in configuration, never reused), which puts the burden of unique, never-reused IDs on the configuration owner; the configuration key that carries them is not yet defined.
 - Small files appear at short rotation intervals; the production defaults trade visibility latency for file size.
 
 **Fixed once released**
@@ -144,13 +193,13 @@ This ADR can be accepted once its blocking items pass. Items marked **[V]** may 
 - [ ] **Reader compatibility matrix in CI:** DuckDB, pyarrow, Spark, Trino, and Athena reading files with microsecond and nanosecond timestamps **[V]**.
 - [ ] **Benchmark B6:** write MB/s by rotation size (16, 64, 256 MiB), codec (snappy, zstd(1), zstd(3)), and row-group size; p99 latency spikes during rotation; memory as open partitions grow. This settles the compression defaults. Criterion: [OPEN].
 - [ ] **Type-flapping benchmark:** file count with and without lock-after-first-file.
-- [ ] **Schema fingerprint cost** per shape.
+- [ ] **Schema fingerprint cost** per shape. The fingerprint itself is implemented and snapshot-tested for stability in PR13 (see "PR13 implementation decisions"); its cost was not recorded here.
 - [ ] **Clock tests:** clock-step and RTC-less boot (an `unsynced/` partition, then recovery), and the file partition key rule for hour-straddling frames.
 - [ ] **Finalize failpoint matrix** (`segments::after_rename_before_catalog`, `segments::before_cursor_commit`): exactly one file per WAL range, none missing.
-- [ ] **Field-ID round-trip test** through the writer and a reader, and a check that a downstream Iceberg reader or writer accepts the IDs **[V]**. O5 closed with a recorded policy.
+- [ ] **Field-ID round-trip test** through the writer and a reader, and a check that a downstream Iceberg reader or writer accepts the IDs **[V]**. **O5 closed** with a recorded policy (PR13, "PR13 implementation decisions"). The Arrow IPC round trip is tested in `thadam-arrow`; the Parquet writer and reader round trip and the Iceberg check remain for PR14.
 - [ ] **Multi-file reads** across additive schema changes in DuckDB and pyarrow.
-- [ ] **Unsigned-integer behavior** per sink, including reader support **[V]**.
-- [ ] **O4 decision** on `_wal_record_idx` and its storage cost.
+- [ ] **Unsigned-integer behavior** per sink, including reader support **[V]**. The default is decided (`Native`, with a `Signed` option); reader support is still unverified.
+- [x] **O4 decision** on `_wal_record_idx`: not written; field ID 13 reserved (PR13). Its storage cost (B6) is only needed if the column is added.
 - [x] **Owner decision B3** on wide versus narrow layout (wide) and quality granularity (event-level): recorded 2026-10-07 in `docs/design/owner-decisions.md`.
 
 ## Revisit when
@@ -158,7 +207,7 @@ This ADR can be accepted once its blocking items pass. Items marked **[V]** may 
 - User query patterns favor a narrow layout.
 - The reader matrix shows problems with microsecond timestamps.
 - Iceberg or Delta work (P2) starts, which would reopen the field-ID policy and the key layout.
-- The WAL record index needs to change (ADR-0004).
+- The WAL record index needs to change (ADR-0004), or a reader needs a row mapped back to its record inside a frame (the `_wal_record_idx` column, field ID 13, is reserved but not written).
 - A reader needs per-device partition pruning that statistics cannot provide.
 
 ## References

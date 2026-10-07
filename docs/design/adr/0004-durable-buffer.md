@@ -2,8 +2,10 @@
 
 - **Status:** Draft
 - **Date:** 2026-10-07
-- **Updated:** 2026-10-07 (spike S1 evidence and recommendations folded in)
+- **Updated:** 2026-10-07 (spike S1 evidence and recommendations folded in; PR6 and PR7 implementation deviations recorded in "Implementation notes (PR6 and PR7)"; status unchanged)
 - **Deciders:** Project owner
+
+**Implementation status.** The owner decided to build the WAL now from the S1 design and to re-validate it on reference hardware (x86 NVMe, ARM eMMC) later. `thadam-wal` (PR6 and PR7) is implemented in commit `0c4cf6f`. Format v1 is **versioned but not frozen**: segment headers, `wal.json`, and cursor files carry format versions and a binary refuses a version it does not know, but the `interval(10ms)` fsync default, Linux preallocation, the segment size, and the `RawFrame` field numbers stay provisional until that re-run. This ADR stays **Draft**. Where the implementation differs from the text below, "Implementation notes (PR6 and PR7)" is the current behavior.
 
 **Why this ADR stays Draft.** Spike S1 has reported (`docs/design/spikes/S1-wal.md`), and its evidence settles the engine choice and the frame layout. The on-disk format is permanent once released, and S1 ran without reference hardware: there was no x86 NVMe and no ARM eMMC, and the Linux numbers come from a Docker Desktop virtual machine whose flush semantics are unknown. **The S1 re-run on x86 NVMe and ARM eMMC is still required before the on-disk format is frozen**, so this ADR is not promoted to Proposed or Accepted yet. Exactly what must happen before it can be promoted is listed in "Remaining before this ADR can leave Draft". Everything in the Decision section is the S1 recommendation, adopted as the current design; it becomes binding when the owner accepts the ADR.
 
@@ -94,7 +96,7 @@ After a failed fsync, Linux may drop the dirty pages and clear the error, so a r
 
 Each reader opens its own read-only descriptors and never reads past the **durable end**, which the writer publishes through a `watch` channel. The durable end is the last successful fsync, not the written end. With `fsync: never`, the durable end is the written end. Unlinking a segment does not invalidate an open descriptor on Linux. `mmap` is rejected because of the SIGBUS risk.
 
-**Correction from S1: never reuse a sequence number at or below a durable cursor.** Readers and `commit_cursor` are bounded by the durable end. On open, if a cursor is at or beyond `next_seq` (which can happen after a power loss under `interval` or `never`), either start the next segment at cursor + 1 or refuse to open. The spike does not enforce this; its crash consumer only commits cursors up to acknowledged sequences, so no test reached it. SQLite and redb avoid it because their open computes the maximum of the last row and the maximum cursor, plus one. The spike's reader also served written-but-unsynced frames, which production must not.
+**Correction from S1: never reuse a sequence number at or below a durable cursor.** Readers and `commit_cursor` are bounded by the durable end. On open, if a cursor is at or beyond `next_seq` (which can happen after a power loss under `interval` or `never`), either start the next segment at cursor + 1 or refuse to open. (As implemented, recovery always skips ahead and reports the skipped range; Implementation notes 3.) The spike does not enforce this; its crash consumer only commits cursors up to acknowledged sequences, so no test reached it. SQLite and redb avoid it because their open computes the maximum of the last row and the maximum cursor, plus one. The spike's reader also served written-but-unsynced frames, which production must not.
 
 ### Preallocation
 
@@ -102,7 +104,7 @@ Each reader opens its own read-only descriptors and never reads past the **durab
 
 ### Cursors
 
-Each consumer has one file, `cursors/<name>.cur`, holding epoch, committed position, an optional in-flight range, and a CRC. It is written through a temporary file, `fdatasync`, rename, and directory fsync, batched to at most every `cursor_commit_interval` (200 ms) or when a segment finalizes. Cursor files were correct in every S1 crash test. They cost two fsyncs per commit, so the 200 ms batching stays. The trade-off is a larger redelivery window after a crash, in exchange for fewer metadata flushes on flash.
+Each consumer has one file, `cursors/<name>.cur`, holding epoch, committed position, an optional in-flight range, and a CRC. It is written through a temporary file, `fdatasync`, rename, and directory fsync, batched to at most every `cursor_commit_interval` (200 ms) or when a segment finalizes. Cursor files were correct in every S1 crash test. They cost two fsyncs per commit, so the 200 ms batching stays. The trade-off is a larger redelivery window after a crash, in exchange for fewer metadata flushes on flash. (As implemented, the WAL commits a cursor on every call and leaves the batching to its callers; Implementation notes 5.)
 
 ### Retention
 
@@ -120,7 +122,7 @@ Whole segments are deleted once every required sink's cursor has passed them, su
 - At the first failure, truncate to the end of the last valid frame, fsync, **and start a new segment**, so stale frames beyond the truncation point can never be resurrected. Reusing an empty last segment after truncating it to its header was safe in every test.
 - **Correction from S1: a bad segment header must fail the open.** The spike quarantines the segment and carries on, and if the quarantined segment was the last one, `next_seq` rewinds. The only safe exception is an empty last segment.
 - A corrupt frame in a sealed segment is quarantined and reported to readers as `Gap::Corrupt`.
-- The data directory carries an `epoch`, a `node_id`, and a machine-id binding in `thadam.json`. A cursor with the wrong epoch, or a position beyond the WAL end (for example after the WAL was restored from backup), is refused. A data directory copied to another node is detected through the machine-id binding.
+- The data directory carries an `epoch`, a `node_id`, and a machine-id binding in `thadam.json`. A cursor with the wrong epoch, or a position beyond the WAL end (for example after the WAL was restored from backup), is refused. A data directory copied to another node is detected through the machine-id binding. **As implemented:** the WAL keeps the epoch and the node and machine binding in `data_dir/wal/wal.json`, the runtime owns `thadam.json`, and a cursor beyond the WAL end is not refused: recovery skips ahead and reports it (Implementation notes 3 and 4).
 
 ### Format versioning
 
@@ -142,6 +144,22 @@ S1 also found two further requirements, recorded above: never reuse a sequence n
 - The original estimate of about 1.5 to 2k lines of code for the log, replaced by the review's estimate of 3 to 4k including tests.
 - The `interval(50ms)` fsync default (ARCHITECTURE.md D3), replaced provisionally by `interval(10ms)`.
 - The statement that the frame header is 24 bytes while its fields total 20 (open item O9), settled as 24 bytes with a reserved word.
+
+## Implementation notes (PR6 and PR7)
+
+Recorded from the `thadam-wal` crate documentation and source (commit `0c4cf6f`). The sections above are the S1-based design; where they differ, this section is what the code does. None of it changes the engine choice, and none of it freezes the format.
+
+1. **Readers return frames or a gap.** `WalReader::next` returns `ReadItem::Frames(FrameChunk)` (consecutive frames, with their range) or `ReadItem::Gap(Gap)`. Gaps are always delivered as items, never skipped silently. Readers never commit; the consumer calls `Wal::commit_cursor` after processing a range.
+2. **`Gap::Missing`.** The `Gap` enum (non-exhaustive) has three variants: `Corrupt { range }` (failed validation; nothing after a corrupt frame in the same segment is trusted), `Evicted { range, cursor }` (segments deleted before this reader read them, by `on_full: drop_oldest` or by retention while the consumer was not pinning them), and `Missing { range }`. `Missing` is new relative to the design above: positions that were never durably written (for example after a power loss under `fsync: never`), or that were skipped so a position at or below a durable cursor is never reused.
+3. **Recovery always skips ahead.** The design allowed either starting the next segment at cursor + 1 or refusing the open. The implementation always skips: if any cursor's high-water mark (its committed position, or the end of its in-flight range if higher) is at or beyond the recovered `next_seq`, `next_seq` becomes that mark plus one, the skipped range is returned in `RecoveryReport::skipped`, and readers see it as `Gap::Missing`. The open is not refused for this. A cursor with a different epoch, or a bad cursor file (corruption, unknown version), is still refused.
+4. **Directory layout.** The WAL root is `data_dir/wal` (the `dir` passed to `open`), not the whole data directory. It holds `LOCK` (flock), `wal.json`, the `clean_shutdown` marker, `segments/{base:020}.seg`, and `cursors/<name>.cur`. `wal.json` carries `kind`, the format versions (`wal_format_version`, `frame_format_version`, `cursor_format_version`), the `epoch`, the creation time, and the `node_id` and `machine_id` binding (a later open with a different `node_id` or `machine_id` is refused). **The runtime owns `data_dir/thadam.json`**; the WAL does not read or write it. This replaces the statement under "Recovery and identity" that `thadam.json` carries the epoch, `node_id`, and machine-id binding for the WAL: those live in `wal.json`. The segment file name is `segments/{base:020}.seg`, replacing the provisional `wal/{baseOffset:020}.seg`.
+5. **Cursor commit batching is left to callers.** `Wal::commit_cursor` (and `commit_cursor_blocking`) durably writes the cursor on every call (temporary file, flush, rename, directory flush), and refuses a position past the durable end. The WAL itself does not batch on a `cursor_commit_interval` or on segment finalization as the Cursors section describes; callers batch (the 200 ms guidance stands) because each commit costs two flushes. The cursor file is 44 bytes: magic `RCUR`, format version, a flag for an in-flight range, epoch, committed position, the in-flight first and last positions, and a CRC32C.
+6. **The newest retained segment is never deleted.** Retention deletes whole segments, oldest first, and never the newest one, because the newest segment carries the sequence high-water mark across restarts. (Deleting by `unlink` plus one directory flush needs no free space.)
+7. **A failed write or fsync truncates and stops.** The design offered two ways to avoid trusting the page cache after a failed fsync. The implementation takes the second: no ticket resolves `Ok` after a failed write or `fsync`, the writer truncates whatever was not yet acknowledged, stops (writer state `Failed`), and the WAL must be reopened, which re-verifies it.
+8. **Failpoints are a cargo feature.** `thadam-wal` has a `failpoints` feature (also on under `cfg(test)`) that exposes `thadam_wal::failpoints` to other crates. A `Failpoints` handle is attached to one WAL through `WalOptions::failpoints`, so concurrent tests do not interfere. Switches: fail the next N segment fsyncs, fail the next N writes with a given errno, crash on close (the writer exits with no final write, fsync, seal, or clean-shutdown marker), abort the process after a group is written and before it is flushed (`wal::after_write_before_fsync`), and report the last synced length so a test can truncate to it.
+9. **Format v1 is versioned, not frozen.** See "Implementation status" at the top: the format versions are checked on open, and the provisional items (fsync default, Linux preallocation, segment size, `RawFrame` field numbers) wait for the reference-hardware re-run.
+
+Defaults as implemented in `WalOptions::new(on_full)`: `fsync` `interval(10ms)`, `segment_bytes` 64 MiB, `frame_max_bytes` 4 MiB, `group_max_bytes` 4 MiB, at most 8 MiB and 256 submitted-but-unwritten batches, `retain_for` zero, no preallocation, and no `node_id` or `machine_id`. `on_full` has no default.
 
 ## Alternatives considered
 

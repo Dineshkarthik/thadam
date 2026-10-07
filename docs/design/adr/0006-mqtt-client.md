@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-07
-- **Updated:** 2026-10-07 (spike S2 evidence and recommendations folded in; accepted by the owner with the EMQX 5.8.x pin)
+- **Updated:** 2026-10-07 (spike S2 evidence and recommendations folded in; accepted by the owner with the EMQX 5.8.x pin; amended the same day: TLS is terminated inside `thadam-mqtt`, see "Amendment 2026-10-07: TLS terminated in thadam-mqtt")
 - **Deciders:** Project owner
 
 **Acceptance.** Accepted by project owner on 2026-10-07 (`docs/design/owner-decisions.md`, section "ADR acceptances"): keep `rumqttc` 0.25.1, pinned, behind `thadam-mqtt`, with the wrapper rules below. Spike S2 reported (`docs/design/spikes/S2-mqtt.md`) against Mosquitto 2.1.2 and EMQX 5.8.6. In the same decision the owner settled the EMQX licensing question: CI, tests, and documentation use the last open-source EMQX build, the 5.8.x line, and newer Enterprise-licensed images are not used (see "Broker versions for CI, tests, and documentation"). The QoS 2 scope is accepted as written in this ADR (claims limited to QoS 0 and 1; QoS 2 and MQTT 5 experimental). The S2b follow-up (a run of the S2 harness against the community fork `rumqttc-next`, at most one day, recommended before the pinned-upstream path is relied on long term), the remaining unticked items in "Evidence and validation required", and the PR12 conformance suite are implementation-time verification, not blockers. The decision to keep `rumqttc` stands only while the PR12 conformance suite passes in CI against both brokers.
@@ -37,20 +37,20 @@ All numbers come from recorded runs in `spikes/s2-mqtt/results/` and are summari
 6. **Payload-stripped acks work** (QoS 1 and 2, both brokers, MQTT 3.1.1 and 5). Holding 1000 unacknowledged 64 KiB messages cost 1.9 MiB of resident memory stripped against 79.7 MiB retained. The ack path reads only `qos` and `pkid`.
 7. **Ack order on the wire equals issue order.** In-order issue gave 0 descents in 3000 PUBACKs. Deliberately shuffled acks went out shuffled and both brokers tolerated it, so ordering is entirely the application's job (upstream issue #846).
 8. **Persistent sessions behave as designed, with sharp edges.** After `kill -9`, exactly the 20 unacknowledged in-flight messages were redelivered with DUP and none of the acknowledged ones. `session_present` was reported accurately in all five observed cases. The edges: (a) `rumqttc` does not resubscribe after session loss (0 deliveries until `subscribe` is called again); (b) **acks issued with pre-loss handles acknowledge the wrong messages after session loss**, silently losing all 10 new messages in the E1 test; (c) with the default 10 KiB `max_incoming_packet_size`, a single oversized message makes the codec fail the connection, and with a persistent session the broker redelivers it after every reconnect, giving 116 reconnects in 12 s (Mosquitto) and 114 (EMQX) with the message behind it never delivered; (d) when a broker queue limit is exceeded, the loss is silent to the publisher (Mosquitto drops the newest, EMQX the oldest); and (e) EMQX in its default configuration loses persistent sessions on a broker restart (`session_present` was false), while Mosquitto with persistence on kept them.
-9. **TLS dependency check.** Default `rumqttc` features resolve `aws-lc-rs`. With the feature set below, `cargo tree -i` for `aws-lc-sys`, `aws-lc-rs`, `openssl-sys`, and `native-tls` all report no match, and `ring` 0.17.14 is present, which satisfies the ADR-0020 and `deny.toml` bans. A real TLS or mTLS handshake was not exercised.
+9. **TLS dependency check.** Default `rumqttc` features resolve `aws-lc-rs`. With the S2 feature set (`use-rustls-no-provider`, since replaced by the no-feature build of the 2026-10-07 amendment), `cargo tree -i` for `aws-lc-sys`, `aws-lc-rs`, `openssl-sys`, and `native-tls` all report no match, and `ring` 0.17.14 is present, which satisfies the ADR-0020 and `deny.toml` bans. A real TLS or mTLS handshake was not exercised.
 
 ## Decision
 
 ### Library and feature set
 
-**Keep `rumqttc` 0.25.1 for the MVP MQTT source, pinned (`=0.25.1`), behind `thadam-mqtt`, with no `rumqttc` type in any public API.** The pinned feature set, from the S2 spike:
+**Keep `rumqttc` 0.25.1 for the MVP MQTT source, pinned (`=0.25.1`), behind `thadam-mqtt`, with no `rumqttc` type in any public API.** The pinned feature set, as amended on 2026-10-07 (see "Amendment 2026-10-07: TLS terminated in thadam-mqtt"):
 
 ```toml
-rumqttc = { version = "=0.25.1", default-features = false, features = ["use-rustls-no-provider"] }
+rumqttc = { version = "=0.25.1", default-features = false }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 ```
 
-`use-rustls-no-provider` was added in 0.25.1 for exactly this purpose. Do not fork now. The library does what the design needs (ordered manual acks, `Bytes` payloads, stripped acks, accurate `session_present`, working keepalive when polled), the ceiling is predictable, and every failure mode found has a wrapper-level mitigation except oversize skipping. Maintenance risk is real, but the 3.1.1 surface (about 5,800 lines, no `unsafe`, a small dependency set) is small enough to own. A fork or switch is gated on the explicit triggers below.
+`rumqttc` is built with no features. The S2 spike used `features = ["use-rustls-no-provider"]` (added in 0.25.1 to keep `aws-lc-rs` out); that feature, like every other `rumqttc` TLS feature, pins a vulnerable `rustls-webpki`, so TLS is terminated in `thadam-mqtt` with `tokio-rustls` instead. Do not fork now. The library does what the design needs (ordered manual acks, `Bytes` payloads, stripped acks, accurate `session_present`, working keepalive when polled), the ceiling is predictable, and every failure mode found has a wrapper-level mitigation except oversize skipping. Maintenance risk is real, but the 3.1.1 surface (about 5,800 lines, no `unsafe`, a small dependency set) is small enough to own. A fork or switch is gated on the explicit triggers below.
 
 **The community fork `rumqttc-next` is a noted alternative, not adopted.** It is young (created February to March 2026) and the S2 harness was not run against it. S2b (a run of the harness against `rumqttc-v4-next` 0.34, at most one day, with adapter code because the API differs) should happen before committing to the pinned-upstream path long term, and it feeds exit trigger 5.
 
@@ -132,7 +132,7 @@ Owner decision, 2026-10-07: Thadam pins the last open-source EMQX build, the **5
 
 ### Security
 
-TLS uses rustls with the `ring` provider (ADR-0020), with the feature set above. A real TLS and mTLS handshake against both brokers is still to be run (evidence below). No retained messages in the demo, because retained messages replay on every resubscribe and create duplicates.
+TLS uses rustls with the `ring` provider (ADR-0020). Since the 2026-10-07 amendment it is terminated by an in-process relay inside `thadam-mqtt`, not by `rumqttc` (see the amendment below). A Docker-gated TLS and mTLS test exists in the `thadam-mqtt` suite (`docker_e2e`, `tls_and_mtls`); a recorded run against both brokers is still to be confirmed (evidence below). No retained messages in the demo, because retained messages replay on every resubscribe and create duplicates.
 
 ### Exit criteria and fallback order
 
@@ -142,7 +142,7 @@ TLS uses rustls with the `ring` provider (ADR-0020), with the feature set above.
 
 1. Thadam needs to skip or quarantine an oversized packet instead of failing the connection (this requires a codec patch).
 2. A reproducible ack or loss correctness defect appears that the wrapper cannot work around.
-3. A security advisory in `rumqttc`'s dependency closure stays unfixed upstream for more than 30 days.
+3. A security advisory in `rumqttc`'s dependency closure stays unfixed upstream for more than 30 days. **Met on 2026-10-07** by the `rustls-webpki` advisories on every TLS feature; the owner resolved it with the in-process TLS relay, not a fork (see "Amendment 2026-10-07: TLS terminated in thadam-mqtt").
 4. A required dependency bump breaks the conformance suite and upstream does not respond.
 5. No upstream release for 12 months **and** S2b shows a maintained alternative passes the harness. The latest release is 0.25.1 from 2025-11-21 (confirmed in S2), so the 12-month point is 2026-11-21. (The earlier draft treated 12 months without a release as a trigger on its own; S2 changes that to require a passing alternative, so the project does not move on a calendar date alone.)
 
@@ -161,6 +161,58 @@ Fallback order:
 - Push-style `Source::run` with an `Emitter` (replaced in ADR-0002).
 - Queue capacity equal to the configured inflight value for MQTT 3.1.1, and a blocking bounded queue in the poll task (replaced by wrapper rules 2 and 3).
 - An in-client counted drop for oversized MQTT messages (replaced by rule 6).
+
+## Amendment 2026-10-07: TLS terminated in thadam-mqtt
+
+Owner decision, 2026-10-07, made while implementing PR12. The ADR stays Accepted; this amendment replaces the TLS part of the pinned feature set.
+
+**Finding.** Every TLS feature of `rumqttc` 0.25.1, `use-rustls-no-provider` included, has a hard dependency on `rustls-webpki` 0.102.8 (the range `^0.102.8`). That release carries four RustSec advisories (RUSTSEC-2026-0049, -0098, -0099, and -0104), and the range cannot reach the patched 0.103.x line, so there is no fix available through `rumqttc` 0.25.1. This meets exit trigger 3 ("a security advisory in `rumqttc`'s dependency closure stays unfixed upstream"). S2 evidence item 9 had checked only that `aws-lc-*`, `openssl-sys`, and `native-tls` were absent.
+
+**Decision.** Keep `rumqttc` `=0.25.1` with `default-features = false` and no features, and terminate TLS inside `thadam-mqtt` (`crates/thadam-mqtt/src/tls.rs`). The decision to keep `rumqttc` is unchanged; exit trigger 3 is resolved by this mitigation and not by a fork or a switch.
+
+**Design, as implemented.**
+
+- **In-process relay.** For an `mqtts://` URL the connector starts a relay that listens on a private Unix socket in a `0700` temporary directory only this process can enter. `rumqttc` speaks plain MQTT to that socket. The relay dials the broker over TCP and runs the TLS handshake with `tokio-rustls` and the `ring` provider (TLS 1.3 and 1.2; no `aws-lc-rs`, no OpenSSL, so ADR-0020 and `deny.toml` still hold), then copies bytes in both directions. Dropping the relay stops it and removes the socket.
+- **Verification.** The server certificate chain is checked against `tls.ca` when given (it replaces the platform roots) and against the platform trust roots otherwise. The hostname check uses the host from the broker URL. `tls.cert` plus `tls.key` give mutual TLS; the pair must be configured together.
+- **Errors are the real ones.** `rumqttc` only sees the socket close, so the relay records why a dial failed (a network error or a TLS error, with the underlying message) and the poll task reports that, not a bare "connection closed". The relay's dial budget is 80% of `connect_timeout`, so the reason is recorded before the client gives up.
+- **Unchanged.** `rumqttc` types stay private to `thadam-mqtt`, and the wrapper rules and acknowledgement design above are unaffected: the relay is below the client library.
+
+**Alternatives considered for this problem.** Neither was chosen by the owner.
+
+- **A vendored, patched copy of `rumqttc` through a `[patch]` entry** that moves its TLS dependencies onto the patched `rustls-webpki`. Thadam would then carry a modified copy of the client (the 3.1.1 path is about 5,800 lines, see "Own maintained fork of `rumqttc`" below).
+- **`rumqttc-next`** (the community fork). It was not evaluated against this problem: the S2b run of the harness against it is still open, and its TLS dependency closure was not examined for this amendment.
+
+**Costs the owner accepted.** Thadam now owns the TLS termination code and its failure reporting, and there is one extra local hop (a Unix socket copy) between the client library and the broker.
+
+**Revisit trigger.** A `rumqttc` release whose TLS features depend on a patched `rustls-webpki` (0.103.x or later). At that point, reconsider dropping the relay in favor of the library's own TLS support, which would also remove the extra hop; until then the relay stays. This is in addition to the existing "Revisit when" list.
+
+## Implemented configuration (PR12)
+
+The `config:` block of an MQTT source, as implemented in `thadam-mqtt` (`MqttConfig`, with `deny_unknown_fields`; unknown keys are rejected). `thadam_mqtt::config_schema()` exports the JSON Schema for the block.
+
+| Key | Default | Notes |
+|---|---|---|
+| `url` (required) | none | `mqtt://host[:1883]` or `mqtts://host[:8883]`. IPv6 hosts in brackets. No credentials, path, or query in the URL |
+| `client_id` (required) | none | Stable, non-empty, at most 256 bytes, no control characters. Names the persistent session |
+| `topics` (required) | none | At least one `{filter, qos}`. `qos` is 0, 1, or 2 and defaults to 1. Filters follow the MQTT topic filter rules; `$share` is rejected; duplicate filters are rejected |
+| `clean_start` | `false` | `true` is rejected with `ack_mode: on_commit` (a clean session redelivers nothing after a crash) |
+| `session_expiry` | none | MQTT 5 only |
+| `keep_alive` | `30s` | Whole seconds, 1 to 65535 for `v311`, at least 5 for `v5` |
+| `connect_timeout` | `10s` | Whole seconds, at least 1. Per attempt; also bounds each network flush (rule 8) |
+| `open_timeout` | `30s` | Whole seconds, at least 1. How long `open` waits for the first connection and subscription |
+| `receive_maximum` | none | MQTT 5 only, 1 to 65535. Can only lower the broker's window |
+| `tls` | none | `{ca, cert, key}`, PEM file paths. Only valid with `mqtts://`; `cert` and `key` go together; `ca` absent means the platform trust roots |
+| `username` | none | |
+| `password_file` | none | A file holding the password, so the secret stays out of the config. Needs `username` |
+| `ack_mode` | `on_commit` | `on_commit` or `on_receive` |
+| `expected_broker_window` | `100` | 1 to 65535. Memory estimate and unacknowledged-message guard only (rule 3) |
+| `unacked_guard_multiple` | `4` | At least 2. The guard disconnects when unacknowledged messages exceed `expected_broker_window` times this (rule 2) |
+| `qos0_queue_bytes` | 8 MiB | Byte budget of queued QoS 0 messages; the newest is dropped and counted beyond it. At least `max_message_bytes` |
+| `max_message_bytes` | 1 MiB | Largest accepted payload; `max_incoming_packet_size` is derived from it plus the worst-case packet overhead (rule 6). The MQTT default is 1 MiB, not the 8 MiB WAL-wide default in ADR-0004 |
+| `protocol` | `v311` | `v5` is experimental and needs the `v5` cargo feature of `thadam-mqtt` |
+| `request_channel_capacity` | `1024` | Capacity of the client's request channel; at least 16 |
+
+Durations are whole seconds (`30`) or a number with a unit (`500ms`, `30s`, `5m`, `1h`). Every message carries the attributes `mqtt.topic`, `mqtt.qos`, `mqtt.retain`, and `mqtt.dup`; the first message after a gap also carries `mqtt.gap` (`session_lost`, `queue_full`, `oversize`, comma-joined) and, when messages were dropped, `mqtt.gap_dropped`.
 
 ## Alternatives considered
 
@@ -195,6 +247,7 @@ Fallback order:
 - Oversized messages cannot be skipped; they must be prevented by aligning the client and broker size limits.
 - QoS 0 sources cannot be slowed; the only options are a counted drop or an overflow, and the contract chooses the counted drop.
 - Thadam may have to maintain a fork of `rumqttc`.
+- Thadam owns the TLS termination (the in-process relay, 2026-10-07 amendment) and the reporting of its failures, because `rumqttc`'s own TLS features cannot be used.
 - The conformance suite must stall the consumer for three times the keepalive interval, drop `next_batch` futures at random points, and run the stale-ack scenario.
 
 **Fixed**
@@ -222,7 +275,7 @@ Against Mosquitto 2.x and EMQX 5.x.
 - [ ] **QoS 0 overflow accounting.** At twice capacity, sent equals received plus dropped (not run in S2; PR12).
 - [x] **Broker-side session behavior** observed (`session_present` accurate; EMQX default loses sessions on restart). [ ] **Thadam's session-lost handling:** the `SESSION_LOST` warning, metric, gap marker, epoch bump, and resubscribe, tested by restarting the broker without persistence (PR12).
 - [x] **Crash safety, harness level.** `kill -9` with 20 unacknowledged QoS 1 messages: exactly those 20 redelivered with DUP, 0 missing, on both brokers. [ ] PR12 acceptance on the real connector: no loss within broker queue limits after restart, duplicates counted.
-- [x] **TLS dependency check** (no `aws-lc-*`, `openssl-sys`, or `native-tls`; `ring` present). [ ] **TLS and mTLS handshake** with rustls and the `ring` provider against both brokers.
+- [x] **TLS dependency check** (no `aws-lc-*`, `openssl-sys`, or `native-tls`; `ring` present). It was done on the S2 feature set; the 2026-10-07 amendment builds `rumqttc` with no TLS feature and the same bans apply to `thadam-mqtt`'s own `tokio-rustls` with `ring`. [ ] **TLS and mTLS handshake** with rustls and the `ring` provider against both brokers, through the relay. The test exists (`docker_e2e`, `tls_and_mtls`, Docker-gated); a recorded run is still to be confirmed.
 - [x] **MQTT 5 module maturity** assessed: experimental in the MVP (see Protocol version).
 - [x] **3.1.1 window mismatch** tested: the broker window governed, and a queue below it disconnected and deadlocked the client (rules 2 and 3).
 - [x] **Fork-readiness review** done (S2 section 7): 5.8k lines, no `unsafe`, thin tests, the defects found are avoidable in a wrapper except oversize skipping.
@@ -237,6 +290,7 @@ Against Mosquitto 2.x and EMQX 5.x.
 - Demand for MQTT 5 features appears, or the v5 module gains integration tests and the conformance suite passes on it.
 - A single connection cannot reach the target throughput with realistic producer batching.
 - The broker landscape changes default inflight windows, or the EMQX 5.8.x line stops receiving security fixes or its licence terms change (the owner pinned 5.8.x on 2026-10-07).
+- A `rumqttc` release whose TLS features depend on a patched `rustls-webpki` appears (reconsider dropping the TLS relay; 2026-10-07 amendment).
 
 ## References
 
