@@ -12,3 +12,12 @@ final-status-level = "fail"
 
 [profile.ci.junit]
 path = "junit.xml"
+
+[test-groups]
+wal-crash-loop = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = "package(thadam-wal) & test(kill_dash_nine_crash_loop)"
+test-group = "wal-crash-loop"
+threads-required = 2
+slow-timeout = { period = "60s", terminate-after = 5 }

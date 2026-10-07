@@ -6,9 +6,17 @@
 //! appends frames whose every byte derives from `(run, k)`. It prints
 //! `@@ACK <seq>` only after the ticket resolved, and `@@CUR <seq>` after a
 //! durable cursor commit (followed by a retention pass that deletes segments).
-//! The parent SIGKILLs it after a random delay (10% of delays land in the
-//! first 5 ms, during startup and recovery), reopens the WAL in-process, and
-//! checks:
+//! The parent SIGKILLs it after a random delay, reopens the WAL in-process,
+//! and checks. Delays are anchored to child readiness, never to spawn time,
+//! so load cannot turn every kill into a startup kill:
+//!
+//! - 10% of iterations kill within 5 ms of spawn (during startup and
+//!   recovery) and need no signal;
+//! - 80% wait for the child's first `@@ACK`, then sleep 5..250 ms;
+//! - 10% wait for `@@OPEN` only, then sleep 5..250 ms (kill may land before
+//!   the first ack).
+//!
+//! Waiting is bounded by `READY_TIMEOUT`. Checks:
 //!
 //! - every retained frame is contiguous and byte-exact for the run that wrote
 //!   that position (stale or resurrected frames are detected);
@@ -167,6 +175,42 @@ fn crash_child() {
     });
 }
 
+/// Generous upper bound for a child to open the WAL and acknowledge a frame.
+/// It only bounds a hung child; under load the kill waits for the signal
+/// instead of racing a fixed wall-clock delay against process startup.
+const READY_TIMEOUT: Duration = Duration::from_secs(120);
+
+#[derive(Debug, PartialEq, Eq)]
+enum Wait {
+    Seen,
+    /// The child's stdout closed first (it exited); the stderr check reports why.
+    Closed,
+    TimedOut,
+}
+
+/// Collects child output into `lines` until one contains `needle`.
+fn wait_for_line(
+    rx: &mpsc::Receiver<String>,
+    lines: &mut Vec<String>,
+    deadline: Instant,
+    needle: &str,
+) -> Wait {
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(left) {
+            Ok(line) => {
+                let hit = line.contains(needle);
+                lines.push(line);
+                if hit {
+                    return Wait::Seen;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => return Wait::TimedOut,
+            Err(mpsc::RecvTimeoutError::Disconnected) => return Wait::Closed,
+        }
+    }
+}
+
 #[derive(Default)]
 struct Tally {
     acks: u64,
@@ -219,16 +263,35 @@ fn kill_dash_nine_crash_loop() {
                 }
             }
         });
-        let delay = if rng.chance(10) {
+        let early = rng.chance(10);
+        let delay = if early {
             t.early_kills += 1;
             rng.below(5)
         } else {
             rng.between(5, 250)
         };
-        std::thread::sleep(Duration::from_millis(delay));
+        let gate_on_ack = !early && !rng.chance(20);
+        let mut lines: Vec<String> = Vec::new();
+        if early {
+            std::thread::sleep(Duration::from_millis(delay));
+        } else {
+            let deadline = Instant::now() + READY_TIMEOUT;
+            let mut ready = wait_for_line(&rx, &mut lines, deadline, "@@OPEN");
+            if ready == Wait::Seen && gate_on_ack {
+                ready = wait_for_line(&rx, &mut lines, deadline, "@@ACK");
+            }
+            if ready == Wait::TimedOut {
+                failures.push(format!(
+                    "iter {i}: child not ready within {READY_TIMEOUT:?} \
+                     (gate_on_ack: {gate_on_ack})"
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(delay));
+        }
         let _ = child.kill();
         let status = child.wait().unwrap();
         reader.join().unwrap();
+        lines.extend(rx.try_iter());
         let mut stderr = String::new();
         child
             .stderr
@@ -237,7 +300,7 @@ fn kill_dash_nine_crash_loop() {
             .read_to_string(&mut stderr)
             .unwrap();
 
-        for line in rx.try_iter() {
+        for line in &lines {
             let Some(at) = line.find("@@") else { continue };
             let mut it = line[at + 2..].split_whitespace();
             let (Some(kind), Some(v)) = (it.next(), it.next().and_then(|v| v.parse::<u64>().ok()))
