@@ -1,0 +1,490 @@
+//! The segment-sink driver.
+
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use thadam_core::{
+    ErrorDomain, Event, EventBatch, Retry, ThadamError, SegmentSink, Shutdown, SinkContext, Sym,
+    Timestamp, WalPos, WalRange, codes,
+};
+use thadam_wal::{CursorState, Wal};
+use tokio::sync::{oneshot, watch};
+
+use crate::backoff::Backoff;
+use crate::chain::wal_error;
+use crate::failpoints::{self, Failpoints};
+use crate::lane::{ChainBatch, LaneReceiver, Rewind};
+use crate::metrics::MetricEvent;
+use crate::options::BackoffPolicy;
+use crate::quarantine::{Quarantine, Rejected};
+use crate::status::{Component, PipelineHandle, add};
+
+pub(crate) struct DriverOpts {
+    pub poll_interval: Duration,
+    pub commit_interval: Duration,
+    pub retry: BackoffPolicy,
+    pub failpoints: Failpoints,
+}
+
+pub(crate) fn simulated_crash(point: &str) -> ThadamError {
+    ThadamError::fatal(
+        ErrorDomain::Sink,
+        codes::SINK_IO,
+        format!("simulated crash at failpoint {point}"),
+    )
+}
+
+/// What the driver needs to know about each event after the batch moved into
+/// the sink, to quarantine sink rejects.
+pub(crate) struct EventMeta {
+    pub pos: WalPos,
+    pub ingest: Timestamp,
+    pub dataset: Sym,
+}
+
+/// Concatenates a chain batch's per-dataset events in declaration order.
+pub(crate) fn merge(batch: &mut ChainBatch) -> (Vec<Event>, Vec<EventMeta>) {
+    let n = batch.datasets.iter().map(|d| d.batch.len()).sum();
+    let mut events = Vec::with_capacity(n);
+    let mut meta = Vec::with_capacity(n);
+    for d in &mut batch.datasets {
+        for e in d.batch.events.drain(..) {
+            meta.push(EventMeta {
+                pos: e.wal_pos(),
+                ingest: e.times().ingest(),
+                dataset: d.dataset.clone(),
+            });
+            events.push(e);
+        }
+    }
+    (events, meta)
+}
+
+/// Sleeps for the next backoff delay; `false` if `stop` triggered first.
+pub(crate) async fn pause(backoff: &mut Backoff, stop: &Shutdown) -> bool {
+    tokio::select! {
+        () = tokio::time::sleep(backoff.next_delay()) => true,
+        () = stop.triggered() => false,
+    }
+}
+
+/// Awaits `$op` (re-evaluated per attempt) until it succeeds, retrying
+/// transient errors with backoff and marking `$component` degraded meanwhile.
+/// Yields `Ok(None)` if `$stop` triggered. A macro rather than a function
+/// taking an async closure, which would not be `Send`.
+macro_rules! retry_transient {
+    ($component:expr, $policy:expr, $stop:expr, $what:expr, $op:expr) => {{
+        let mut backoff = $crate::backoff::Backoff::new($policy);
+        loop {
+            match $op.await {
+                Ok(v) => break Ok(Some(v)),
+                Err(e) if e.retry == thadam_core::Retry::Transient => {
+                    tracing::warn!(component = %$component.id, error = %e, "{} failed; retrying", $what);
+                    $component.degraded(&e);
+                    if !$crate::segment::pause(&mut backoff, $stop).await {
+                        break Ok(None);
+                    }
+                }
+                Err(e) => break Err(e),
+            }
+        }
+    }};
+}
+pub(crate) use retry_transient;
+
+pub(crate) struct SegmentDriver {
+    pub sink_id: String,
+    pub cursor: String,
+    pub component: Arc<Component>,
+    pub sink: Box<dyn SegmentSink>,
+    pub ctx: SinkContext,
+    pub quarantine: Option<Quarantine>,
+    pub wal: Wal,
+    pub handle: PipelineHandle,
+    pub rx: LaneReceiver,
+    pub rewind: watch::Sender<Rewind>,
+    pub start: Option<oneshot::Sender<u64>>,
+    pub opts: DriverOpts,
+    /// Ends startup retries once shutdown begins.
+    pub stopping: Shutdown,
+    /// Ends other retries (forced shutdown only).
+    pub force: Shutdown,
+    committed: u64,
+    watermark: u64,
+    seen_through: u64,
+    skip_through: u64,
+    generation: u64,
+    last_commit: Instant,
+}
+
+impl SegmentDriver {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        sink_id: String,
+        cursor: String,
+        component: Arc<Component>,
+        sink: Box<dyn SegmentSink>,
+        ctx: SinkContext,
+        quarantine: Option<Quarantine>,
+        wal: Wal,
+        handle: PipelineHandle,
+        rx: LaneReceiver,
+        rewind: watch::Sender<Rewind>,
+        start: oneshot::Sender<u64>,
+        opts: DriverOpts,
+        stopping: Shutdown,
+        force: Shutdown,
+    ) -> Self {
+        SegmentDriver {
+            sink_id,
+            cursor,
+            component,
+            sink,
+            ctx,
+            quarantine,
+            wal,
+            handle,
+            rx,
+            rewind,
+            start: Some(start),
+            opts,
+            stopping,
+            force,
+            committed: 0,
+            watermark: 0,
+            seen_through: 0,
+            skip_through: 0,
+            generation: 0,
+            last_commit: Instant::now(),
+        }
+    }
+
+    async fn recover_sink(&mut self) -> Result<Option<u64>, ThadamError> {
+        let (sink, ctx) = (&mut self.sink, &self.ctx);
+        let stop = if self.start.is_some() {
+            &self.stopping
+        } else {
+            &self.force
+        };
+        let r: Result<Option<_>, ThadamError> = retry_transient!(
+            self.component,
+            self.opts.retry,
+            stop,
+            "recover",
+            sink.recover(ctx)
+        );
+        let r = r?;
+        Ok(r.map(|m| m.map_or(0, WalPos::get)))
+    }
+
+    /// Startup recovery (ARCHITECTURE.md section 11, step 4).
+    async fn recover(&mut self) -> Result<bool, ThadamError> {
+        let Some(m) = self.recover_sink().await? else {
+            return Ok(false);
+        };
+        let mut q = 0;
+        if let Some(quar) = &mut self.quarantine {
+            let r: Result<Option<u64>, ThadamError> = retry_transient!(
+                self.component,
+                self.opts.retry,
+                &self.stopping,
+                "quarantine recover",
+                quar.recover()
+            );
+            let r = r?;
+            match r {
+                Some(v) => q = v,
+                None => return Ok(false),
+            }
+        }
+        let c0 = self
+            .wal
+            .cursor(&self.cursor)
+            .map_or(0, |c| c.committed.get());
+        let durable = self.wal.durable_end().map_or(0, WalPos::get);
+        let m = if m > durable {
+            tracing::warn!(sink = %self.sink_id, recovered = m, durable, "sink is ahead of the durable wal end");
+            durable
+        } else {
+            m
+        };
+        self.committed = c0;
+        self.watermark = m.max(c0);
+        self.seen_through = c0;
+        if m > c0 {
+            if self.quarantine.is_none() || q >= m {
+                self.commit_to(m).await?;
+                self.seen_through = m;
+            } else {
+                self.skip_through = m;
+            }
+        } else if m < c0 {
+            tracing::warn!(sink = %self.sink_id, recovered = m, cursor = c0, "sink recovered behind its cursor");
+        }
+        self.handle.set_cursor(
+            &self.sink_id,
+            &self.cursor,
+            CursorState::at(WalPos::new(self.committed)),
+        );
+        if self.committed > 0 {
+            self.sink.cursor_committed(WalPos::new(self.committed));
+            if let Some(q) = &mut self.quarantine {
+                q.cursor_committed(self.committed);
+            }
+        }
+        tracing::info!(
+            sink = %self.sink_id, cursor = self.committed, recovered = m,
+            skip_through = self.skip_through, "segment sink recovered"
+        );
+        if let Some(start) = self.start.take() {
+            let _ = start.send(self.committed);
+        }
+        Ok(true)
+    }
+
+    async fn commit_to(&mut self, target: u64) -> Result<(), ThadamError> {
+        if self
+            .opts
+            .failpoints
+            .hit(failpoints::SEGMENT_BEFORE_CURSOR_COMMIT)
+        {
+            return Err(simulated_crash(failpoints::SEGMENT_BEFORE_CURSOR_COMMIT));
+        }
+        let state = CursorState::at(WalPos::new(target));
+        self.wal
+            .commit_cursor(&self.cursor, state)
+            .await
+            .map_err(|e| wal_error(&e))?;
+        self.committed = target;
+        self.last_commit = Instant::now();
+        self.handle.set_cursor(&self.sink_id, &self.cursor, state);
+        self.component
+            .metrics()
+            .record(MetricEvent::CursorCommitted {
+                sink: &self.sink_id,
+                pos: WalPos::new(target),
+            });
+        if self
+            .opts
+            .failpoints
+            .hit(failpoints::SEGMENT_BEFORE_CURSOR_COMMITTED)
+        {
+            return Err(simulated_crash(failpoints::SEGMENT_BEFORE_CURSOR_COMMITTED));
+        }
+        self.sink.cursor_committed(WalPos::new(target));
+        if let Some(q) = &mut self.quarantine {
+            q.cursor_committed(target);
+        }
+        Ok(())
+    }
+
+    async fn maybe_commit(&mut self, force: bool) -> Result<(), ThadamError> {
+        let mut target = self.watermark.min(self.seen_through);
+        if let Some(floor) = self.quarantine.as_ref().and_then(Quarantine::floor) {
+            target = target.min(floor);
+        }
+        if target <= self.committed {
+            return Ok(());
+        }
+        if !force && self.last_commit.elapsed() < self.opts.commit_interval {
+            return Ok(());
+        }
+        match self.commit_to(target).await {
+            Err(e) if e.retry == Retry::Transient => {
+                self.component.degraded(&e);
+                Ok(())
+            }
+            other => other,
+        }
+    }
+
+    fn note_watermark(&mut self, wm: Option<WalPos>) {
+        if let Some(w) = wm {
+            self.watermark = self.watermark.max(w.get());
+        }
+    }
+
+    async fn on_tick(&mut self) -> Result<(), ThadamError> {
+        match self.sink.poll_commit().await {
+            Ok(wm) => self.note_watermark(wm),
+            Err(e) if e.retry == Retry::Transient => self.component.degraded(&e),
+            Err(e) => return Err(e),
+        }
+        if let Some(q) = &mut self.quarantine {
+            match q.poll().await {
+                Ok(()) => {}
+                Err(e) if e.retry == Retry::Transient => self.component.degraded(&e),
+                Err(e) => return Err(e),
+            }
+        }
+        self.maybe_commit(false).await
+    }
+
+    /// The sink lost an append: reset it to its durable state and have the
+    /// chain re-read everything after the cursor.
+    async fn rewind_after(&mut self, e: &ThadamError) -> Result<bool, ThadamError> {
+        tracing::warn!(sink = %self.sink_id, error = %e, "append failed; recovering the sink");
+        self.component.degraded(e);
+        let mut backoff = Backoff::new(self.opts.retry);
+        if !pause(&mut backoff, &self.force).await {
+            return Ok(false);
+        }
+        let Some(m) = self.recover_sink().await? else {
+            return Ok(false);
+        };
+        self.skip_through = self.skip_through.max(m);
+        self.watermark = self.watermark.max(m);
+        self.seen_through = self.committed;
+        self.generation += 1;
+        let _ = self.rewind.send(Rewind {
+            generation: self.generation,
+            from: self.committed + 1,
+        });
+        Ok(true)
+    }
+
+    async fn on_batch(&mut self, mut batch: ChainBatch) -> Result<bool, ThadamError> {
+        let origin = batch.origin;
+        let synced = batch.clock_synced;
+        let (mut events, mut meta) = merge(&mut batch);
+        let rejects = std::mem::take(&mut batch.rejects);
+        add(&self.component.counters.batches, 1);
+
+        let mut sink_rejects = Vec::new();
+        let skip = self.skip_through;
+        let main = if origin.first().get() <= skip {
+            if origin.last().get() <= skip {
+                None
+            } else {
+                let keep = events
+                    .iter()
+                    .position(|e| e.wal_pos().get() > skip)
+                    .unwrap_or(events.len());
+                events.drain(..keep);
+                meta.drain(..keep);
+                WalRange::new(origin.epoch(), WalPos::new(skip + 1), origin.last()).ok()
+            }
+        } else {
+            Some(origin)
+        };
+        if let Some(range) = main {
+            let n = events.len() as u64;
+            match self
+                .sink
+                .append(EventBatch::new(events, range, synced))
+                .await
+            {
+                Ok(r) => {
+                    add(&self.component.counters.events, n);
+                    sink_rejects = r;
+                }
+                Err(e) if e.retry == Retry::Transient => return self.rewind_after(&e).await,
+                Err(e) => return Err(e),
+            }
+        }
+        self.seen_through = self.seen_through.max(origin.last().get());
+
+        let mut rejected: Vec<Rejected> = rejects
+            .into_iter()
+            .map(|r| Rejected::Raw(Box::new(r)))
+            .collect();
+        for r in sink_rejects {
+            if let Some(m) = meta.get(r.index as usize) {
+                self.component.metrics().record(MetricEvent::Rejected {
+                    sink: &self.sink_id,
+                    domain: r.error.domain.as_str(),
+                    count: 1,
+                });
+                rejected.push(Rejected::Event {
+                    epoch: origin.epoch(),
+                    pos: m.pos,
+                    ingest: m.ingest,
+                    dataset: Some(m.dataset.clone()),
+                    error: r.error,
+                });
+            }
+        }
+        if !rejected.is_empty() {
+            add(&self.component.counters.rejects, rejected.len() as u64);
+            match &mut self.quarantine {
+                Some(q) => match q.push(origin, synced, rejected).await {
+                    Ok(()) => {}
+                    // The rejects were consumed; re-reading from the cursor
+                    // restores them (quarantine skips what it already holds).
+                    Err(e) if e.retry == Retry::Transient => return self.rewind_after(&e).await,
+                    Err(e) => return Err(e),
+                },
+                None => self
+                    .component
+                    .metrics()
+                    .record(MetricEvent::RejectsDropped {
+                        sink: &self.sink_id,
+                        count: rejected.len(),
+                    }),
+            }
+        }
+        Ok(true)
+    }
+
+    async fn finish(&mut self) -> Result<(), ThadamError> {
+        self.component.draining();
+        let sink = &mut self.sink;
+        let wm: Result<Option<_>, ThadamError> = retry_transient!(
+            self.component,
+            self.opts.retry,
+            &self.force,
+            "finalize",
+            sink.finalize_all()
+        );
+        let wm = wm?;
+        if let Some(wm) = wm {
+            self.note_watermark(wm);
+        }
+        if let Some(q) = &mut self.quarantine {
+            let r: Result<Option<()>, ThadamError> = retry_transient!(
+                self.component,
+                self.opts.retry,
+                &self.force,
+                "quarantine finalize",
+                q.finalize()
+            );
+            r?;
+        }
+        self.maybe_commit(true).await?;
+        tracing::info!(sink = %self.sink_id, cursor = self.committed, "segment sink finalized");
+        Ok(())
+    }
+
+    pub async fn run(mut self) -> Result<(), ThadamError> {
+        if !self.recover().await? {
+            self.component.stopped();
+            return Ok(());
+        }
+        self.component.running();
+        let mut tick = tokio::time::interval(self.opts.poll_interval);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                msg = self.rx.recv() => {
+                    let Some(env) = msg else { break };
+                    if env.item.generation != self.generation {
+                        continue;
+                    }
+                    let mut env = env;
+                    let ok = self.on_batch(env.take()).await?;
+                    drop(env);
+                    if !ok {
+                        break;
+                    }
+                    if matches!(self.component.state(), crate::ComponentState::Degraded { .. }) {
+                        self.component.running();
+                    }
+                }
+                _ = tick.tick() => self.on_tick().await?,
+            }
+        }
+        self.finish().await?;
+        self.component.stopped();
+        Ok(())
+    }
+}

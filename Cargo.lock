@@ -1380,6 +1380,7 @@ dependencies = [
  "humantime",
  "insta",
  "proptest",
+ "thadam-arrow",
  "thadam-core",
  "schemars",
  "serde",
@@ -1437,6 +1438,21 @@ version = "0.0.0"
 [[package]]
 name = "thadam-runtime"
 version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "thadam-config",
+ "thadam-core",
+ "thadam-testkit",
+ "thadam-transform",
+ "thadam-wal",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "thadam-segments"
