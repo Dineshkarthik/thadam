@@ -1,0 +1,17 @@
+# nextest has no profile-level setting for "zero tests is not an error";
+# the empty workspace needs `--no-tests=pass` (or NEXTEST_NO_TESTS=pass) on the
+# command line. CI passes it explicitly; remove it once the first test lands.
+nextest-version = "0.9.85"
+
+[profile.default]
+fail-fast = true
+status-level = "pass"
+final-status-level = "slow"
+
+[profile.ci]
+fail-fast = false
+status-level = "retry"
+final-status-level = "fail"
+
+[profile.ci.junit]
+path = "junit.xml"

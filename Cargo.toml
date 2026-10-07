@@ -1,0 +1,42 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/thadam-core",
+    "crates/thadam-config",
+    "crates/thadam-wal",
+    "crates/thadam-transform",
+    "crates/thadam-runtime",
+    "crates/thadam-arrow",
+    "crates/thadam-segments",
+    "crates/thadam-object-store",
+    "crates/thadam-mqtt",
+    "crates/thadam-testkit",
+    "apps/thadam-cli",
+]
+# Spikes are standalone projects with their own [workspace] table.
+exclude = ["spikes"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+debug = "line-tables-only"
+# Task-boundary panic isolation (a panicking chain task is caught, its frame
+# quarantined) only works with unwinding.
+panic = "unwind"

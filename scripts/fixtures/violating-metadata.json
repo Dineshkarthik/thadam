@@ -1,0 +1,75 @@
+{
+  "packages": [
+    {"id": "thadam-core", "name": "thadam-core"},
+    {"id": "thadam-config", "name": "thadam-config"},
+    {"id": "thadam-wal", "name": "thadam-wal"},
+    {"id": "thadam-transform", "name": "thadam-transform"},
+    {"id": "thadam-runtime", "name": "thadam-runtime"},
+    {"id": "thadam-arrow", "name": "thadam-arrow"},
+    {"id": "thadam-segments", "name": "thadam-segments"},
+    {"id": "thadam-object-store", "name": "thadam-object-store"},
+    {"id": "thadam-mqtt", "name": "thadam-mqtt"},
+    {"id": "thadam-testkit", "name": "thadam-testkit"},
+    {"id": "thadam-cli", "name": "thadam-cli"},
+    {"id": "tokio", "name": "tokio"},
+    {"id": "prost", "name": "prost"},
+    {"id": "yaml-bridge", "name": "yaml-bridge"},
+    {"id": "serde_yaml", "name": "serde_yaml"},
+    {"id": "arrow", "name": "arrow"},
+    {"id": "arrow-array", "name": "arrow-array"},
+    {"id": "rumqttc", "name": "rumqttc"}
+  ],
+  "workspace_members": [
+    "thadam-core", "thadam-config", "thadam-wal", "thadam-transform", "thadam-runtime",
+    "thadam-arrow", "thadam-segments", "thadam-object-store", "thadam-mqtt",
+    "thadam-testkit", "thadam-cli"
+  ],
+  "resolve": {
+    "nodes": [
+      {"id": "thadam-core", "deps": [
+        {"pkg": "tokio", "dep_kinds": [{"kind": null, "target": null}]},
+        {"pkg": "prost", "dep_kinds": [{"kind": null, "target": null}]},
+        {"pkg": "yaml-bridge", "dep_kinds": [{"kind": null, "target": null}]}
+      ]},
+      {"id": "yaml-bridge", "deps": [
+        {"pkg": "serde_yaml", "dep_kinds": [{"kind": null, "target": null}]}
+      ]},
+      {"id": "thadam-config", "deps": [
+        {"pkg": "arrow", "dep_kinds": [{"kind": null, "target": null}]},
+        {"pkg": "thadam-testkit", "dep_kinds": [{"kind": null, "target": null}]}
+      ]},
+      {"id": "thadam-wal", "deps": [
+        {"pkg": "arrow-array", "dep_kinds": [{"kind": null, "target": null}]}
+      ]},
+      {"id": "thadam-transform", "deps": [
+        {"pkg": "arrow-array", "dep_kinds": [{"kind": null, "target": null}]},
+        {"pkg": "tokio", "dep_kinds": [{"kind": null, "target": null}]}
+      ]},
+      {"id": "thadam-runtime", "deps": [
+        {"pkg": "thadam-mqtt", "dep_kinds": [{"kind": null, "target": null}]},
+        {"pkg": "thadam-testkit", "dep_kinds": [{"kind": "dev", "target": null}]}
+      ]},
+      {"id": "thadam-mqtt", "deps": [
+        {"pkg": "rumqttc", "dep_kinds": [{"kind": null, "target": null}]}
+      ]},
+      {"id": "thadam-object-store", "deps": [
+        {"pkg": "thadam-runtime", "dep_kinds": [{"kind": null, "target": null}]}
+      ]},
+      {"id": "thadam-cli", "deps": [
+        {"pkg": "thadam-runtime", "dep_kinds": [{"kind": null, "target": null}]},
+        {"pkg": "thadam-mqtt", "dep_kinds": [{"kind": null, "target": null}]},
+        {"pkg": "thadam-segments", "dep_kinds": [{"kind": null, "target": null}]},
+        {"pkg": "thadam-object-store", "dep_kinds": [{"kind": null, "target": null}]}
+      ]},
+      {"id": "thadam-arrow", "deps": []},
+      {"id": "thadam-segments", "deps": []},
+      {"id": "thadam-testkit", "deps": []},
+      {"id": "tokio", "deps": []},
+      {"id": "prost", "deps": []},
+      {"id": "serde_yaml", "deps": []},
+      {"id": "arrow", "deps": []},
+      {"id": "arrow-array", "deps": []},
+      {"id": "rumqttc", "deps": []}
+    ]
+  }
+}

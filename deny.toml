@@ -1,0 +1,41 @@
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+]
+
+[advisories]
+yanked = "deny"
+# cargo-deny has no "warn" level for unmaintained advisories: they either fail
+# or are ignored. Fail only for direct workspace dependencies.
+unmaintained = "workspace"
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.9
+# The allow-list is declared ahead of the dependencies that need it.
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+deny = [
+    { crate = "aws-lc-sys", reason = "rustls uses the ring provider; aws-lc needs a cmake/clang cross-compile toolchain" },
+    { crate = "openssl-sys", reason = "TLS is rustls only" },
+    { crate = "serde_yaml", reason = "deprecated and unmaintained" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
