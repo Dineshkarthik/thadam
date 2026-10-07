@@ -1,0 +1,43 @@
+{
+  "datasets": [
+    {
+      "id": "telemetry",
+      "match": { "source": "fuzz", "topic": "thadam-demo/v1/+/+/telemetry" },
+      "identity": [{ "site": "{topic.2}" }, { "robot": "{topic.3}" }],
+      "event_id": { "key": ["site", "robot", "seq"] },
+      "dedup": { "window": "10m", "max_keys": 1000 },
+      "time": { "field": "/ts_us", "unit": "us", "domain": "utc", "max_skew": "5s" },
+      "fields": [
+        { "name": "seq", "type": "u64", "required": true },
+        { "name": "soc_pct", "type": "f32" },
+        { "name": "voltage_v", "type": "f32", "from": "/voltage_mv", "unit": "mV", "convert_to": "V" },
+        { "name": "cpu_temp_c", "type": "f32", "from": "/cpu_temp_dc", "unit": "dCel", "convert_to": "Cel" },
+        { "name": "motor_temp_c", "type": "list<f32>", "from": "/motor_temp_dc", "unit": "dCel", "convert_to": "Cel" },
+        { "name": "label", "type": "str" },
+        { "name": "count", "type": "i32" },
+        { "name": "at", "type": "ts", "unit": "rfc3339" }
+      ]
+    },
+    {
+      "id": "joints",
+      "match": { "source": "fuzz", "topic": "thadam-demo/v1/+/+/joints" },
+      "identity": [{ "site": "{topic.2}" }, { "robot": "{topic.3}" }],
+      "event_id": { "key": ["site", "robot", "seq"] },
+      "dedup": { "window": "10m", "max_keys": 1000 },
+      "explode": { "path": "/samples", "index_field": "sample_idx" },
+      "time": { "field": "/ts_us", "unit": "us", "domain": "utc" },
+      "fields": [
+        { "name": "seq", "type": "u64", "from": "^/seq" },
+        { "name": "pos", "type": "list<f64>" },
+        { "name": "ids", "type": "list<i64>" }
+      ]
+    }
+  ],
+  "transforms": [
+    { "kind": "validate", "dataset": "telemetry", "rules": [{ "field": "motor_temp_c", "min": -40, "max": 150 }] },
+    { "kind": "on_change", "dataset": "telemetry", "fields": [{ "field": "soc_pct", "deadband": 1.0 }], "heartbeat": "1m" },
+    { "kind": "sample", "dataset": "joints", "every_n": 2 },
+    { "kind": "filter", "dataset": "telemetry", "where": { "any": [{ "field": "label", "ne": "x" }, { "field": "count", "in": [1, 2] }] } },
+    { "kind": "cast", "dataset": "telemetry", "fields": { "count": "i64" } }
+  ]
+}

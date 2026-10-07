@@ -1,0 +1,306 @@
+//! Source-time extraction: units, domains, and skew flagging.
+
+use thadam_core::{ErrorDomain, QualityFlags, ThadamError, TimeDomain, Times, Timestamp, codes};
+use serde_json::Value as Json;
+
+use crate::paths::FieldPath;
+use crate::spec::TimeSpec;
+use crate::timeparse::{EpochUnit, TimeParseError, UtcOffset, parse_rfc3339};
+
+/// Reads one JSON value as nanoseconds since the epoch.
+#[derive(Clone, Debug)]
+pub(crate) enum TimeParser {
+    Epoch(EpochUnit),
+    Rfc3339(Option<UtcOffset>),
+}
+
+#[derive(Debug)]
+pub(crate) enum TimeIssue {
+    Type(&'static str),
+    Range,
+    Text(TimeParseError),
+}
+
+impl TimeIssue {
+    pub(crate) fn into_error(self, what: &str) -> ThadamError {
+        let detail = match self {
+            TimeIssue::Type(found) => format!("expected a time value, found {found}"),
+            TimeIssue::Range => "time is outside the representable range".to_owned(),
+            TimeIssue::Text(e) => e.to_string(),
+        };
+        ThadamError::permanent(
+            ErrorDomain::Decode,
+            codes::DECODE_INVALID_TIME,
+            format!("{what}: {detail}"),
+        )
+    }
+}
+
+fn json_kind(j: &Json) -> &'static str {
+    match j {
+        Json::Null => "null",
+        Json::Bool(_) => "boolean",
+        Json::Number(_) => "number",
+        Json::String(_) => "string",
+        Json::Array(_) => "array",
+        Json::Object(_) => "object",
+    }
+}
+
+impl TimeParser {
+    pub(crate) fn compile(unit: &str, default_offset: Option<&str>) -> Result<Self, String> {
+        if unit == "rfc3339" {
+            let offset = default_offset
+                .map(|o| UtcOffset::parse(o).map_err(|e| format!("default_offset: {e}")))
+                .transpose()?;
+            return Ok(TimeParser::Rfc3339(offset));
+        }
+        if default_offset.is_some() {
+            return Err("`default_offset` only applies to unit `rfc3339`".to_owned());
+        }
+        EpochUnit::parse(unit)
+            .map(TimeParser::Epoch)
+            .ok_or_else(|| format!("unknown time unit `{unit}`; use s, ms, us, ns, or rfc3339"))
+    }
+
+    pub(crate) fn parse(&self, j: &Json) -> Result<i64, TimeIssue> {
+        match (self, j) {
+            (TimeParser::Epoch(unit), Json::Number(n)) => {
+                if let Some(i) = n.as_i64() {
+                    unit.int_to_nanos(i).ok_or(TimeIssue::Range)
+                } else if n.is_u64() {
+                    Err(TimeIssue::Range)
+                } else {
+                    n.as_f64()
+                        .and_then(|f| unit.float_to_nanos(f))
+                        .ok_or(TimeIssue::Range)
+                }
+            }
+            (TimeParser::Rfc3339(offset), Json::String(s)) => {
+                parse_rfc3339(s, *offset).map_err(TimeIssue::Text)
+            }
+            (_, other) => Err(TimeIssue::Type(json_kind(other))),
+        }
+    }
+}
+
+/// A dataset's time extraction.
+#[derive(Clone, Debug)]
+pub(crate) struct TimePlan {
+    path: FieldPath,
+    parser: TimeParser,
+    domain: TimeDomain,
+    max_skew_ns: Option<i128>,
+}
+
+pub(crate) fn parse_domain(s: &str) -> Option<TimeDomain> {
+    TimeDomain::ALL.into_iter().find(|d| d.as_str() == s)
+}
+
+impl TimePlan {
+    pub(crate) fn compile(spec: &TimeSpec) -> Result<TimePlan, Vec<(&'static str, String)>> {
+        let mut errs = Vec::new();
+        let path = FieldPath::parse(&spec.field)
+            .map_err(|e| errs.push(("field", e.to_string())))
+            .ok();
+        let parser = TimeParser::compile(&spec.unit, spec.default_offset.as_deref())
+            .map_err(|e| errs.push(("unit", e)))
+            .ok();
+        let domain = match spec.domain.as_deref() {
+            None => Some(TimeDomain::Unknown),
+            Some(d) => parse_domain(d).or_else(|| {
+                errs.push((
+                    "domain",
+                    format!("unknown domain `{d}`; use utc, tai, monotonic, sim, or unknown"),
+                ));
+                None
+            }),
+        };
+        match (path, parser, domain) {
+            (Some(path), Some(parser), Some(domain)) if errs.is_empty() => Ok(TimePlan {
+                path,
+                parser,
+                domain,
+                max_skew_ns: spec.max_skew.map(|d| d.0.as_nanos() as i128),
+            }),
+            _ => Err(errs),
+        }
+    }
+
+    pub(crate) fn domain(&self) -> TimeDomain {
+        self.domain
+    }
+
+    /// The source time in `scope`, or `None` if the message carries none.
+    pub(crate) fn extract(
+        &self,
+        scope: &Json,
+        root: &Json,
+    ) -> Result<Option<Timestamp>, ThadamError> {
+        match self.path.resolve(scope, root) {
+            None | Some(Json::Null) => Ok(None),
+            Some(j) => self
+                .parser
+                .parse(j)
+                .map(|ns| Some(Timestamp::from_nanos(ns)))
+                .map_err(|issue| issue.into_error("time field")),
+        }
+    }
+
+    /// The times and quality flags for an event received at `ingest`.
+    pub(crate) fn times(
+        &self,
+        ingest: Timestamp,
+        source: Option<Timestamp>,
+    ) -> (Times, QualityFlags) {
+        let mut times = Times::new(ingest, self.domain);
+        let mut flags = QualityFlags::empty();
+        match source {
+            Some(ts) => {
+                if times.set_source(ts).is_ok()
+                    && self.domain == TimeDomain::Utc
+                    && let Some(max) = self.max_skew_ns
+                {
+                    let skew = i128::from(ts.as_nanos()) - i128::from(ingest.as_nanos());
+                    if skew.abs() > max {
+                        flags |= QualityFlags::CLOCK_SKEW;
+                    }
+                }
+            }
+            None => flags |= QualityFlags::MISSING_TIME,
+        }
+        (times, flags)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn spec(unit: &str, domain: Option<&str>, skew: Option<u64>) -> TimeSpec {
+        let mut v = json!({ "field": "/t", "unit": unit });
+        if let Some(d) = domain {
+            v["domain"] = json!(d);
+        }
+        if let Some(s) = skew {
+            v["max_skew"] = json!(format!("{s}s"));
+        }
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn microseconds_become_nanoseconds() {
+        let plan = TimePlan::compile(&spec("us", Some("utc"), None)).unwrap();
+        let root = json!({ "t": 1_791_369_600_123_456i64 });
+        let ts = plan.extract(&root, &root).unwrap().unwrap();
+        assert_eq!(ts.as_nanos(), 1_791_369_600_123_456_000);
+    }
+
+    #[test]
+    fn absent_and_null_are_missing_not_errors() {
+        let plan = TimePlan::compile(&spec("ms", Some("utc"), None)).unwrap();
+        assert_eq!(plan.extract(&json!({}), &json!({})).unwrap(), None);
+        assert_eq!(
+            plan.extract(&json!({ "t": null }), &json!({})).unwrap(),
+            None
+        );
+        let (_, flags) = plan.times(Timestamp::from_nanos(5), None);
+        assert_eq!(flags, QualityFlags::MISSING_TIME);
+    }
+
+    #[test]
+    fn wrong_types_and_overflow_are_decode_time_errors() {
+        let plan = TimePlan::compile(&spec("s", Some("utc"), None)).unwrap();
+        for bad in [
+            json!("12"),
+            json!(true),
+            json!([1]),
+            json!(i64::MAX),
+            json!(u64::MAX),
+            json!(1e30),
+        ] {
+            let err = plan.extract(&json!({ "t": bad }), &json!({})).unwrap_err();
+            assert_eq!(err.code, codes::DECODE_INVALID_TIME);
+        }
+    }
+
+    #[test]
+    fn skew_is_flagged_only_for_utc_and_beyond_the_bound() {
+        let utc = TimePlan::compile(&spec("s", Some("utc"), Some(5))).unwrap();
+        let ingest = Timestamp::from_secs(1_000).unwrap();
+        let near = Timestamp::from_secs(1_004);
+        let far = Timestamp::from_secs(1_006);
+        let late = Timestamp::from_secs(994);
+        assert_eq!(utc.times(ingest, near).1, QualityFlags::empty());
+        assert_eq!(utc.times(ingest, far).1, QualityFlags::CLOCK_SKEW);
+        assert_eq!(utc.times(ingest, late).1, QualityFlags::CLOCK_SKEW);
+
+        let mono = TimePlan::compile(&spec("s", Some("monotonic"), Some(5))).unwrap();
+        let (times, flags) = mono.times(ingest, far);
+        assert!(flags.is_empty());
+        assert_eq!(times.event_time(), None, "non-UTC never becomes event time");
+        assert_eq!(times.source(), far);
+    }
+
+    #[test]
+    fn domain_defaults_to_unknown() {
+        let plan = TimePlan::compile(&spec("us", None, None)).unwrap();
+        assert_eq!(plan.domain(), TimeDomain::Unknown);
+        let (times, _) = plan.times(Timestamp::from_nanos(0), Timestamp::from_secs(3));
+        assert_eq!(times.event_time(), None);
+    }
+
+    #[test]
+    fn rfc3339_needs_an_offset_unless_configured() {
+        let s: TimeSpec = serde_json::from_value(json!({
+            "field": "/t", "unit": "rfc3339", "domain": "utc"
+        }))
+        .unwrap();
+        let plan = TimePlan::compile(&s).unwrap();
+        let ok = json!({ "t": "1970-01-01T00:00:01Z" });
+        assert_eq!(
+            plan.extract(&ok, &ok).unwrap().unwrap().as_nanos(),
+            1_000_000_000
+        );
+        let naive = json!({ "t": "1970-01-01T00:00:01" });
+        assert!(plan.extract(&naive, &naive).is_err());
+
+        let s: TimeSpec = serde_json::from_value(json!({
+            "field": "/t", "unit": "rfc3339", "domain": "utc", "default_offset": "+01:00"
+        }))
+        .unwrap();
+        let plan = TimePlan::compile(&s).unwrap();
+        assert_eq!(
+            plan.extract(&naive, &naive).unwrap().unwrap().as_nanos(),
+            -3_599_000_000_000
+        );
+    }
+
+    #[test]
+    fn bad_specs_report_each_problem() {
+        let s: TimeSpec = serde_json::from_value(
+            json!({ "field": "ts", "unit": "fortnights", "domain": "mars" }),
+        )
+        .unwrap();
+        let errs = TimePlan::compile(&s).unwrap_err();
+        assert_eq!(
+            errs.iter().map(|e| e.0).collect::<Vec<_>>(),
+            ["field", "unit", "domain"]
+        );
+    }
+
+    #[test]
+    fn parent_paths_read_the_message_root() {
+        let s: TimeSpec =
+            serde_json::from_value(json!({ "field": "^/base", "unit": "s", "domain": "utc" }))
+                .unwrap();
+        let plan = TimePlan::compile(&s).unwrap();
+        let root = json!({ "base": 9, "samples": [{ "x": 1 }] });
+        let sample = &root["samples"][0];
+        assert_eq!(
+            plan.extract(sample, &root).unwrap().unwrap().as_nanos(),
+            9_000_000_000
+        );
+    }
+}

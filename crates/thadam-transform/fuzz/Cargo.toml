@@ -1,0 +1,40 @@
+[package]
+name = "thadam-transform-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+thadam-transform = { path = ".." }
+thadam-core = { path = "../../thadam-core" }
+bytes = "1"
+serde_json = "1"
+
+# Own workspace root: this crate is not a member of the thadam workspace and is
+# not built by CI.
+[workspace]
+
+[[bin]]
+name = "chain_process"
+path = "fuzz_targets/chain_process.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "spec_compile"
+path = "fuzz_targets/spec_compile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "text_parsers"
+path = "fuzz_targets/text_parsers.rs"
+test = false
+doc = false
+bench = false
