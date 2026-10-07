@@ -1,0 +1,39 @@
+[stack default KiB] parens n=50: len=106 compile OK 432.041µs, execute 2.417µs -> Bool(true) | exit 0
+[stack default KiB] parens n=95: len=196 compile OK 557.916µs, execute 2.125µs -> Bool(true) | exit 0
+[stack default KiB] parens n=100: len=206 compile ERR after 548.042µs: ERROR: <input>:1:97: Syntax error: OtherError(ParseError { source: None, pos: (96, -1), msg: "Recursion limit of 96 exceeded", expr_id: 0, source_info: None }) | exit 0
+[stack default KiB] parens n=1000: len=2006 compile ERR after 703.083µs: ERROR: <input>:1:97: Syntax error: OtherError(ParseError { source: None, pos: (96, -1), msg: "Recursion limit of 96 exceeded", expr_id: 0, source_info: None }) | exit 0
+[stack default KiB] parens n=100000: no result line (thread 'main' (8713431) panicked at <cargo-home>/registry/src/index.crates.io-1949cf8c6b5b557f/cel-0.15.0/src/parser/parser.rs:106:17: Formatting argument out of range ) | exit 101
+[stack default KiB] and n=100: len=796 compile OK 487.167µs, execute 4.125µs -> Bool(true) | exit 0
+[stack default KiB] and n=1000: len=7996 compile OK 2.355125ms, execute 13.959µs -> Bool(true) | exit 0
+[stack default KiB] and n=100000: len=799996 compile OK 218.047458ms, execute 1.346833ms -> Bool(true) | exit 0
+[stack default KiB] unary n=100: len=104 compile OK 258.917µs, execute 1.791µs -> Bool(true) | exit 0
+[stack default KiB] unary n=1000: len=1004 compile OK 397.292µs, execute 1.417µs -> Bool(true) | exit 0
+[stack default KiB] unary n=100000: len=100004 compile OK 14.61ms, execute 3.083µs -> Bool(true) | exit 0
+[stack default KiB] list n=50: len=106 compile OK 472.792µs, execute 8.125µs -> Int(1) | exit 0
+[stack default KiB] list n=100: len=206 compile ERR after 890.208µs: ERROR: <input>:1:101: Syntax error: OtherError(ParseError { source: None, pos: (100, -1), msg: "Recursion limit of 96 exceeded", expr_id: 0, source_info: None }) | exit 0
+[stack default KiB] list n=1000: len=2006 compile ERR after 1.367917ms: ERROR: <input>:1:101: Syntax error: OtherError(ParseError { source: None, pos: (100, -1), msg: "Recursion limit of 96 exceeded", expr_id: 0, source_info: None }) | exit 0
+[stack default KiB] strcat n=1000: len=21003 compile OK 2.650334ms, execute 264.5µs -> Int(16000) | exit 0
+[stack default KiB] strcat n=100000: no result line (thread 'main' (8713553) has overflowed its stack fatal runtime error: stack overflow, aborting ) | exit 134
+[stack default KiB] nested_all n=1: len=155 compile OK 599.542µs, execute 10.75µs -> Bool(true) | exit 0
+[stack default KiB] nested_all n=2: len=306 compile OK 744.417µs, execute 303.75µs -> Bool(true) | exit 0
+[stack default KiB] nested_all n=3: len=457 compile OK 941.583µs, execute 14.673292ms -> Bool(true) | exit 0
+[stack default KiB] nested_all n=4: len=608 compile OK 1.088042ms, execute 717.3585ms -> Bool(true) | exit 0
+[stack default KiB] pred_not n=50: yaml+compile OK 167.375µs, eval -> true | exit 0
+[stack default KiB] pred_not n=500: yaml ERR after 171.709µs: error: line 1 column 449: budget breached: Depth { depth: 65 } | exit 0
+[stack default KiB] pred_not n=5000: yaml ERR after 176.667µs: error: line 1 column 449: budget breached: Depth { depth: 65 } | exit 0
+[stack default KiB] pred_not n=50000: yaml ERR after 304.542µs: error: line 1 column 449: budget breached: Depth { depth: 65 } | exit 0
+[stack default KiB] pred_all n=50: yaml ERR after 142.583µs: error: line 1 column 257: budget breached: Depth { depth: 65 } | exit 0
+[stack default KiB] pred_all n=500: yaml ERR after 103.292µs: error: line 1 column 1024: recursion limit exceeded | exit 0
+[stack default KiB] pred_all n=5000: yaml ERR after 106.25µs: error: line 1 column 1024: recursion limit exceeded | exit 0
+[stack default KiB] pred_all n=50000: yaml ERR after 239.292µs: error: line 1 column 1024: recursion limit exceeded | exit 0
+[stack 8192 KiB] strcat n=1000: len=21003 compile OK 2.796875ms, execute 240.125µs -> Int(16000) | exit 0
+[stack 8192 KiB] strcat n=2000: len=42003 compile OK 4.662208ms, execute 605.416µs -> Int(32000) | exit 0
+[stack 8192 KiB] strcat n=3000: len=63003 compile OK 6.962333ms, execute 1.200458ms -> Int(48000) | exit 0
+[stack 8192 KiB] strcat n=5000: no result line (thread '<unknown>' (8713794) has overflowed its stack fatal runtime error: stack overflow, aborting ) | exit 134
+[stack 2048 KiB] strcat n=500: len=10503 compile OK 1.437417ms, execute 112.75µs -> Int(8000) | exit 0
+[stack 2048 KiB] strcat n=1000: no result line (thread '<unknown>' (8713827) has overflowed its stack fatal runtime error: stack overflow, aborting ) | exit 134
+[stack 2048 KiB] strcat n=2000: no result line (thread '<unknown>' (8713847) has overflowed its stack fatal runtime error: stack overflow, aborting ) | exit 134
+[stack 2048 KiB] strcat n=3000: no result line (thread '<unknown>' (8713867) has overflowed its stack fatal runtime error: stack overflow, aborting ) | exit 134
+[stack 2048 KiB] and n=1000: len=7996 compile OK 2.46675ms, execute 15.208µs -> Bool(true) | exit 0
+[stack 2048 KiB] and n=5000: len=39996 compile OK 11.027625ms, execute 68.375µs -> Bool(true) | exit 0
+[stack 2048 KiB] and n=10000: len=79996 compile OK 22.525542ms, execute 141.542µs -> Bool(true) | exit 0

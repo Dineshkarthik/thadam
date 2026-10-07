@@ -1,0 +1,13 @@
+benchmarks compared: 130
+median |delta|: 3.9%
+p90 |delta|: 12.2%
+max |delta|: 17.5%
+worst 8:
+  clone/w2/ext/B-shape-arc: run1 11.2 ns, run2 13.1 ns (+17.5%)
+  clone/w2/ext/A-interned: run1 12.1 ns, run2 14.1 ns (+16.6%)
+  clone/w1/min/B-shape-arc: run1 14.6 ns, run2 17.0 ns (+16.4%)
+  lookup_one/w1/ext/B-shape-arc/cached-idx: run1 0.6 ns, run2 0.5 ns (-15.7%)
+  clone/w1/ext/A-fresh: run1 19.9 ns, run2 23.1 ns (+15.6%)
+  arrow/w2/min/C-shape-id: run1 33.3 ns, run2 28.6 ns (-14.2%)
+  construct/w2/ext/A-interned: run1 57.5 ns, run2 65.6 ns (+14.2%)
+  lookup_all/w1/min/C-shape-id/cached-idx: run1 0.3 ns, run2 0.3 ns (+14.1%)

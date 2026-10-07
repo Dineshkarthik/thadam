@@ -1,0 +1,27 @@
+[package]
+name = "s2-mqtt"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Thadam spike S2: rumqttc ack window, keepalive, cancel-safety, payload-stripped acks, persistent sessions"
+
+# Standalone project: the root Thadam workspace excludes `spikes/`.
+[workspace]
+
+[dependencies]
+anyhow = "1"
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+rand = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+
+# TLS is not exercised by this spike (plain TCP to local brokers). The dependency
+# set below is what Thadam would pin: rustls via ring, no aws-lc.
+rumqttc = { version = "0.25", default-features = false, features = ["use-rustls-no-provider"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+
+[profile.release]
+debug = "line-tables-only"

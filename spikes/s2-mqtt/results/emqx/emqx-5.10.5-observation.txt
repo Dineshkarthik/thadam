@@ -1,0 +1,16 @@
+Manual capture, not produced by scripts/run_all.sh.
+
+While smoke-testing with emqx/emqx:5.10.5 (which prints "EMQX Enterprise 5.10.5" and a
+non-commercial-use licence banner) and `max_mqueue_len=100000`, a saturating publisher flood
+(4 publishers, ~80k msg/s) made the subscriber session get killed and the client reconnected
+(client saw `connacks=2`, `poll_errors=1`, 0 msg/s measured). Broker log lines from that run:
+
+  [error] Process: <0.5120.0> on node 'emqx@172.17.0.2', Context: maximum heap size reached,
+          Label: undefined, Max Heap Size: 6291456, Total Heap Size: 7545166, Kill: true, ...
+  [warning] clientid: s2-tp-sub-38fae0b8, msg: puback_packetId_not_found, packetId: 985..1004
+          (stale acks from the old connection arriving on the new session)
+
+Interpretation (not independently proven): EMQX keeps a session's queue in the Erlang process
+heap and force-kills the process at its default heap limit; a deep mqueue + payloads can hit it.
+The EMQX runs in this spike therefore use emqx/emqx:5.8.6 (Apache-2.0 build), max_mqueue_len=10000
+and a publisher backlog cap of 3000.

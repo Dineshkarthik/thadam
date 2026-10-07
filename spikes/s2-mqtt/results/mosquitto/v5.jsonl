@@ -1,0 +1,2 @@
+{"broker":"mosquitto","broker_inflight":1000,"client_receive_maximum":10,"connack_properties":"receive_max=Some(1000) max_qos=None topic_alias_max=Some(10)","delivered_after_release":290,"pingresp_during_16s_with_keepalive_5s":3,"poll_errors":0,"test":"v5_receive_maximum","unacked_held_when_broker_stopped_sending":10}
+{"broker":"mosquitto","first_connect_session_present":false,"received_unacked_on_first_connection":20,"reconnect_session_present":true,"redelivered_again_after_stripped_acks":0,"redelivered_dup_flagged":20,"redelivered_unique":20,"test":"v5_session_redelivery"}

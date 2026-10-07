@@ -1,0 +1,1 @@
+{"acks_observed":572820,"after_kill":null,"engine":"seglog","failures":[],"fsync":"always","iterations":1000,"kills_under_5ms":77,"max_acked_seq":1426939,"max_disk_mib":5.1953125,"max_retained_frames":271,"prealloc":false,"recovery_open_ms_max":49.620125,"recovery_open_ms_p50":1.13025,"recovery_open_ms_p99":24.610042,"sync_kind":"data","test":"crash"}

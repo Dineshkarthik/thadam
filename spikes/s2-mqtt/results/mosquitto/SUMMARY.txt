@@ -1,0 +1,79 @@
+## q1 throughput (inflight latency auto recv/s wire_ack/s nominal_ceiling ratio ack_delay_mean_us max_unacked min_backlog supply_limited connacks errors)
+20	0	false	75952	75952	-	0	1	20	19813	false	1	0
+20	10	false	1725	1725	2000.0	0.86	10959	20	19981	false	1	0
+20	50	false	384	384	400.0	0.96	50955	20	19981	false	1	0
+20	100	false	195	195	200.0	0.98	100946	20	19981	false	1	0
+20	0	true	87066	87066	-	0	0	0	19789	false	1	0
+100	0	false	70438	70439	-	0	2	99	7982	false	1	0
+100	10	false	8529	8529	10000.0	0.85	10893	100	19901	false	1	0
+100	50	false	1933	1933	2000.0	0.97	50867	100	19902	false	1	0
+100	100	false	978	978	1000.0	0.98	100854	100	19909	false	1	0
+100	0	true	76862	76862	-	0	0	0	7950	false	1	0
+1000	0	false	70310	70310	-	0	5	564	7966	false	1	0
+1000	10	false	86840	86840	100000.0	0.87	10697	1000	19375	false	1	0
+1000	50	false	19342	19342	20000.0	0.97	50613	1000	19751	false	1	0
+1000	100	false	9774	9774	10000.0	0.98	100634	1000	19874	false	1	0
+1000	0	true	62496	62496	-	0	0	0	7935	false	1	0
+rtt p50_us=160 p90_us=223 p99_us=330 min_us=79
+
+## q2 keepalive
+withhold	inflight=20	qcap=0	ka=5	hold=15	tcp_conns=1	connacks=1	errs=0	closes=[]	close_after_last_client_pkt_ms=null	pingreq_in_hold=3	pingresp_in_hold=3	acks_issued=12730	liveness_blocked_at_end=false	consumer_blocked_in_ack_at_end=false	max_unacked=20	rx_at_hold_end=20	broker_pub_pkts_in_hold=20	published=12730	unique=12730	dups=0	missing=0
+withhold	inflight=100	qcap=0	ka=5	hold=15	tcp_conns=1	connacks=1	errs=0	closes=[]	close_after_last_client_pkt_ms=null	pingreq_in_hold=3	pingresp_in_hold=3	acks_issued=12760	liveness_blocked_at_end=false	consumer_blocked_in_ack_at_end=false	max_unacked=100	rx_at_hold_end=100	broker_pub_pkts_in_hold=100	published=12760	unique=12760	dups=0	missing=0
+withhold	inflight=1000	qcap=0	ka=5	hold=15	tcp_conns=1	connacks=1	errs=0	closes=[]	close_after_last_client_pkt_ms=null	pingreq_in_hold=3	pingresp_in_hold=3	acks_issued=12740	liveness_blocked_at_end=false	consumer_blocked_in_ack_at_end=false	max_unacked=1000	rx_at_hold_end=1000	broker_pub_pkts_in_hold=1000	published=12740	unique=12740	dups=0	missing=0
+nopoll	inflight=100	qcap=0	ka=5	hold=15	tcp_conns=2	connacks=2	errs=1	closes=[[1,7303]]	close_after_last_client_pkt_ms=7302	pingreq_in_hold=0	pingresp_in_hold=0	acks_issued=1376	liveness_blocked_at_end=false	consumer_blocked_in_ack_at_end=false	max_unacked=99	rx_at_hold_end=1	broker_pub_pkts_in_hold=100	published=1276	unique=1276	dups=100	missing=0
+withhold	inflight=100	qcap=20	ka=5	hold=15	tcp_conns=1	connacks=1	errs=0	closes=[[1,7334]]	close_after_last_client_pkt_ms=7333	pingreq_in_hold=1	pingresp_in_hold=0	acks_issued=69	liveness_blocked_at_end=true	consumer_blocked_in_ack_at_end=true	max_unacked=22	rx_at_hold_end=21	broker_pub_pkts_in_hold=100	published=12750	unique=91	dups=0	missing=12659
+withhold	inflight=100	qcap=100	ka=5	hold=15	tcp_conns=1	connacks=1	errs=0	closes=[]	close_after_last_client_pkt_ms=null	pingreq_in_hold=3	pingresp_in_hold=3	acks_issued=12780	liveness_blocked_at_end=false	consumer_blocked_in_ack_at_end=false	max_unacked=100	rx_at_hold_end=100	broker_pub_pkts_in_hold=120	published=12780	unique=12780	dups=0	missing=0
+-- q2 events
+[withhold inflight=20 qcap=0] 1ms:ConnAck #1 session_present=false | 11ms:SubAck | 15013ms:consumer resumes: draining queue and acking in order
+[withhold inflight=100 qcap=0] 2ms:ConnAck #1 session_present=false | 11ms:SubAck | 15012ms:consumer resumes: draining queue and acking in order
+[withhold inflight=1000 qcap=0] 1ms:ConnAck #1 session_present=false | 11ms:SubAck | 15012ms:consumer resumes: draining queue and acking in order
+[nopoll inflight=100 qcap=0] 1ms:ConnAck #1 session_present=false | 11ms:SubAck | 12ms:NOT POLLING: pause begins | 15014ms:NOT POLLING: pause ends, polling resumes | 15014ms:poll error: Mqtt state: Connection closed by peer abruptly | 15217ms:ConnAck #2 session_present=true
+[withhold inflight=100 qcap=20] 1ms:ConnAck #1 session_present=false | 12ms:SubAck | 15013ms:consumer resumes: draining queue and acking in order | 15013ms:liveness task blocked 14977 ms in queue send().await
+[withhold inflight=100 qcap=100] 1ms:ConnAck #1 session_present=false | 12ms:SubAck | 15014ms:consumer resumes: draining queue and acking in order
+-- q2 timeline (s,received,unacked) for first run per inflight
+inflight=20: 1s:20/20 2s:20/20 3s:20/20 4s:20/20 5s:20/20 6s:20/20 7s:20/20 8s:20/20 9s:20/20 10s:20/20 11s:20/20 12s:20/20 13s:20/20 14s:20/20 15s:723/0 16s:12730/0
+inflight=100: 1s:100/100 2s:100/100 3s:100/100 4s:100/100 5s:100/100 6s:100/100 7s:100/100 8s:100/100 9s:100/100 10s:100/100 11s:100/100 12s:100/100 13s:100/100 14s:100/100 15s:1448/0 16s:12760/0
+inflight=1000: 1s:850/850 2s:1000/1000 3s:1000/1000 4s:1000/1000 5s:1000/1000 6s:1000/1000 7s:1000/1000 8s:1000/1000 9s:1000/1000 10s:1000/1000 11s:1000/1000 12s:1000/1000 13s:1000/1000 14s:1000/1000 15s:2167/0 16s:12740/0
+
+## q3 cancel-safety
+none	max_us=1000	from_start=false	published=100000	unique=100000	missing=0	nondup_dups=0	dupflag=0	cancelled=0	completed=200025	connacks=1	errs=0	pingresp=11	wire_acks=100000	redelivered_on_verify=0	elapsed=23s
+now_or_never	max_us=1000	from_start=false	published=100000	unique=100000	missing=0	nondup_dups=0	dupflag=0	cancelled=1133251	completed=200025	connacks=1	errs=0	pingresp=11	wire_acks=100000	redelivered_on_verify=0	elapsed=23s
+now_or_never	max_us=1000	from_start=false	published=200000	unique=200000	missing=0	nondup_dups=0	dupflag=0	cancelled=43096	completed=400067	connacks=1	errs=0	pingresp=32	wire_acks=200000	redelivered_on_verify=0	elapsed=65s
+timeout	max_us=8000	from_start=false	published=4000	unique=4000	missing=0	nondup_dups=0	dupflag=0	cancelled=2372	completed=8021	connacks=1	errs=0	pingresp=9	wire_acks=4000	redelivered_on_verify=0	elapsed=20s
+select	max_us=8000	from_start=false	published=4000	unique=4000	missing=0	nondup_dups=0	dupflag=0	cancelled=2378	completed=8021	connacks=1	errs=0	pingresp=9	wire_acks=4000	redelivered_on_verify=0	elapsed=20s
+mixed	max_us=3000	from_start=false	published=60000	unique=60000	missing=0	nondup_dups=0	dupflag=0	cancelled=14115	completed=120031	connacks=1	errs=0	pingresp=14	wire_acks=60000	redelivered_on_verify=0	elapsed=30s
+mixed	max_us=3000	from_start=false	published=150000	unique=150000	missing=0	nondup_dups=0	dupflag=0	cancelled=530	completed=300041	connacks=1	errs=0	pingresp=19	wire_acks=150000	redelivered_on_verify=0	elapsed=39s
+mixed	max_us=3000	from_start=false	published=0	unique=0	missing=0	nondup_dups=0	dupflag=0	cancelled=51	completed=32	connacks=1	errs=0	pingresp=14	wire_acks=0	redelivered_on_verify=0	elapsed=30s
+mixed	max_us=3000	from_start=true	published=20000	unique=20000	missing=0	nondup_dups=0	dupflag=0	cancelled=6611	completed=40013	connacks=1	errs=0	pingresp=5	wire_acks=20000	redelivered_on_verify=0	elapsed=10s
+timeout	max_us=1500	from_start=true	published=2000	unique=2000	missing=0	nondup_dups=0	dupflag=0	cancelled=647	completed=4005	connacks=1	errs=0	pingresp=1	wire_acks=2000	redelivered_on_verify=0	elapsed=2s
+
+## q3-stall cancel while write side blocked
+none	cancelled_polls=59	errors=0	ack_events=300	acks_on_wire=300	acks_lost=0	filler_events=40	filler_on_wire=40	fillers_lost=0	unique_rx=300	dups=0	redelivered_to_fresh_session=0	connacks=0
+timeout	cancelled_polls=117	errors=0	ack_events=300	acks_on_wire=291	acks_lost=9	filler_events=40	filler_on_wire=20	fillers_lost=20	unique_rx=300	dups=0	redelivered_to_fresh_session=9	connacks=0
+now_or_never	cancelled_polls=25173531	errors=0	ack_events=300	acks_on_wire=0	acks_lost=300	filler_events=40	filler_on_wire=5	fillers_lost=35	unique_rx=300	dups=0	redelivered_to_fresh_session=300	connacks=0
+
+## q4 strip
+stripped	qos=1	payload_kib=64	count=3000	held_peak=1000	rss_delta_mib=1.9	payload_held_if_retained_mib=62.5	unique=3000	dups=0	puback=3000	pubrec=0	pubcomp=0	in_order=true	unmatched=0	redelivered_on_verify=0	session_present=true
+retained	qos=1	payload_kib=64	count=3000	held_peak=1000	rss_delta_mib=79.7	payload_held_if_retained_mib=62.5	unique=3000	dups=0	puback=3000	pubrec=0	pubcomp=0	in_order=true	unmatched=0	redelivered_on_verify=0	session_present=true
+stripped	qos=2	payload_kib=4	count=3000	held_peak=1000	rss_delta_mib=1.2	payload_held_if_retained_mib=3.90625	unique=3000	dups=0	puback=0	pubrec=3000	pubcomp=3000	in_order=true	unmatched=0	redelivered_on_verify=0	session_present=true
+
+## q6 order
+in_order	count=3000	received=3000	acks_issued=3000	wire_acks=3000	in_receive_order=true	descents=0	unmatched=0	broker_closed=0
+shuffled	count=1000	received=1000	acks_issued=1000	wire_acks=1000	in_receive_order=false	descents=900	unmatched=0	broker_closed=0
+
+## q5 persistent session
+{"pubacks_received_by_publisher":50,"published":50,"test":"sess_pub"}
+{"label":"q5a kill-9 redelivery","expected":50,"unique_delivered_overall":50,"missing_count":0,"missing_ranges_first10":[],"logs":[{"log":"q5a-1.log","session_present_in_connack":false,"deliveries":25,"dup_flagged_deliveries":0,"dup_flagged_seq_range":null,"unique_seqs":25,"seq_range":[0,24],"acks_issued":5},{"log":"q5a-2.log","session_present_in_connack":true,"deliveries":45,"dup_flagged_deliveries":20,"dup_flagged_seq_range":[5,24],"unique_seqs":45,"seq_range":[5,49],"acks_issued":45}]}
+{"label":"q5b session_present: first connect | after broker restart (state kept if persisted) | after state wipe","expected":0,"unique_delivered_overall":0,"missing_count":0,"missing_ranges_first10":[],"logs":[{"log":"q5b-1.log","session_present_in_connack":false,"deliveries":0,"dup_flagged_deliveries":0,"dup_flagged_seq_range":null,"unique_seqs":0,"seq_range":null,"acks_issued":0},{"log":"q5b-2.log","session_present_in_connack":true,"deliveries":0,"dup_flagged_deliveries":0,"dup_flagged_seq_range":null,"unique_seqs":0,"seq_range":null,"acks_issued":0},{"log":"q5b-3.log","session_present_in_connack":false,"deliveries":0,"dup_flagged_deliveries":0,"dup_flagged_seq_range":null,"unique_seqs":0,"seq_range":null,"acks_issued":0}]}
+{"pubacks_received_by_publisher":1000,"published":1000,"test":"sess_pub"}
+{"label":"q5c queue-limit offline (published 1000; deliveries before kill + after restart)","expected":1000,"unique_delivered_overall":100,"missing_count":900,"missing_ranges_first10":[[100,999]],"logs":[{"log":"q5c-offline-1.log","session_present_in_connack":false,"deliveries":0,"dup_flagged_deliveries":0,"dup_flagged_seq_range":null,"unique_seqs":0,"seq_range":null,"acks_issued":0},{"log":"q5c-offline-2.log","session_present_in_connack":true,"deliveries":100,"dup_flagged_deliveries":0,"dup_flagged_seq_range":null,"unique_seqs":100,"seq_range":[0,99],"acks_issued":100}]}
+{"pubacks_received_by_publisher":1000,"published":1000,"test":"sess_pub"}
+{"label":"q5c queue-limit online (published 1000; deliveries before kill + after restart)","expected":1000,"unique_delivered_overall":140,"missing_count":860,"missing_ranges_first10":[[140,999]],"logs":[{"log":"q5c-online-1.log","session_present_in_connack":false,"deliveries":20,"dup_flagged_deliveries":0,"dup_flagged_seq_range":null,"unique_seqs":20,"seq_range":[0,19],"acks_issued":0},{"log":"q5c-online-2.log","session_present_in_connack":true,"deliveries":140,"dup_flagged_deliveries":20,"dup_flagged_seq_range":[0,19],"unique_seqs":140,"seq_range":[0,139],"acks_issued":140}]}
+
+## e1 stale ack after session loss
+{"broker":"mosquitto","new_messages_never_really_acked":10,"new_messages_silently_lost":0,"notes":["phase1: held 10 unacked deliveries, pkids [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]","phase2: reconnected=true poll_errors_while_down=1 connack session_present history=[false, false]","phase3: deliveries received after session loss WITHOUT resubscribe = 0","phase4: held 10 new deliveries (seq 200..), pkids [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; 10 of the stale pkids collide with them","phase5: control, no stale acks issued"],"redelivered_on_reconnect":10,"stale_ack":false,"test":"stale_ack_after_session_loss"}
+{"broker":"mosquitto","new_messages_never_really_acked":10,"new_messages_silently_lost":10,"notes":["phase1: held 10 unacked deliveries, pkids [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]","phase2: reconnected=true poll_errors_while_down=1 connack session_present history=[false, false]","phase3: deliveries received after session loss WITHOUT resubscribe = 0","phase4: held 10 new deliveries (seq 200..), pkids [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; 10 of the stale pkids collide with them","phase5: issued 10 stale acks from the lost session"],"redelivered_on_reconnect":0,"stale_ack":true,"test":"stale_ack_after_session_loss"}
+
+## v5
+{"broker":"mosquitto","broker_inflight":1000,"client_receive_maximum":10,"connack_properties":"receive_max=Some(1000) max_qos=None topic_alias_max=Some(10)","delivered_after_release":290,"pingresp_during_16s_with_keepalive_5s":3,"poll_errors":0,"test":"v5_receive_maximum","unacked_held_when_broker_stopped_sending":10}
+{"broker":"mosquitto","first_connect_session_present":false,"received_unacked_on_first_connection":20,"reconnect_session_present":true,"redelivered_again_after_stripped_acks":0,"redelivered_dup_flagged":20,"redelivered_unique":20,"test":"v5_session_redelivery"}

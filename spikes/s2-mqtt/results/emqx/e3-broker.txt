@@ -1,0 +1,1 @@
+2026-10-07T13:17:22.633198+00:00 [warning] clientid: s2-tp-sub-c134497b, msg: check_oom_shutdown, peername: <docker-host>:62191, shutdown: #{max => 1000,reason => mailbox_overflow,value => 1157}, incoming_bytes: 27977, incoming_pubs: 101, policy: #{max_heap_size => 4194304,enable => true,max_mailbox_size => 1000}

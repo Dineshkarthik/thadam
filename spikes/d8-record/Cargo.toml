@@ -1,0 +1,28 @@
+[package]
+name = "d8-record"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Spike for decision D8/D9: record representation and value type set"
+
+# Standalone project: the root thadam workspace excludes spikes/, so this
+# empty table keeps cargo from searching upward for a parent workspace.
+[workspace]
+
+[dependencies]
+arrow-array = "60"
+arrow-schema = "60"
+bytes = "1.12.1"
+serde_json = "1.0.151"
+
+[dev-dependencies]
+criterion = "0.8.2"
+
+[[bench]]
+name = "d8"
+harness = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+debug = "line-tables-only"
