@@ -60,7 +60,16 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.146
-      - run: cargo nextest run --workspace --locked --profile ci --no-tests=pass
+      - run: cargo nextest run --workspace --locked --profile ci
+
+  loom:
+    runs-on: ubuntu-24.04
+    env:
+      RUSTFLAGS: --cfg loom
+      CARGO_TARGET_DIR: target/loom
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --locked -p thadam-core --release --test loom_disk_budget
 
   deny:
     runs-on: ubuntu-24.04

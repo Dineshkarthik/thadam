@@ -1,0 +1,5 @@
+---
+source: crates/thadam-core/src/shape.rs
+expression: s.fingerprint().to_string()
+---
+7847bb5055e9c649
