@@ -43,10 +43,10 @@ fn hashes_are_pinned() {
     // These literals must never change without bumping CONFIG_HASH_VERSION:
     // the hash is written into Parquet footers and the data directory.
     assert_eq!(CONFIG_HASH_VERSION, 1);
-    assert_eq!(hash(&minimal()), "e67f6f3592392f76142ba2b8ebb8393e");
+    assert_eq!(hash(&minimal()), "d65a9d2197f000a20ba65ee739a2bd5b");
     assert_eq!(
         load(&demo(), &env("k", "s")).config_hash_hex(),
-        "755c667b5da1ce45eb76d9e714dae9e9"
+        "414164d2430eab5caf362e63664b234c"
     );
 }
 
@@ -68,11 +68,12 @@ sinks:
 datasets:
   - fields:
       - name: temp
+        id: 1000
         type: f32
         from: /temp
-      - {from: /level, type: \"str\", name: level}
+      - {from: /level, type: \"str\", name: level, id: 1001}
     time: { domain: utc, unit: ms, field: /ts }
-    identity: { device: \"{topic.1}\" }   # trailing comment
+    identity: { device: { template: \"{topic.1}\", id: 100 } }   # trailing comment
     decode: json
     match: { topic: \"t/+/data\", source: src }
     id: readings
@@ -118,9 +119,18 @@ fn any_value_change_changes_the_hash() {
 
 #[test]
 fn identity_order_is_part_of_the_hash() {
-    let with = |identity: &str| minimal().replace("identity: { device: \"{topic.1}\" }", identity);
-    let zone_first = with("identity: { zone: \"{topic.0}\", device: \"{topic.1}\" }");
-    let device_first = with("identity: { device: \"{topic.1}\", zone: \"{topic.0}\" }");
+    let with = |identity: &str| {
+        minimal().replace(
+            "identity: { device: { id: 100, template: \"{topic.1}\" } }",
+            identity,
+        )
+    };
+    let zone_first = with(
+        "identity: { zone: { id: 101, template: \"{topic.0}\" }, device: { id: 100, template: \"{topic.1}\" } }",
+    );
+    let device_first = with(
+        "identity: { device: { id: 100, template: \"{topic.1}\" }, zone: { id: 101, template: \"{topic.0}\" } }",
+    );
     assert_ne!(
         hash(&zone_first),
         hash(&device_first),

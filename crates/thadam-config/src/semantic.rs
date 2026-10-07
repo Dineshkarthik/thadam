@@ -4,6 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
+use std::ops::RangeInclusive;
 
 use thadam_core::codes;
 use thadam_core::{FieldType, MAX_ASSET_LEVELS, MAX_SHAPE_FIELDS, QualityFlags, QualityStatus};
@@ -13,7 +14,33 @@ use crate::ctx::Ctx;
 use crate::path::{PathExt, PathVec};
 use crate::predicate::{Condition, Literal, Predicate, Test};
 use crate::spans::Anchor;
-use crate::spec::{ConnectorSpec, DatasetSpec, FieldSpec, TransformSpec, WalSpec};
+use crate::spec::{
+    ConnectorSpec, DECLARED_FIELD_ID_RANGE, DatasetSpec, FieldSpec, IDENTITY_LEVEL_ID_RANGE,
+    TransformSpec, WalSpec,
+};
+
+/// Which kind of column a Parquet field ID belongs to.
+#[derive(Clone, Copy)]
+enum IdKind {
+    Field,
+    Level,
+}
+
+impl IdKind {
+    fn range(self) -> RangeInclusive<u32> {
+        match self {
+            IdKind::Field => DECLARED_FIELD_ID_RANGE,
+            IdKind::Level => IDENTITY_LEVEL_ID_RANGE,
+        }
+    }
+
+    fn noun(self) -> &'static str {
+        match self {
+            IdKind::Field => "field",
+            IdKind::Level => "identity level",
+        }
+    }
+}
 
 /// Constraints the loader enforces that depend on what the binary has registered.
 #[derive(Clone, Debug, Default)]
@@ -506,6 +533,7 @@ impl Checker<'_, '_, '_> {
                 format!("an asset path has at most {MAX_ASSET_LEVELS} levels"),
             );
         }
+        let mut level_ids: HashMap<u32, &str> = HashMap::new();
         for level in &ds.identity {
             let p = base.key("identity").key(&level.name);
             if !name_ok(&level.name) {
@@ -517,8 +545,15 @@ impl Checker<'_, '_, '_> {
                 );
             }
             if let Err(msg) = check_template(&level.template, levels) {
-                self.ctx.invalid(&p, Anchor::Value, msg);
+                self.ctx.invalid(&p.key("template"), Anchor::Value, msg);
             }
+            self.field_id(
+                &p.key("id"),
+                IdKind::Level,
+                &level.name,
+                level.id,
+                &mut level_ids,
+            );
         }
 
         self.dataset_fields(&base, ds);
@@ -541,9 +576,11 @@ impl Checker<'_, '_, '_> {
         let index_field = ds.explode.as_ref().and_then(|e| e.index_field.as_deref());
         let exploded = ds.explode.is_some();
         let mut seen: HashSet<&str> = HashSet::new();
+        let mut ids: HashMap<u32, &str> = HashMap::new();
         for (j, f) in ds.fields.iter().enumerate() {
             let p = fields_path.idx(j);
             self.field(&p, f, exploded);
+            self.field_id(&p.key("id"), IdKind::Field, &f.name, f.id, &mut ids);
             if !seen.insert(f.name.as_str()) {
                 self.ctx.invalid(
                     &p.key("name"),
@@ -565,6 +602,44 @@ impl Checker<'_, '_, '_> {
                     format!("`{}` is already the `explode.index_field`", f.name),
                 );
             }
+        }
+    }
+
+    /// Checks one Parquet field ID against the range for its kind and against
+    /// the IDs already used in the dataset (`seen` maps an ID to its name).
+    fn field_id<'a>(
+        &mut self,
+        id_path: &PathVec,
+        kind: IdKind,
+        name: &'a str,
+        id: u32,
+        seen: &mut HashMap<u32, &'a str>,
+    ) {
+        let range = kind.range();
+        if !range.contains(&id) {
+            self.ctx.invalid_hint(
+                id_path,
+                Anchor::Value,
+                format!(
+                    "{} id {id} of `{name}` is outside {}..={}",
+                    kind.noun(),
+                    range.start(),
+                    range.end()
+                ),
+                "declared fields use 1000 to 4194303 and identity levels use 100 to 199; 1 to 99 are Thadam's envelope columns and higher ids are derived for nested fields",
+            );
+            return;
+        }
+        if let Some(first) = seen.insert(id, name) {
+            self.ctx.invalid_hint(
+                id_path,
+                Anchor::Value,
+                format!(
+                    "duplicate {} id {id}: `{name}` reuses the id of `{first}`",
+                    kind.noun()
+                ),
+                "ids are unique within a dataset, and an id is never reused for a different column, even after the column is removed",
+            );
         }
     }
 

@@ -407,7 +407,7 @@ mod structure {
         let mut yaml = minimal();
         for i in 0..40 {
             let fields: String = (0..40)
-                .map(|f| format!("      - {{ name: f{f}, type: f32, from: /f{f}, unit: mV, convert_to: V }}\n"))
+                .map(|f| format!("      - {{ id: {}, name: f{f}, type: f32, from: /f{f}, unit: mV, convert_to: V }}\n", 1000 + f))
                 .collect();
             yaml = edit(
                 &yaml,
@@ -564,8 +564,8 @@ mod predicates {
     fn integers_above_i64_max_stay_u64() {
         let yaml = edit(
             &minimal(),
-            "- { name: level, type: str, from: /level }",
-            "- { name: level, type: str, from: /level }\n      - { name: big, type: u64, from: /big }",
+            "- { id: 1001, name: level, type: str, from: /level }",
+            "- { id: 1001, name: level, type: str, from: /level }\n      - { id: 1002, name: big, type: u64, from: /big }",
         );
         let yaml = edit(
             &yaml,

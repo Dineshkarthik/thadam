@@ -130,6 +130,20 @@ fn missing_hint(last_key: &str) -> Option<&'static str> {
     })
 }
 
+/// The hint for a missing `id`, which means a field ID inside a dataset's
+/// `fields` or `identity` and a plain identifier elsewhere.
+fn missing_id_hint(parent: &[Seg]) -> Option<&'static str> {
+    match parent {
+        [.., Seg::Key(k), Seg::Idx(_)] if k == "fields" => Some(
+            "every declared field needs a stable Parquet field ID: write `id: 1000` (1000 to 4194303, unique in the dataset) and never reuse the ID of a removed field",
+        ),
+        [.., Seg::Key(k), Seg::Key(_)] if k == "identity" => Some(
+            "every identity level needs a stable Parquet field ID: write `{ id: 100, template: \"{topic.2}\" }` (100 to 199, unique in the dataset)",
+        ),
+        _ => None,
+    }
+}
+
 /// Reports one serde error as a diagnostic with a path, position, and hint.
 ///
 /// `typos` records `(parent path, suggested name)` for each misspelled key, so
@@ -151,12 +165,17 @@ fn report_serde(
             return;
         }
         let child = full.key(name);
+        let hint = if name == "id" {
+            missing_id_hint(&full)
+        } else {
+            missing_hint(name)
+        };
         ctx.error(
             codes::CONFIG_MISSING,
             &child,
             Anchor::Key,
             format!("missing required field `{name}`"),
-            missing_hint(name).map(str::to_owned),
+            hint.map(str::to_owned),
         );
         return;
     }
@@ -175,6 +194,13 @@ fn report_serde(
         && (msg.contains("integer") || msg.contains("floating point") || msg.contains("boolean"))
     {
         Some("quote the value to make it a string, for example `\"014\"`".to_owned())
+    } else if msg.contains("expected a field ID") {
+        Some("write the field ID as a plain integer, for example `id: 1000`".to_owned())
+    } else if msg.contains("expected a mapping `{ id:") {
+        Some(
+            "an identity level now needs a field ID: `site: { id: 100, template: \"{topic.2}\" }`"
+                .to_owned(),
+        )
     } else {
         None
     };

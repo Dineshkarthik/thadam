@@ -21,6 +21,7 @@ sha2 = { workspace = true }
 [dev-dependencies]
 insta = { workspace = true }
 proptest = { workspace = true }
+thadam-arrow = { path = "../thadam-arrow" }
 tempfile = { workspace = true }
 
 [lints]

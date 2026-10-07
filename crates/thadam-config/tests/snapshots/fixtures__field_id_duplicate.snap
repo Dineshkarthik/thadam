@@ -1,0 +1,11 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.invalid]: duplicate identity level id 100: `device` reuses the id of `site`
+  --> field_id_duplicate.yaml:13:73 (datasets[0].identity.device.id)
+  = hint: ids are unique within a dataset, and an id is never reused for a different column, even after the column is removed
+error[config.invalid]: duplicate field id 1000: `pressure` reuses the id of `temp`
+  --> field_id_duplicate.yaml:18:15 (datasets[0].fields[2].id)
+  = hint: ids are unique within a dataset, and an id is never reused for a different column, even after the column is removed
+2 errors, 0 warnings

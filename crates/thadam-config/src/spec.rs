@@ -2,10 +2,13 @@
 //!
 //! Key spellings are frozen with the first fixture set: `kind`, `where`,
 //! `wal`, `match`, `from`, `convert_to`, `on_full`. Adding a key is a minor
-//! release because every struct rejects unknown keys.
+//! release because every struct rejects unknown keys. The Parquet field ID is
+//! spelled `id` on a declared field and on an identity level, which is
+//! required on both.
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::ops::RangeInclusive;
 use std::path::PathBuf;
 
 use thadam_core::{FieldDef, QualityStatus};
@@ -355,28 +358,107 @@ pub struct MatchSpec {
     pub topic: Option<String>,
 }
 
-/// One level of the asset path, such as `site: "{topic.2}"`.
+/// The Parquet field IDs a declared top-level field may use (ADR-0013, "PR13
+/// implementation decisions"). The same range as `thadam-arrow`'s
+/// `FIRST_DECLARED_ID..=LAST_DECLARED_ID`; a test in this crate keeps them equal.
+pub const DECLARED_FIELD_ID_RANGE: RangeInclusive<u32> = 1000..=4_194_303;
+
+/// The Parquet field IDs an identity level may use. The same range as
+/// `thadam-arrow`'s `LEVEL_ID_RANGE`; a test in this crate keeps them equal.
+pub const IDENTITY_LEVEL_ID_RANGE: RangeInclusive<u32> = 100..=199;
+
+/// Reads a field ID: any integer that fits `u32`. The range that applies to
+/// the position is checked afterwards, so a bad ID does not hide other errors.
+fn de_id<'de, D: Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
+    struct V;
+    impl Visitor<'_> for V {
+        type Value = u32;
+
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "a field ID, an integer from 0 to {}", u32::MAX)
+        }
+
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<u32, E> {
+            u32::try_from(v).map_err(|_| E::invalid_value(de::Unexpected::Unsigned(v), &self))
+        }
+
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<u32, E> {
+            u32::try_from(v).map_err(|_| E::invalid_value(de::Unexpected::Signed(v), &self))
+        }
+    }
+    d.deserialize_u64(V)
+}
+
+/// One level of the asset path, such as
+/// `site: { id: 100, template: "{topic.2}" }`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct IdentityLevel {
     /// The level name; becomes a column.
     pub name: String,
+    /// The Parquet field ID of the level's column, in [`IDENTITY_LEVEL_ID_RANGE`]
+    /// and unique within the dataset.
+    pub id: u32,
     /// The template; `{topic.N}` is the Nth topic level (0-based).
     pub template: String,
 }
 
+/// The value written under an identity level's name.
+#[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(rename = "IdentityLevel")]
+struct IdentityLevelBody {
+    /// The stable Parquet field ID of the level's column (100 to 199, unique in the dataset).
+    #[serde(deserialize_with = "de_id")]
+    #[schemars(range(min = 100, max = 199))]
+    id: u32,
+    /// The template; `{topic.N}` is the Nth topic level (0-based).
+    template: String,
+}
+
+/// Wraps [`IdentityLevelBody`] so a bare string (the pre-ID spelling) is
+/// refused with a message that shows the new form.
+struct LevelEntry(IdentityLevelBody);
+
+impl<'de> Deserialize<'de> for LevelEntry {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = LevelEntry;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a mapping `{ id: <100..=199>, template: <string> }`")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<LevelEntry, A::Error> {
+                IdentityLevelBody::deserialize(de::value::MapAccessDeserializer::new(map))
+                    .map(LevelEntry)
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
 fn de_identity<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<IdentityLevel>, D::Error> {
-    let map = BTreeMap::<String, String>::deserialize(d)?;
+    let map = BTreeMap::<String, LevelEntry>::deserialize(d)?;
     Ok(map
         .into_iter()
-        .map(|(name, template)| IdentityLevel { name, template })
+        .map(|(name, LevelEntry(body))| IdentityLevel {
+            name,
+            id: body.id,
+            template: body.template,
+        })
         .collect())
 }
 
 fn ser_identity<S: Serializer>(levels: &[IdentityLevel], s: S) -> Result<S::Ok, S::Error> {
     let mut m = s.serialize_map(Some(levels.len()))?;
     for l in levels {
-        m.serialize_entry(&l.name, &l.template)?;
+        let body = IdentityLevelBody {
+            id: l.id,
+            template: l.template.clone(),
+        };
+        m.serialize_entry(&l.name, &body)?;
     }
     m.end()
 }
@@ -451,6 +533,10 @@ pub struct TimeSpec {
 pub struct FieldSpec {
     /// The column name.
     pub name: String,
+    /// The stable Parquet field ID (1000 to 4194303, unique in the dataset). Never reuse the ID of a removed field.
+    #[serde(deserialize_with = "de_id")]
+    #[schemars(range(min = 1000, max = 4194303))]
+    pub id: u32,
     /// The declared type.
     #[serde(rename = "type")]
     pub ty: FieldTypeSpec,
@@ -469,9 +555,11 @@ pub struct FieldSpec {
 
 impl FieldSpec {
     /// The `thadam-core` field definition: `required` makes it non-nullable,
-    /// and the unit is the one the stored value is in (`convert_to` if set).
+    /// the unit is the one the stored value is in (`convert_to` if set), and
+    /// `field_id` is the declared `id`.
     pub fn to_field_def(&self) -> FieldDef {
-        let mut def = FieldDef::new(self.name.as_str(), self.ty.field_type().clone());
+        let mut def =
+            FieldDef::new(self.name.as_str(), self.ty.field_type().clone()).with_field_id(self.id);
         if let Some(unit) = self.convert_to.as_ref().or(self.unit.as_ref()) {
             def = def.with_unit(unit.as_str());
         }
@@ -500,7 +588,7 @@ pub struct DatasetSpec {
         deserialize_with = "de_identity",
         serialize_with = "ser_identity"
     )]
-    #[schemars(with = "BTreeMap<String, String>")]
+    #[schemars(with = "BTreeMap<String, IdentityLevelBody>")]
     pub identity: Vec<IdentityLevel>,
     /// A content-derived event ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -519,9 +607,21 @@ pub struct DatasetSpec {
 }
 
 impl DatasetSpec {
-    /// The declared fields as `thadam-core` definitions, in declaration order.
+    /// The declared fields as `thadam-core` definitions, in declaration order,
+    /// each carrying its explicit `field_id`.
     pub fn field_defs(&self) -> Vec<FieldDef> {
         self.fields.iter().map(FieldSpec::to_field_def).collect()
+    }
+
+    /// The identity levels as `(name, field ID)` pairs, in the order written.
+    ///
+    /// Pass each pair to `thadam_arrow::DatasetSchemaBuilder::level`, in this
+    /// order, together with [`DatasetSpec::field_defs`].
+    pub fn level_ids(&self) -> Vec<(&str, u32)> {
+        self.identity
+            .iter()
+            .map(|l| (l.name.as_str(), l.id))
+            .collect()
     }
 }
 

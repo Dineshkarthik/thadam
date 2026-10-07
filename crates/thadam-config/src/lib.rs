@@ -72,6 +72,37 @@
 //!     field, `quality.status|flags|reason`) and literals are type-checked, with
 //!     integers above `i64::MAX` kept as `u64`.
 //!
+//! # Parquet field IDs (ADR-0013, "PR13 implementation decisions")
+//!
+//! `thadam-arrow` writes a stable `PARQUET:field_id` on every column and takes
+//! the IDs of declared fields and identity levels from configuration. They are
+//! spelled **`id`** (the same key the other lists use for their identifier) and
+//! are required:
+//!
+//! ```yaml
+//! identity:
+//!   site:  { id: 100, template: "{topic.2}" }
+//!   robot: { id: 101, template: "{topic.3}" }
+//! fields:
+//!   - { id: 1000, name: seq,     type: u64, from: /seq, required: true }
+//!   - { id: 1001, name: soc_pct, type: f32, from: /soc_pct }
+//! ```
+//!
+//! - A declared field's `id` is in [`DECLARED_FIELD_ID_RANGE`] (1000 to
+//!   4,194,303); an identity level's `id` is in [`IDENTITY_LEVEL_ID_RANGE`]
+//!   (100 to 199). IDs 1 to 99 belong to the envelope columns and are fixed by
+//!   `thadam-arrow`; nested IDs are derived from the parent's.
+//! - IDs are unique within a dataset, not across datasets. Violations are
+//!   diagnostics at the `id` value (`datasets[0].fields[1].id`).
+//! - An identity level is a mapping now; the earlier `site: "{topic.2}"` string
+//!   form is refused with a hint showing the new form.
+//! - **Never reuse the ID of a removed field.** The loader cannot see history,
+//!   so retiring an ID is the configuration owner's job.
+//! - IDs are part of the config hash, so changing one changes the hash.
+//! - [`FieldSpec::to_field_def`] and [`DatasetSpec::field_defs`] set
+//!   `FieldDef::field_id`; [`DatasetSpec::level_ids`] gives the `(name, id)`
+//!   pairs for `thadam_arrow::DatasetSchema::builder(..).level(name, id)`.
+//!
 //! # Versioning
 //!
 //! `version: 1` is mandatory. A newer or unknown version is refused with
@@ -110,10 +141,11 @@ pub use secret::{REDACTED, Secret};
 pub use semantic::KindPolicy;
 pub use source::{EnvSource, MAX_SECRET_FILE_BYTES, MapEnv, ProcessEnv};
 pub use spec::{
-    AdminSpec, CONFIG_VERSION, ConnectorSpec, DatasetSpec, DecodeFormat, DedupSpec, EventIdSpec,
-    ExplodeSpec, FieldSpec, FsyncSpec, IdentityLevel, LogFormat, LogLevel, LogsSpec, MatchSpec,
-    ObservabilitySpec, OnFull, PipelineMeta, PipelineSpec, QuarantineFormat, QuarantineSpec,
-    RuleStatus, RuntimeSpec, SinkSpec, TimeSpec, TimeUnit, TransformSpec, ValidateRule, WalSpec,
+    AdminSpec, CONFIG_VERSION, ConnectorSpec, DECLARED_FIELD_ID_RANGE, DatasetSpec, DecodeFormat,
+    DedupSpec, EventIdSpec, ExplodeSpec, FieldSpec, FsyncSpec, IDENTITY_LEVEL_ID_RANGE,
+    IdentityLevel, LogFormat, LogLevel, LogsSpec, MatchSpec, ObservabilitySpec, OnFull,
+    PipelineMeta, PipelineSpec, QuarantineFormat, QuarantineSpec, RuleStatus, RuntimeSpec,
+    SinkSpec, TimeSpec, TimeUnit, TransformSpec, ValidateRule, WalSpec,
 };
 
 use crate::ctx::Ctx;

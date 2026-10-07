@@ -12,11 +12,11 @@ datasets:
   - id: readings
     match: { source: src, topic: "t/+/data" }
     decode: json
-    identity: { device: "{topic.1}" }
+    identity: { device: { id: 100, template: "{topic.1}" } }
     time: { field: /ts, unit: ms, domain: utc }
     fields:
-      - { name: temp, type: f32, from: /temp, colour: red }
-      - { name: level, type: str, from: /level }
+      - { id: 1000, name: temp, type: f32, from: /temp, colour: red }
+      - { id: 1001, name: level, type: str, from: /level }
 transforms:
   - { kind: filter, dataset: readngs, where: { field: level, ne: debug } }
   - { kind: filter, dataset: readings, where: { field: levl, ne: debug } }

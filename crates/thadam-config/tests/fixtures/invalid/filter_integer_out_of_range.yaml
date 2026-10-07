@@ -10,12 +10,12 @@ datasets:
   - id: readings
     match: { source: src, topic: "t/+/data" }
     decode: json
-    identity: { device: "{topic.1}" }
+    identity: { device: { id: 100, template: "{topic.1}" } }
     time: { field: /ts, unit: ms, domain: utc }
     fields:
-      - { name: temp, type: f32, from: /temp }
-      - { name: level, type: str, from: /level }
-      - { name: flags8, type: u8, from: /flags }
+      - { id: 1000, name: temp, type: f32, from: /temp }
+      - { id: 1001, name: level, type: str, from: /level }
+      - { id: 1002, name: flags8, type: u8, from: /flags }
 transforms:
   - { kind: filter, dataset: readings, where: { field: flags8, ge: 300 } }
 sinks:

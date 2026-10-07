@@ -10,12 +10,12 @@ datasets:
   - id: readings
     match: { source: src, topic: "t/+/data" }
     decode: json
-    identity: { device: "{topic.1}" }
+    identity: { device: { id: 100, template: "{topic.1}" } }
     time: { field: /ts, unit: ms, domain: utc }
     fields:
-      - { name: temp, type: float, from: /temp }
-      - { name: level, type: str, from: /level }
-      - { name: temps, type: "list<f32", from: /temps }
+      - { id: 1000, name: temp, type: float, from: /temp }
+      - { id: 1001, name: level, type: str, from: /level }
+      - { id: 1002, name: temps, type: "list<f32", from: /temps }
 sinks:
   - id: local
     kind: parquet

@@ -1,0 +1,23 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.invalid]: identity level id 99 of `site` is outside 100..=199
+  --> field_id_out_of_range.yaml:13:29 (datasets[0].identity.site.id)
+  = hint: declared fields use 1000 to 4194303 and identity levels use 100 to 199; 1 to 99 are Thadam's envelope columns and higher ids are derived for nested fields
+error[config.invalid]: identity level id 1000 of `device` is outside 100..=199
+  --> field_id_out_of_range.yaml:13:72 (datasets[0].identity.device.id)
+  = hint: declared fields use 1000 to 4194303 and identity levels use 100 to 199; 1 to 99 are Thadam's envelope columns and higher ids are derived for nested fields
+error[config.invalid]: field id 999 of `a` is outside 1000..=4194303
+  --> field_id_out_of_range.yaml:16:15 (datasets[0].fields[0].id)
+  = hint: declared fields use 1000 to 4194303 and identity levels use 100 to 199; 1 to 99 are Thadam's envelope columns and higher ids are derived for nested fields
+error[config.invalid]: field id 100 of `b` is outside 1000..=4194303
+  --> field_id_out_of_range.yaml:17:15 (datasets[0].fields[1].id)
+  = hint: declared fields use 1000 to 4194303 and identity levels use 100 to 199; 1 to 99 are Thadam's envelope columns and higher ids are derived for nested fields
+error[config.invalid]: field id 4194304 of `d` is outside 1000..=4194303
+  --> field_id_out_of_range.yaml:19:15 (datasets[0].fields[3].id)
+  = hint: declared fields use 1000 to 4194303 and identity levels use 100 to 199; 1 to 99 are Thadam's envelope columns and higher ids are derived for nested fields
+error[config.invalid]: field id 0 of `e` is outside 1000..=4194303
+  --> field_id_out_of_range.yaml:20:15 (datasets[0].fields[4].id)
+  = hint: declared fields use 1000 to 4194303 and identity levels use 100 to 199; 1 to 99 are Thadam's envelope columns and higher ids are derived for nested fields
+6 errors, 0 warnings

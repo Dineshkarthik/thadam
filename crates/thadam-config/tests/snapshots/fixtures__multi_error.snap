@@ -9,8 +9,8 @@ error[config.invalid]: unknown top-level key `wall`, expected one of `version`, 
   = hint: did you mean `wal`?
 error[config.invalid]: invalid count `two`: expected an integer, optionally with a `k` or `m` suffix
   --> multi_error.yaml:10:28 (runtime.worker_threads)
-error[config.invalid]: unknown key `colour`, expected one of `name`, `type`, `from`, `required`, `unit`, `convert_to`
-  --> multi_error.yaml:18:47 (datasets[0].fields[0].colour)
+error[config.invalid]: unknown key `colour`, expected one of `name`, `id`, `type`, `from`, `required`, `unit`, `convert_to`
+  --> multi_error.yaml:18:57 (datasets[0].fields[0].colour)
 error[config.invalid]: no dataset with id `readngs`
   --> multi_error.yaml:21:30 (transforms[0].dataset)
   = hint: did you mean `readings`?

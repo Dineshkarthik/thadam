@@ -40,97 +40,97 @@ datasets:
   - id: telemetry
     match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/telemetry" }
     decode: json
-    identity: { site: "{topic.2}", robot: "{topic.3}" }
+    identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
     event_id: { key: [site, robot, seq] }
     dedup: { window: 10m, max_keys: 500k }          # message level, before explode
     time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
     fields:
-      - { name: seq,          type: u64,        from: /seq, required: true }
-      - { name: soc_pct,      type: f32,        from: /soc_pct }
-      - { name: voltage_v,    type: f32,        from: /voltage_mv,   unit: mV,   convert_to: V }
-      - { name: current_a,    type: f32,        from: /current_ma,   unit: mA,   convert_to: A }
-      - { name: cpu_temp_c,   type: f32,        from: /cpu_temp_dc,  unit: dCel, convert_to: Cel }
-      - { name: motor_temp_c, type: "list<f32>", from: /motor_temp_dc, unit: dCel, convert_to: Cel }
+      - { id: 1000, name: seq,          type: u64,        from: /seq, required: true }
+      - { id: 1001, name: soc_pct,      type: f32,        from: /soc_pct }
+      - { id: 1002, name: voltage_v,    type: f32,        from: /voltage_mv,   unit: mV,   convert_to: V }
+      - { id: 1003, name: current_a,    type: f32,        from: /current_ma,   unit: mA,   convert_to: A }
+      - { id: 1004, name: cpu_temp_c,   type: f32,        from: /cpu_temp_dc,  unit: dCel, convert_to: Cel }
+      - { id: 1005, name: motor_temp_c, type: "list<f32>", from: /motor_temp_dc, unit: dCel, convert_to: Cel }
 
   - id: joints
     match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/joints" }
     decode: json
-    identity: { site: "{topic.2}", robot: "{topic.3}" }
+    identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
     event_id: { key: [site, robot, seq] }
     dedup: { window: 10m, max_keys: 500k }
     explode: { path: /samples, index_field: sample_idx }
     time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }   # relative to each sample
     fields:
-      - { name: seq,            type: u64,         from: "^/seq" }   # ^ = parent message
-      - { name: position_rad,   type: "list<f64>", from: /pos }
-      - { name: velocity_rad_s, type: "list<f64>", from: /vel }
-      - { name: effort_nm,      type: "list<f64>", from: /eff }
+      - { id: 1000, name: seq,            type: u64,         from: "^/seq" }   # ^ = parent message
+      - { id: 1001, name: position_rad,   type: "list<f64>", from: /pos }
+      - { id: 1002, name: velocity_rad_s, type: "list<f64>", from: /vel }
+      - { id: 1003, name: effort_nm,      type: "list<f64>", from: /eff }
 
   - id: imu
     match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/imu" }
     decode: json
-    identity: { site: "{topic.2}", robot: "{topic.3}" }
+    identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
     event_id: { key: [site, robot, seq] }
     dedup: { window: 10m, max_keys: 500k }
     explode: { path: /samples, index_field: sample_idx }
     time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
     fields:
-      - { name: seq,          type: u64, from: "^/seq" }
-      - { name: accel_x_m_s2, type: f32, from: /accel/0, unit: "[g]",   convert_to: "m/s2" }
-      - { name: accel_y_m_s2, type: f32, from: /accel/1, unit: "[g]",   convert_to: "m/s2" }
-      - { name: accel_z_m_s2, type: f32, from: /accel/2, unit: "[g]",   convert_to: "m/s2" }
-      - { name: gyro_x_rad_s, type: f32, from: /gyro/0,  unit: "deg/s", convert_to: "rad/s" }
-      - { name: gyro_y_rad_s, type: f32, from: /gyro/1,  unit: "deg/s", convert_to: "rad/s" }
-      - { name: gyro_z_rad_s, type: f32, from: /gyro/2,  unit: "deg/s", convert_to: "rad/s" }
-      - { name: quat_w,       type: f32, from: /quat/0 }
-      - { name: quat_x,       type: f32, from: /quat/1 }
-      - { name: quat_y,       type: f32, from: /quat/2 }
-      - { name: quat_z,       type: f32, from: /quat/3 }
+      - { id: 1000, name: seq,          type: u64, from: "^/seq" }
+      - { id: 1001, name: accel_x_m_s2, type: f32, from: /accel/0, unit: "[g]",   convert_to: "m/s2" }
+      - { id: 1002, name: accel_y_m_s2, type: f32, from: /accel/1, unit: "[g]",   convert_to: "m/s2" }
+      - { id: 1003, name: accel_z_m_s2, type: f32, from: /accel/2, unit: "[g]",   convert_to: "m/s2" }
+      - { id: 1004, name: gyro_x_rad_s, type: f32, from: /gyro/0,  unit: "deg/s", convert_to: "rad/s" }
+      - { id: 1005, name: gyro_y_rad_s, type: f32, from: /gyro/1,  unit: "deg/s", convert_to: "rad/s" }
+      - { id: 1006, name: gyro_z_rad_s, type: f32, from: /gyro/2,  unit: "deg/s", convert_to: "rad/s" }
+      - { id: 1007, name: quat_w,       type: f32, from: /quat/0 }
+      - { id: 1008, name: quat_x,       type: f32, from: /quat/1 }
+      - { id: 1009, name: quat_y,       type: f32, from: /quat/2 }
+      - { id: 1010, name: quat_z,       type: f32, from: /quat/3 }
 
   - id: pose
     match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/pose" }
     decode: json
-    identity: { site: "{topic.2}", robot: "{topic.3}" }
+    identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
     event_id: { key: [site, robot, seq] }
     dedup: { window: 10m, max_keys: 500k }
     explode: { path: /samples, index_field: sample_idx }
     time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
     fields:
-      - { name: seq,      type: u64, from: "^/seq" }
-      - { name: frame_id, type: str, from: /frame }
-      - { name: x_m,      type: f64, from: /pos/0 }
-      - { name: y_m,      type: f64, from: /pos/1 }
-      - { name: z_m,      type: f64, from: /pos/2 }
-      - { name: qw,       type: f64, from: /quat/0 }
-      - { name: qx,       type: f64, from: /quat/1 }
-      - { name: qy,       type: f64, from: /quat/2 }
-      - { name: qz,       type: f64, from: /quat/3 }
+      - { id: 1000, name: seq,      type: u64, from: "^/seq" }
+      - { id: 1001, name: frame_id, type: str, from: /frame }
+      - { id: 1002, name: x_m,      type: f64, from: /pos/0 }
+      - { id: 1003, name: y_m,      type: f64, from: /pos/1 }
+      - { id: 1004, name: z_m,      type: f64, from: /pos/2 }
+      - { id: 1005, name: qw,       type: f64, from: /quat/0 }
+      - { id: 1006, name: qx,       type: f64, from: /quat/1 }
+      - { id: 1007, name: qy,       type: f64, from: /quat/2 }
+      - { id: 1008, name: qz,       type: f64, from: /quat/3 }
 
   - id: state
     match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/state" }
     decode: json
-    identity: { site: "{topic.2}", robot: "{topic.3}" }
+    identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
     event_id: { key: [site, robot, seq] }
     time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
     fields:
-      - { name: seq,      type: u64, from: /seq, required: true }
-      - { name: mode,     type: str, from: /mode }
-      - { name: cycle_id, type: u64, from: /cycle_id }
-      - { name: program,  type: str, from: /program }
+      - { id: 1000, name: seq,      type: u64, from: /seq, required: true }
+      - { id: 1001, name: mode,     type: str, from: /mode }
+      - { id: 1002, name: cycle_id, type: u64, from: /cycle_id }
+      - { id: 1003, name: program,  type: str, from: /program }
 
   - id: events
     match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/events" }
     decode: json
-    identity: { site: "{topic.2}", robot: "{topic.3}" }
+    identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
     event_id: { key: [site, robot, seq] }
     time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
     fields:
-      - { name: seq,        type: u64, from: /seq, required: true }
-      - { name: event_type, type: str, from: /type }
-      - { name: level,      type: str, from: /level }
-      - { name: code,       type: str, from: /code }
-      - { name: message,    type: str, from: /message }
-      - { name: cycle_id,   type: u64, from: /cycle_id }
+      - { id: 1000, name: seq,        type: u64, from: /seq, required: true }
+      - { id: 1001, name: event_type, type: str, from: /type }
+      - { id: 1002, name: level,      type: str, from: /level }
+      - { id: 1003, name: code,       type: str, from: /code }
+      - { id: 1004, name: message,    type: str, from: /message }
+      - { id: 1005, name: cycle_id,   type: u64, from: /cycle_id }
 
 transforms:
   - kind: validate

@@ -102,7 +102,7 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
         },
         "identity": {
           "additionalProperties": {
-            "type": "string"
+            "$ref": "#/$defs/IdentityLevel"
           },
           "default": {},
           "description": "The asset path levels, in the order written.",
@@ -227,6 +227,13 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
           "description": "A JSON Pointer into the payload; `^/` reads from the parent message of an exploded sample.",
           "type": "string"
         },
+        "id": {
+          "description": "The stable Parquet field ID (1000 to 4194303, unique in the dataset). Never reuse the ID of a removed field.",
+          "format": "uint32",
+          "maximum": 4194303,
+          "minimum": 1000,
+          "type": "integer"
+        },
         "name": {
           "description": "The column name.",
           "type": "string"
@@ -256,6 +263,7 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
       },
       "required": [
         "name",
+        "id",
         "type",
         "from"
       ],
@@ -290,6 +298,28 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
           "type": "object"
         }
       ]
+    },
+    "IdentityLevel": {
+      "additionalProperties": false,
+      "description": "The value written under an identity level's name.",
+      "properties": {
+        "id": {
+          "description": "The stable Parquet field ID of the level's column (100 to 199, unique in the dataset).",
+          "format": "uint32",
+          "maximum": 199,
+          "minimum": 100,
+          "type": "integer"
+        },
+        "template": {
+          "description": "The template; `{topic.N}` is the Nth topic level (0-based).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "template"
+      ],
+      "type": "object"
     },
     "LogFormat": {
       "description": "The log output format.",

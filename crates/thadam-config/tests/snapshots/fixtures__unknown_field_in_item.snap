@@ -2,9 +2,9 @@
 source: crates/thadam-config/tests/fixtures.rs
 expression: "checked.report.render(&format!(\"{name}.yaml\"))"
 ---
-error[config.invalid]: unknown key `fromm`, expected one of `name`, `type`, `from`, `required`, `unit`, `convert_to`
-  --> unknown_field_in_item.yaml:16:34 (datasets[0].fields[0].fromm)
+error[config.invalid]: unknown key `fromm`, expected one of `name`, `id`, `type`, `from`, `required`, `unit`, `convert_to`
+  --> unknown_field_in_item.yaml:16:44 (datasets[0].fields[0].fromm)
   = hint: did you mean `from`?
-error[config.invalid]: unknown key `colour`, expected one of `name`, `type`, `from`, `required`, `unit`, `convert_to`
-  --> unknown_field_in_item.yaml:16:48 (datasets[0].fields[0].colour)
+error[config.invalid]: unknown key `colour`, expected one of `name`, `id`, `type`, `from`, `required`, `unit`, `convert_to`
+  --> unknown_field_in_item.yaml:16:58 (datasets[0].fields[0].colour)
 2 errors, 0 warnings
