@@ -1,0 +1,11 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.invalid]: no dataset with id `readngs`
+  --> transform_unknown_dataset_and_sink.yaml:19:30 (transforms[0].dataset)
+  = hint: did you mean `readings`?
+error[config.invalid]: no sink with id `loca`
+  --> transform_unknown_dataset_and_sink.yaml:20:82 (transforms[1].sinks[0])
+  = hint: did you mean `local`?
+2 errors, 0 warnings

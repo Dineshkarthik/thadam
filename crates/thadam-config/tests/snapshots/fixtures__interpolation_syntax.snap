@@ -1,0 +1,13 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.invalid]: unterminated `${`
+  --> interpolation_syntax.yaml:21:40 (sinks[0].config.a)
+  = hint: write `$${` for a literal `${`
+error[config.invalid]: nested interpolation is not supported
+  --> interpolation_syntax.yaml:21:54 (sinks[0].config.b)
+error[config.invalid]: unknown interpolation source `vault`
+  --> interpolation_syntax.yaml:21:76 (sinks[0].config.c)
+  = hint: use `${env:NAME}` or `${file:/absolute/path}`
+3 errors, 0 warnings

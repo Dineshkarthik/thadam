@@ -1,0 +1,17 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.missing]: missing required section `wal`
+  --> missing_required_sections.yaml:2:1 (wal)
+  = hint: add a `wal:` mapping
+error[config.missing]: missing required section `sources`
+  --> missing_required_sections.yaml:2:1 (sources)
+  = hint: add a `sources:` list
+error[config.missing]: missing required section `sinks`
+  --> missing_required_sections.yaml:2:1 (sinks)
+  = hint: add a `sinks:` list
+error[config.missing]: missing required section `datasets`
+  --> missing_required_sections.yaml:2:1 (datasets)
+  = hint: add a `datasets:` list
+4 errors, 0 warnings

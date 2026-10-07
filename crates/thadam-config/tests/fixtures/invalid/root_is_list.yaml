@@ -1,0 +1,5 @@
+# the document root is a list instead of a mapping
+- version: 1
+- pipeline: { name: demo, node_id: n1, data_dir: /var/lib/thadam }
+- a
+- b

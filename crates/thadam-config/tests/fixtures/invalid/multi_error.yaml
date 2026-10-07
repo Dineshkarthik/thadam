@@ -1,0 +1,26 @@
+# six unrelated errors: unknown top-level key, bad duration, unknown field key, wrong-typed number, unknown transform dataset, bad filter field
+version: 1
+pipeline: { name: demo, node_id: n1, data_dir: /var/lib/thadam }
+sources:
+  - id: src
+    kind: mqtt
+    config: { url: "mqtt://broker:1883", topics: [{ filter: "t/+/data", qos: 1 }] }
+wal: { max_disk: 1GiB, on_full: block, retain_for: 1hr30 }
+wall: { max_disk: 1GiB, on_full: block }
+runtime: { worker_threads: two }
+datasets:
+  - id: readings
+    match: { source: src, topic: "t/+/data" }
+    decode: json
+    identity: { device: "{topic.1}" }
+    time: { field: /ts, unit: ms, domain: utc }
+    fields:
+      - { name: temp, type: f32, from: /temp, colour: red }
+      - { name: level, type: str, from: /level }
+transforms:
+  - { kind: filter, dataset: readngs, where: { field: level, ne: debug } }
+  - { kind: filter, dataset: readings, where: { field: levl, ne: debug } }
+sinks:
+  - id: local
+    kind: parquet
+    config: { datasets: [readings] }

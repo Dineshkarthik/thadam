@@ -1,0 +1,17 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.invalid]: invalid duration `1hr30`: time unit needed, for example 30sec or 30ms
+  --> multi_error.yaml:8:52 (wal.retain_for)
+error[config.invalid]: unknown top-level key `wall`, expected one of `version`, `pipeline`, `sources`, `wal`, `quarantine`, `datasets`, `transforms`, `sinks`, `runtime`, `observability`
+  --> multi_error.yaml:9:1 (wall)
+  = hint: did you mean `wal`?
+error[config.invalid]: invalid count `two`: expected an integer, optionally with a `k` or `m` suffix
+  --> multi_error.yaml:10:28 (runtime.worker_threads)
+error[config.invalid]: unknown key `colour`, expected one of `name`, `type`, `from`, `required`, `unit`, `convert_to`
+  --> multi_error.yaml:18:47 (datasets[0].fields[0].colour)
+error[config.invalid]: no dataset with id `readngs`
+  --> multi_error.yaml:21:30 (transforms[0].dataset)
+  = hint: did you mean `readings`?
+5 errors, 0 warnings

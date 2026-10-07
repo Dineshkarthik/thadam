@@ -1,0 +1,12 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.invalid]: `all` needs a non-empty list of predicates
+  --> filter_bad_predicate_shape.yaml:19:49 (transforms[0].where.all)
+error[config.invalid]: a condition takes one test
+  --> filter_bad_predicate_shape.yaml:20:40 (transforms[1].where)
+  = hint: combine several tests with `all` or `any`; `min` and `max` may be used together
+error[config.invalid]: unknown predicate key `equals`, expected `field` with one of eq, ne, lt, le, gt, ge, in, min, max, or all, any, not
+  --> filter_bad_predicate_shape.yaml:21:62 (transforms[2].where.equals)
+3 errors, 0 warnings

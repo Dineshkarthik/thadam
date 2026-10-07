@@ -1,0 +1,9 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.invalid]: duplicate id `src` in `sources`
+  --> duplicate_ids.yaml:8:9 (sources[1].id)
+error[config.invalid]: duplicate id `readings` in `datasets`
+  --> duplicate_ids.yaml:21:9 (datasets[1].id)
+2 errors, 0 warnings

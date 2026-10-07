@@ -1,0 +1,9 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.invalid]: `min` and `max` need a numeric field or a list of numbers, but `level` is `str`
+  --> validate_rule_non_numeric.yaml:22:18 (transforms[0].rules[0].field)
+error[config.invalid]: `min` (5) is greater than `max` (1)
+  --> validate_rule_non_numeric.yaml:23:29 (transforms[0].rules[1].min)
+2 errors, 0 warnings

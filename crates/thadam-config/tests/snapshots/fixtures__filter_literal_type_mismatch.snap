@@ -1,0 +1,9 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.invalid]: `temp` is `f32`, but the value is a string
+  --> filter_literal_type_mismatch.yaml:19:66 (transforms[0].where.eq)
+error[config.invalid]: ordering comparisons are not supported on the string field `level`
+  --> filter_literal_type_mismatch.yaml:20:67 (transforms[1].where.gt)
+2 errors, 0 warnings

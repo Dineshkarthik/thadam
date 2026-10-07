@@ -1,0 +1,22 @@
+# field types `float` (not a valid type) and `list<f32` (unclosed)
+version: 1
+pipeline: { name: demo, node_id: n1, data_dir: /var/lib/thadam }
+sources:
+  - id: src
+    kind: mqtt
+    config: { url: "mqtt://broker:1883", topics: [{ filter: "t/+/data", qos: 1 }] }
+wal: { max_disk: 1GiB, on_full: block }
+datasets:
+  - id: readings
+    match: { source: src, topic: "t/+/data" }
+    decode: json
+    identity: { device: "{topic.1}" }
+    time: { field: /ts, unit: ms, domain: utc }
+    fields:
+      - { name: temp, type: float, from: /temp }
+      - { name: level, type: str, from: /level }
+      - { name: temps, type: "list<f32", from: /temps }
+sinks:
+  - id: local
+    kind: parquet
+    config: { datasets: [readings] }

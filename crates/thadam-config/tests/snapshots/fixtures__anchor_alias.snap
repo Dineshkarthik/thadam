@@ -1,0 +1,11 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.invalid]: anchors and aliases are not supported in config version 1
+  --> anchor_alias.yaml:3:22 (pipeline.name)
+  = hint: repeat the value instead of sharing it by reference
+error[config.invalid]: anchors and aliases are not supported in config version 1
+  --> anchor_alias.yaml:3:37 (pipeline.node_id)
+  = hint: repeat the value instead of sharing it by reference
+2 errors, 0 warnings

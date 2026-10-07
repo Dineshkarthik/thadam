@@ -1,0 +1,21 @@
+# sinks[0].config.token uses a relative path in a ${file:...} placeholder
+version: 1
+pipeline: { name: demo, node_id: n1, data_dir: /var/lib/thadam }
+sources:
+  - id: src
+    kind: mqtt
+    config: { url: "mqtt://broker:1883", topics: [{ filter: "t/+/data", qos: 1 }] }
+wal: { max_disk: 1GiB, on_full: block }
+datasets:
+  - id: readings
+    match: { source: src, topic: "t/+/data" }
+    decode: json
+    identity: { device: "{topic.1}" }
+    time: { field: /ts, unit: ms, domain: utc }
+    fields:
+      - { name: temp, type: f32, from: /temp }
+      - { name: level, type: str, from: /level }
+sinks:
+  - id: local
+    kind: parquet
+    config: { datasets: [readings], token: "${file:secrets/key}" }

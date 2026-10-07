@@ -1,0 +1,10 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.invalid]: unknown top-level key `wall`, expected one of `version`, `pipeline`, `sources`, `wal`, `quarantine`, `datasets`, `transforms`, `sinks`, `runtime`, `observability`
+  --> unknown_top_level_key.yaml:9:1 (wall)
+  = hint: did you mean `wal`?
+error[config.invalid]: unknown top-level key `extras`, expected one of `version`, `pipeline`, `sources`, `wal`, `quarantine`, `datasets`, `transforms`, `sinks`, `runtime`, `observability`
+  --> unknown_top_level_key.yaml:10:1 (extras)
+2 errors, 0 warnings

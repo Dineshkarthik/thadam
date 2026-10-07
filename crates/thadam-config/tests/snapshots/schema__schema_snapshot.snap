@@ -1,0 +1,1037 @@
+---
+source: crates/thadam-config/tests/schema.rs
+expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
+---
+{
+  "$defs": {
+    "AdminSpec": {
+      "additionalProperties": false,
+      "description": "The admin API (`/healthz`, `/readyz`, `/metrics`, `/status`).",
+      "properties": {
+        "bind": {
+          "default": "127.0.0.1:9464",
+          "description": "The listen address; a non-loopback address requires `token_file`.",
+          "type": "string"
+        },
+        "token_file": {
+          "description": "A file holding the bearer token.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ConnectorSpec": {
+      "additionalProperties": false,
+      "description": "A source or sink: an `id`, a registered `kind`, and an opaque `config`.\n\n`config` stays a `serde_json::Value` (D22); the connector factory validates\nit. Values that came from `${env:}` or `${file:}` are listed in\n[`ConnectorSpec::secret_paths`] and redacted by `Debug`.",
+      "properties": {
+        "config": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "Connector-specific configuration.",
+          "type": "object"
+        },
+        "id": {
+          "description": "A unique identifier; used in metric labels and file names.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "The registered connector kind, such as `mqtt` or `parquet`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "DatasetSpec": {
+      "additionalProperties": false,
+      "description": "An output table.",
+      "properties": {
+        "decode": {
+          "$ref": "#/$defs/DecodeFormat",
+          "description": "How payloads are decoded."
+        },
+        "dedup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DedupSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Message-level deduplication."
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventIdSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A content-derived event ID."
+        },
+        "explode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExplodeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Message-to-events splitting."
+        },
+        "fields": {
+          "description": "The declared schema.",
+          "items": {
+            "$ref": "#/$defs/FieldSpec"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "A unique identifier; used in paths, object keys, and metric labels.",
+          "type": "string"
+        },
+        "identity": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "The asset path levels, in the order written.",
+          "type": "object"
+        },
+        "match": {
+          "$ref": "#/$defs/MatchSpec",
+          "description": "Which messages feed the dataset."
+        },
+        "time": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Source timestamp extraction."
+        }
+      },
+      "required": [
+        "id",
+        "match",
+        "decode",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "DecodeFormat": {
+      "description": "How a dataset's payloads are decoded.",
+      "oneOf": [
+        {
+          "const": "json",
+          "description": "A JSON object per message.",
+          "type": "string"
+        }
+      ]
+    },
+    "DedupSpec": {
+      "additionalProperties": false,
+      "description": "Best-effort message-level deduplication, before `explode`.",
+      "properties": {
+        "max_keys": {
+          "description": "The most keys remembered.",
+          "examples": [
+            4,
+            "500k"
+          ],
+          "minimum": 0,
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "window": {
+          "description": "How long a key is remembered.",
+          "examples": [
+            "50ms",
+            "5s",
+            "1h"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "window",
+        "max_keys"
+      ],
+      "type": "object"
+    },
+    "EventIdSpec": {
+      "additionalProperties": false,
+      "description": "Identity from a stable key rather than the WAL position.",
+      "properties": {
+        "key": {
+          "description": "Identity levels and declared fields whose values form the event ID.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "type": "object"
+    },
+    "ExplodeSpec": {
+      "additionalProperties": false,
+      "description": "Splits one message into one event per element of a list.",
+      "properties": {
+        "index_field": {
+          "description": "A column that receives each element's index.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "A JSON Pointer to the list.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "FieldSpec": {
+      "additionalProperties": false,
+      "description": "One declared field of a dataset.",
+      "properties": {
+        "convert_to": {
+          "description": "Convert to this unit; requires `unit`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "from": {
+          "description": "A JSON Pointer into the payload; `^/` reads from the parent message of an exploded sample.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The column name.",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "description": "Reject the event when the field is missing or null.",
+          "type": "boolean"
+        },
+        "type": {
+          "description": "The declared type.",
+          "examples": [
+            "f32",
+            "u64",
+            "list<f64>"
+          ],
+          "pattern": "^(bool|i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|str|string|bytes|ts|timestamp|list<.+>)$",
+          "type": "string"
+        },
+        "unit": {
+          "description": "The unit of the source value (a UCUM code such as `mV`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "from"
+      ],
+      "type": "object"
+    },
+    "FsyncSpec": {
+      "description": "`always`, `never`, or `{ interval: <duration> }` (default `{ interval: 10ms }`).",
+      "oneOf": [
+        {
+          "enum": [
+            "always",
+            "never"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "interval": {
+              "description": "A duration with a unit, such as `50ms`, `5s`, `10m`, `1h` or `1d`.",
+              "examples": [
+                "50ms",
+                "5s",
+                "1h"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "interval"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LogFormat": {
+      "description": "The log output format.",
+      "oneOf": [
+        {
+          "const": "json",
+          "description": "One JSON object per line.",
+          "type": "string"
+        },
+        {
+          "const": "text",
+          "description": "Human-readable text.",
+          "type": "string"
+        }
+      ]
+    },
+    "LogLevel": {
+      "description": "The minimum log level.",
+      "oneOf": [
+        {
+          "const": "trace",
+          "description": "`trace`",
+          "type": "string"
+        },
+        {
+          "const": "debug",
+          "description": "`debug`",
+          "type": "string"
+        },
+        {
+          "const": "info",
+          "description": "`info`",
+          "type": "string"
+        },
+        {
+          "const": "warn",
+          "description": "`warn`",
+          "type": "string"
+        },
+        {
+          "const": "error",
+          "description": "`error`",
+          "type": "string"
+        }
+      ]
+    },
+    "LogsSpec": {
+      "additionalProperties": false,
+      "description": "Log settings.",
+      "properties": {
+        "format": {
+          "$ref": "#/$defs/LogFormat",
+          "default": "json",
+          "description": "The output format."
+        },
+        "level": {
+          "$ref": "#/$defs/LogLevel",
+          "default": "info",
+          "description": "The minimum level."
+        }
+      },
+      "type": "object"
+    },
+    "MatchSpec": {
+      "additionalProperties": false,
+      "description": "Which messages belong to a dataset.",
+      "properties": {
+        "source": {
+          "description": "The `id` of a source.",
+          "type": "string"
+        },
+        "topic": {
+          "description": "A topic filter; for MQTT, `+` and `#` wildcards apply. Omit to match every message.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "ObservabilitySpec": {
+      "additionalProperties": false,
+      "description": "Logs and the admin API.",
+      "properties": {
+        "admin": {
+          "$ref": "#/$defs/AdminSpec",
+          "default": {
+            "bind": "127.0.0.1:9464"
+          },
+          "description": "The admin API."
+        },
+        "logs": {
+          "$ref": "#/$defs/LogsSpec",
+          "default": {
+            "format": "json",
+            "level": "info"
+          },
+          "description": "Log settings."
+        }
+      },
+      "type": "object"
+    },
+    "OnFull": {
+      "description": "What the WAL does when `max_disk` is reached. There is no default.",
+      "oneOf": [
+        {
+          "const": "block",
+          "description": "Stop accepting data and apply backpressure to sources.",
+          "type": "string"
+        },
+        {
+          "const": "drop_oldest",
+          "description": "Evict the oldest unconsumed data; the loss is counted.",
+          "type": "string"
+        }
+      ]
+    },
+    "PipelineMeta": {
+      "additionalProperties": false,
+      "description": "Pipeline identity and storage location.",
+      "properties": {
+        "data_dir": {
+          "description": "The data directory holding the WAL, segments, and `thadam.json`.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The pipeline name; used in object keys and refused if changed on restart.",
+          "type": "string"
+        },
+        "node_id": {
+          "description": "The node identity; used in file names and object keys.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "node_id",
+        "data_dir"
+      ],
+      "type": "object"
+    },
+    "Predicate": {
+      "description": "A structured predicate: `all`, `any`, `not`, or a condition on one field.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "all": {
+              "items": {
+                "$ref": "#/$defs/Predicate"
+              },
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "all"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "items": {
+                "$ref": "#/$defs/Predicate"
+              },
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "any"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "not": {
+              "$ref": "#/$defs/Predicate"
+            }
+          },
+          "required": [
+            "not"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "eq": {
+              "type": [
+                "boolean",
+                "integer",
+                "number",
+                "string"
+              ]
+            },
+            "field": {
+              "type": "string"
+            },
+            "ge": {
+              "type": "number"
+            },
+            "gt": {
+              "type": "number"
+            },
+            "in": {
+              "items": {
+                "type": [
+                  "boolean",
+                  "integer",
+                  "number",
+                  "string"
+                ]
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "le": {
+              "type": "number"
+            },
+            "lt": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "min": {
+              "type": "number"
+            },
+            "ne": {
+              "type": [
+                "boolean",
+                "integer",
+                "number",
+                "string"
+              ]
+            }
+          },
+          "required": [
+            "field"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "QuarantineFormat": {
+      "description": "The format of the quarantine segments.",
+      "oneOf": [
+        {
+          "const": "parquet",
+          "description": "Parquet with the fixed quarantine schema.",
+          "type": "string"
+        },
+        {
+          "const": "ndjson",
+          "description": "Newline-delimited JSON.",
+          "type": "string"
+        }
+      ]
+    },
+    "QuarantineSpec": {
+      "additionalProperties": false,
+      "description": "Where rejected events go, with their own disk budget.",
+      "properties": {
+        "format": {
+          "$ref": "#/$defs/QuarantineFormat",
+          "default": "parquet",
+          "description": "The segment format."
+        },
+        "max_disk": {
+          "default": 268435456,
+          "description": "The disk budget for quarantine segments.",
+          "examples": [
+            "16MiB",
+            "2GiB",
+            1048576
+          ],
+          "minimum": 0,
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuleStatus": {
+      "description": "The quality status a failed `validate` rule assigns.",
+      "oneOf": [
+        {
+          "const": "good",
+          "description": "`good`",
+          "type": "string"
+        },
+        {
+          "const": "uncertain",
+          "description": "`uncertain`",
+          "type": "string"
+        },
+        {
+          "const": "bad",
+          "description": "`bad`",
+          "type": "string"
+        }
+      ]
+    },
+    "RuntimeSpec": {
+      "additionalProperties": false,
+      "description": "Process-level settings.",
+      "properties": {
+        "memory_target": {
+          "description": "`thadam validate` warns when the estimate of Thadam-owned memory exceeds this.",
+          "examples": [
+            "16MiB",
+            "2GiB",
+            1048576
+          ],
+          "minimum": 0,
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "worker_threads": {
+          "description": "Tokio worker threads; the runtime default when absent.",
+          "examples": [
+            4,
+            "500k"
+          ],
+          "minimum": 0,
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "TimeDomainSpec": {
+      "enum": [
+        "utc",
+        "tai",
+        "monotonic",
+        "sim",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "TimeSpec": {
+      "additionalProperties": false,
+      "description": "How the source timestamp is read.",
+      "properties": {
+        "domain": {
+          "$ref": "#/$defs/TimeDomainSpec",
+          "description": "The clock the device's time is on."
+        },
+        "field": {
+          "description": "A JSON Pointer to the timestamp.",
+          "type": "string"
+        },
+        "max_skew": {
+          "description": "Beyond this distance from ingest time, the event is flagged `CLOCK_SKEW`.",
+          "examples": [
+            "50ms",
+            "5s",
+            "1h"
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unit": {
+          "$ref": "#/$defs/TimeUnit",
+          "description": "The unit of the number."
+        }
+      },
+      "required": [
+        "field",
+        "unit",
+        "domain"
+      ],
+      "type": "object"
+    },
+    "TimeUnit": {
+      "description": "The unit of a numeric source timestamp.",
+      "oneOf": [
+        {
+          "const": "s",
+          "description": "Seconds.",
+          "type": "string"
+        },
+        {
+          "const": "ms",
+          "description": "Milliseconds.",
+          "type": "string"
+        },
+        {
+          "const": "us",
+          "description": "Microseconds.",
+          "type": "string"
+        },
+        {
+          "const": "ns",
+          "description": "Nanoseconds.",
+          "type": "string"
+        }
+      ]
+    },
+    "TransformSpec": {
+      "description": "A step applied to one dataset.\n\nEvery step takes the `dataset` it applies to and an optional `sinks` list\nrestricting it to those sinks (open item O2; absent means all sinks).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Assigns quality flags and status from per-field rules.",
+          "properties": {
+            "dataset": {
+              "description": "The dataset the step applies to.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "validate",
+              "type": "string"
+            },
+            "rules": {
+              "description": "The rules.",
+              "items": {
+                "$ref": "#/$defs/ValidateRule"
+              },
+              "type": "array"
+            },
+            "sinks": {
+              "description": "Restricts the step to these sink ids.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "dataset",
+            "rules"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Passes an event only when selected fields changed, or a heartbeat is due.",
+          "properties": {
+            "dataset": {
+              "description": "The dataset the step applies to.",
+              "type": "string"
+            },
+            "fields": {
+              "description": "The fields compared with the previous event.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "heartbeat": {
+              "description": "An event is passed at least this often.",
+              "examples": [
+                "50ms",
+                "5s",
+                "1h"
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "on_change",
+              "type": "string"
+            },
+            "sinks": {
+              "description": "Restricts the step to these sink ids.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "dataset",
+            "fields"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Drops events that do not match the predicate.",
+          "properties": {
+            "dataset": {
+              "description": "The dataset the step applies to.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "filter",
+              "type": "string"
+            },
+            "sinks": {
+              "description": "Restricts the step to these sink ids.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "where": {
+              "$ref": "#/$defs/Predicate",
+              "description": "The predicate; events for which it is false are dropped and counted."
+            }
+          },
+          "required": [
+            "kind",
+            "dataset",
+            "where"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ValidateRule": {
+      "additionalProperties": false,
+      "description": "A per-field range rule of the `validate` transform.",
+      "properties": {
+        "field": {
+          "description": "A numeric field, or a list of numbers (every element must be in range).",
+          "type": "string"
+        },
+        "flag": {
+          "description": "The quality flag raised on violation, such as `OUT_OF_RANGE`.",
+          "type": "string"
+        },
+        "max": {
+          "description": "The inclusive upper bound.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "min": {
+          "description": "The inclusive lower bound.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/RuleStatus",
+          "description": "The status assigned on violation."
+        }
+      },
+      "required": [
+        "field",
+        "flag",
+        "status"
+      ],
+      "type": "object"
+    },
+    "WalSpec": {
+      "additionalProperties": false,
+      "description": "The capture WAL (ADR-0004).",
+      "properties": {
+        "fsync": {
+          "$ref": "#/$defs/FsyncSpec",
+          "default": {
+            "interval": "10ms"
+          },
+          "description": "The fsync policy."
+        },
+        "max_disk": {
+          "description": "The disk budget for the WAL.",
+          "examples": [
+            "16MiB",
+            "2GiB",
+            1048576
+          ],
+          "minimum": 0,
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "max_pending_bytes": {
+          "default": 8388608,
+          "description": "Bytes a source may have submitted but not yet committed.",
+          "examples": [
+            "16MiB",
+            "2GiB",
+            1048576
+          ],
+          "minimum": 0,
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "on_full": {
+          "$ref": "#/$defs/OnFull",
+          "description": "What happens at `max_disk`. Required: data loss must be an explicit choice."
+        },
+        "retain_for": {
+          "description": "How long consumed data stays available for replay.",
+          "examples": [
+            "50ms",
+            "5s",
+            "1h"
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "segment_bytes": {
+          "default": 16777216,
+          "description": "The size at which a segment file is sealed.",
+          "examples": [
+            "16MiB",
+            "2GiB",
+            1048576
+          ],
+          "minimum": 0,
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "required": [
+        "max_disk",
+        "on_full"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A whole pipeline: one per file, one per process.",
+  "properties": {
+    "datasets": {
+      "description": "The output tables.",
+      "items": {
+        "$ref": "#/$defs/DatasetSpec"
+      },
+      "type": "array"
+    },
+    "observability": {
+      "$ref": "#/$defs/ObservabilitySpec",
+      "default": {
+        "admin": {
+          "bind": "127.0.0.1:9464"
+        },
+        "logs": {
+          "format": "json",
+          "level": "info"
+        }
+      },
+      "description": "Logs and the admin API."
+    },
+    "pipeline": {
+      "$ref": "#/$defs/PipelineMeta",
+      "description": "Names and the data directory."
+    },
+    "quarantine": {
+      "$ref": "#/$defs/QuarantineSpec",
+      "default": {
+        "format": "parquet",
+        "max_disk": 268435456
+      },
+      "description": "Where rejected events go."
+    },
+    "runtime": {
+      "$ref": "#/$defs/RuntimeSpec",
+      "default": {},
+      "description": "Process-level settings."
+    },
+    "sinks": {
+      "description": "Where data goes.",
+      "items": {
+        "$ref": "#/$defs/ConnectorSpec"
+      },
+      "type": "array"
+    },
+    "sources": {
+      "description": "Where data comes from.",
+      "items": {
+        "$ref": "#/$defs/ConnectorSpec"
+      },
+      "type": "array"
+    },
+    "transforms": {
+      "default": [],
+      "description": "Steps applied to datasets, in order.",
+      "items": {
+        "$ref": "#/$defs/TransformSpec"
+      },
+      "type": "array"
+    },
+    "version": {
+      "description": "The config format version; always 1.",
+      "format": "uint32",
+      "maximum": 1,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "wal": {
+      "$ref": "#/$defs/WalSpec",
+      "description": "The capture WAL."
+    }
+  },
+  "required": [
+    "version",
+    "pipeline",
+    "sources",
+    "wal",
+    "datasets",
+    "sinks"
+  ],
+  "title": "Thadam pipeline configuration",
+  "type": "object"
+}
