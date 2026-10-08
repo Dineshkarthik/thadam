@@ -174,6 +174,79 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
       ],
       "type": "object"
     },
+    "EnrichFieldSpec": {
+      "additionalProperties": false,
+      "description": "A field `enrich` adds from a table column.",
+      "properties": {
+        "column": {
+          "description": "The table column to read; the field name when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "The new field's name.",
+          "type": "string"
+        },
+        "type": {
+          "description": "The new field's type; a `ts` field needs `unit`.",
+          "examples": [
+            "f32",
+            "u64",
+            "list<f64>"
+          ],
+          "pattern": "^(bool|i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|str|string|bytes|ts|timestamp|list<.+>)$",
+          "type": "string"
+        },
+        "unit": {
+          "description": "The unit of the value (a UCUM code such as `mV`); for a `ts` field, the\nepoch unit (`s`, `ms`, `us`, `ns`) or `rfc3339`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "type": "object"
+    },
+    "EnrichFormat": {
+      "description": "The file format of an `enrich` table.",
+      "oneOf": [
+        {
+          "const": "csv",
+          "description": "A CSV file with a header row.",
+          "type": "string"
+        },
+        {
+          "const": "yaml",
+          "description": "A YAML list of rows, or a mapping from key to row.",
+          "type": "string"
+        }
+      ]
+    },
+    "EnrichKeySpec": {
+      "additionalProperties": false,
+      "description": "The join between an event and an `enrich` table.",
+      "properties": {
+        "column": {
+          "description": "The table column that holds the key.",
+          "type": "string"
+        },
+        "field": {
+          "description": "The event's field or identity level to look up; a string or integer.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "column"
+      ],
+      "type": "object"
+    },
     "EventIdSpec": {
       "additionalProperties": false,
       "description": "Identity from a stable key rather than the WAL position.",
@@ -322,7 +395,7 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
       "type": "object"
     },
     "LogFormat": {
-      "description": "The log output format.",
+      "description": "The log output format: `json` or `pretty`. The older spelling `text` is\nstill read as a deprecated alias for `pretty` (validation warns); the\nserialized, and therefore hashed, form is always `pretty`, so a config\nthat spells it `text` hashes as if it said `pretty` from this version on.",
       "oneOf": [
         {
           "const": "json",
@@ -330,8 +403,8 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
           "type": "string"
         },
         {
-          "const": "text",
-          "description": "Human-readable text.",
+          "const": "pretty",
+          "description": "Human-readable output.",
           "type": "string"
         }
       ]
@@ -486,6 +559,26 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
         }
       ]
     },
+    "OnMissSpec": {
+      "description": "What `enrich` does when the key has no row in the table.",
+      "oneOf": [
+        {
+          "const": "null",
+          "description": "The added fields are null.",
+          "type": "string"
+        },
+        {
+          "const": "reject",
+          "description": "The event is rejected.",
+          "type": "string"
+        },
+        {
+          "const": "drop",
+          "description": "The event is dropped and counted.",
+          "type": "string"
+        }
+      ]
+    },
     "PipelineMeta": {
       "additionalProperties": false,
       "description": "Pipeline identity and storage location.",
@@ -608,6 +701,9 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
                 "number",
                 "string"
               ]
+            },
+            "null": {
+              "type": "boolean"
             }
           },
           "required": [
@@ -788,6 +884,13 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
       "additionalProperties": false,
       "description": "How the source timestamp is read.",
       "properties": {
+        "default_offset": {
+          "description": "The UTC offset assumed for `rfc3339` text that carries none, such as\n`+02:00`. Only valid with `unit: rfc3339`; without it, offset-less text\nis a runtime reject.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "domain": {
           "$ref": "#/$defs/TimeDomainSpec",
           "description": "The clock the device's time is on."
@@ -810,7 +913,7 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
         },
         "unit": {
           "$ref": "#/$defs/TimeUnit",
-          "description": "The unit of the number."
+          "description": "The unit of the number, or `rfc3339` for text."
         }
       },
       "required": [
@@ -842,11 +945,16 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
           "const": "ns",
           "description": "Nanoseconds.",
           "type": "string"
+        },
+        {
+          "const": "rfc3339",
+          "description": "RFC 3339 text such as `2026-10-07T12:34:56+02:00`, not a number.",
+          "type": "string"
         }
       ]
     },
     "TransformSpec": {
-      "description": "A step applied to one dataset.\n\nEvery step takes the `dataset` it applies to and an optional `sinks` list\nrestricting it to those sinks (open item O2; absent means all sinks).",
+      "description": "A step applied to one dataset.\n\nEvery step takes the `dataset` it applies to and an optional `sinks` list\nrestricting it to those sinks (open item O2; absent means all sinks).\nOption names and meanings match the steps of `thadam-transform`.",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -894,9 +1002,9 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
               "type": "string"
             },
             "fields": {
-              "description": "The fields compared with the previous event.",
+              "description": "The fields compared with the previous event, each with an optional\ndeadband.",
               "items": {
-                "type": "string"
+                "$ref": "#/$defs/WatchField"
               },
               "type": "array"
             },
@@ -965,6 +1073,240 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
             "kind",
             "dataset",
             "where"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Keeps every Nth event and/or events at least an interval apart, per asset.",
+          "properties": {
+            "dataset": {
+              "description": "The dataset the step applies to.",
+              "type": "string"
+            },
+            "every_n": {
+              "description": "Keeps an asset's first event and every Nth after it; at least 1.",
+              "examples": [
+                4,
+                "500k"
+              ],
+              "minimum": 0,
+              "type": [
+                "string",
+                "integer",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "sample",
+              "type": "string"
+            },
+            "min_interval": {
+              "description": "Keeps an event only when this much ingest time passed since the\nasset's last kept event; greater than zero.",
+              "examples": [
+                "50ms",
+                "5s",
+                "1h"
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sinks": {
+              "description": "Restricts the step to these sink ids.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "dataset"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Adds fields from a static CSV or YAML table.",
+          "properties": {
+            "add": {
+              "description": "The fields to add.",
+              "items": {
+                "$ref": "#/$defs/EnrichFieldSpec"
+              },
+              "type": "array"
+            },
+            "dataset": {
+              "description": "The dataset the step applies to.",
+              "type": "string"
+            },
+            "file": {
+              "description": "The table file; a relative path resolves against the config file's\ndirectory. It is read when the transform chain is compiled, not\nwhen the configuration is validated.",
+              "type": "string"
+            },
+            "format": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/EnrichFormat"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The table format; inferred from the file extension when absent."
+            },
+            "key": {
+              "$ref": "#/$defs/EnrichKeySpec",
+              "description": "The join key."
+            },
+            "kind": {
+              "const": "enrich",
+              "type": "string"
+            },
+            "on_miss": {
+              "$ref": "#/$defs/OnMissSpec",
+              "description": "What happens when the key has no row; `null` when absent."
+            },
+            "sinks": {
+              "description": "Restricts the step to these sink ids.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "dataset",
+            "file",
+            "key",
+            "add"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Renames fields without touching values.",
+          "properties": {
+            "dataset": {
+              "description": "The dataset the step applies to.",
+              "type": "string"
+            },
+            "fields": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Old field name to new field name.",
+              "type": "object"
+            },
+            "kind": {
+              "const": "rename",
+              "type": "string"
+            },
+            "sinks": {
+              "description": "Restricts the step to these sink ids.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "dataset",
+            "fields"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Keeps only the listed fields, in the listed order.",
+          "properties": {
+            "dataset": {
+              "description": "The dataset the step applies to.",
+              "type": "string"
+            },
+            "fields": {
+              "description": "The fields to keep.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "project",
+              "type": "string"
+            },
+            "sinks": {
+              "description": "Restricts the step to these sink ids.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "dataset",
+            "fields"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Widens field types; narrowing is an error.",
+          "properties": {
+            "dataset": {
+              "description": "The dataset the step applies to.",
+              "type": "string"
+            },
+            "fields": {
+              "additionalProperties": {
+                "description": "A declared field type: a scalar name or `list<T>`.",
+                "examples": [
+                  "f32",
+                  "u64",
+                  "list<f64>"
+                ],
+                "pattern": "^(bool|i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|str|string|bytes|ts|timestamp|list<.+>)$",
+                "type": "string"
+              },
+              "description": "Field name to the wider type.",
+              "type": "object"
+            },
+            "kind": {
+              "const": "cast",
+              "type": "string"
+            },
+            "sinks": {
+              "description": "Restricts the step to these sink ids.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "dataset",
+            "fields"
           ],
           "type": "object"
         }
@@ -1084,6 +1426,30 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
         "on_full"
       ],
       "type": "object"
+    },
+    "WatchField": {
+      "description": "A field name, or `{ field, deadband }`: the field is passed on only when it moved by more than the deadband (numeric fields only; default 0).",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "deadband": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "field": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "field"
+          ],
+          "type": "object"
+        }
+      ]
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -167,6 +167,35 @@ async fn sink_dataset_lists_and_per_sink_transforms_shape_each_chain() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sample_transform_keeps_the_first_and_every_nth_event_end_to_end() {
+    let dir = TempDataDir::new().unwrap();
+    let kit = Kit::default();
+    kit.sources.scripted("src", (1..=60).map(json_n));
+    let sinks = "  - { id: out, kind: recseg, config: { frames_per_file: 2 } }";
+    let transforms = "transforms:\n  - { kind: sample, dataset: d, every_n: 2 }";
+    let report = run_to_end(
+        &kit,
+        spec(&yaml(dir.path(), sinks, transforms)),
+        fast_opts(),
+    )
+    .await;
+
+    assert_eq!(report.exit, ExitStatus::Ok, "{:#?}", report.status);
+    let out = kit.rec.store("out");
+    assert_eq!(
+        out.ns(),
+        (1..=60).step_by(2).collect::<Vec<_>>(),
+        "the engine keeps an asset's first event and every 2nd after it"
+    );
+    let end = report.status.wal.as_ref().unwrap().durable_end;
+    assert_eq!(
+        cursor(&report.status, "out"),
+        end,
+        "sampled-out frames still advance the cursor"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn segment_sinks_receive_events_grouped_by_dataset() {
     let dir = TempDataDir::new().unwrap();
     let kit = Kit::default();

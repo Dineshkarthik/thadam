@@ -7,7 +7,8 @@ use thadam_core::{
     Classify, ErrorDomain, RawBatch, ThadamError, Shutdown, WalEpoch, WalPos, WalRange, codes,
 };
 use thadam_transform::{
-    Chain, ChainLimits, ChainOutput, ChainSpec, FrameInput, RawRecordView, RejectedRaw,
+    Chain, ChainLimits, ChainOutput, ChainSpec, ChainStats, DatasetStats, FrameInput,
+    RawRecordView, RejectedRaw,
 };
 use thadam_wal::{Frame, Gap, ReadItem, StartFrom, Wal, WalError, WalReader};
 use tokio::sync::{oneshot, watch};
@@ -219,6 +220,9 @@ pub(crate) struct ChainTask {
     pub start: oneshot::Receiver<u64>,
     /// Signalled once warmed and reading, so sources start after every chain.
     pub ready: Option<oneshot::Sender<()>>,
+    /// The chain counters after the previous group; chain events report the
+    /// deltas between snapshots, and a rebuild starts them over.
+    pub last_stats: Option<ChainStats>,
 }
 
 impl ChainTask {
@@ -232,6 +236,7 @@ impl ChainTask {
                 )
             })
         })?;
+        self.last_stats = None;
         add(&self.component.counters.restarts, 1);
         Ok(())
     }
@@ -332,18 +337,42 @@ impl ChainTask {
         }
     }
 
-    fn count_output(&self, out: &ChainOutput, rejects: &[RejectedRaw]) {
+    fn count_output(&mut self, out: &ChainOutput, rejects: &[RejectedRaw]) {
         let c = &self.component.counters;
         for d in &out.batches {
             add(&c.events, d.batch.len() as u64);
-            if !d.batch.is_empty() {
-                self.component.metrics().record(MetricEvent::ChainEvents {
-                    sink: &self.cfg.sink_id,
-                    dataset: &d.dataset,
-                    events: d.batch.len(),
-                });
+        }
+        // The chain stats are cumulative per dataset; the outcome labels
+        // report the deltas since the previous group. `Chain::warm` restores
+        // the counters it saves, and `rebuild` resets `last_stats`, so neither
+        // a warm start nor a panic rebuild distorts the deltas.
+        let stats = self.chain.stats();
+        for (dataset, ds) in &stats.datasets {
+            let prev: DatasetStats = self
+                .last_stats
+                .as_ref()
+                .and_then(|s| s.datasets.iter().find(|(d, _)| d == dataset))
+                .map(|(_, ds)| ds.clone())
+                .unwrap_or_default();
+            let deltas = [
+                ("written", ds.written.saturating_sub(prev.written)),
+                ("filtered", ds.filtered.saturating_sub(prev.filtered)),
+                ("deduped", ds.deduped.saturating_sub(prev.deduped)),
+                ("rejected", ds.rejected.saturating_sub(prev.rejected)),
+                ("exploded", ds.exploded.saturating_sub(prev.exploded)),
+            ];
+            for (outcome, delta) in deltas {
+                if delta > 0 {
+                    self.component.metrics().record(MetricEvent::ChainEvents {
+                        sink: &self.cfg.sink_id,
+                        dataset,
+                        outcome,
+                        events: delta as usize,
+                    });
+                }
             }
         }
+        self.last_stats = Some(stats);
         if !rejects.is_empty() {
             add(&c.rejects, rejects.len() as u64);
             for r in rejects {

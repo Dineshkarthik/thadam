@@ -81,7 +81,7 @@ dedup: { window: 10m, max_keys: 500k }
 - Runs at **message level, before `explode`**, so one large message costs one key, not one key per element.
 - Warm-started from the WAL tail `[cursor − window, cursor)` at startup, so dedup survives restarts deterministically.
 - Best-effort by design (ADR-0011 D17): a duplicate arriving after the window, or after `max_keys` eviction, is not detected. Authoritative deduplication belongs downstream (`ReplacingMergeTree`, `QUALIFY`, or `DISTINCT ON`).
-- **Without `event_id.key`, dedup is ineffective** and `thadam validate` warns: the default WAL-position ID changes on redelivery, so redelivered duplicates are never recognized. Pair `dedup` with a content-derived key.
+- **`dedup` requires `event_id.key`.** Validation fails with `config.invalid` without it: the default WAL-position ID changes when a message is redelivered, so duplicates would never be recognized (ADR-0011 D17).
 - Memory shows up in the `thadam validate` estimate as `max_keys × 48 B` (upper bound).
 
 ### `explode` {#explode}
@@ -106,11 +106,16 @@ time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
 | Key | Type | Required | Description |
 |---|---|---|---|
 | `field` | JSON Pointer | yes | Where the source timestamp lives. `^/` reads it from the parent message of an exploded sample. |
-| `unit` | `s`, `ms`, `us`, `ns` | yes | The unit of the numeric timestamp. |
+| `unit` | `s`, `ms`, `us`, `ns`, `rfc3339` | yes | `s`, `ms`, `us`, `ns` are the unit of a numeric epoch timestamp. `rfc3339` means the field is RFC 3339 text rather than an epoch number. |
+| `default_offset` | UTC offset | no | The offset assumed for RFC 3339 text that carries none. Forms: `+HH:MM`, `-HH:MM`, `+HHMM`, `+HH`, and `Z`/`UTC`; hours ≤ 23, minutes ≤ 59. Only valid with `unit: rfc3339` — a config error otherwise. |
 | `domain` | time domain | yes | `utc`, `tai`, `monotonic`, `sim`, or `unknown`. Only `utc` becomes the materialized `event_time`; explicitness is the point ([event model](../concepts/event-model.md#time-three-clocks-never-silently-merged)). |
 | `max_skew` | duration | no | When a `utc` source time differs from ingest time by more than this, the event is flagged `CLOCK_SKEW` (never corrected). Must be > 0. |
 
-RFC 3339 string timestamps and configurable default offsets exist in the engine but are not accepted in config version 1, where `unit` is always an epoch unit.
+```yaml
+time: { field: /ts, unit: rfc3339, default_offset: "+02:00", domain: utc }
+```
+
+Without `default_offset`, RFC 3339 text that carries no offset is a runtime reject (the message is quarantined).
 
 ### `fields` {#fields}
 

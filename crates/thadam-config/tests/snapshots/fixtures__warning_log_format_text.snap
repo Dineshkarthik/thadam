@@ -1,0 +1,8 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+warning[config.invalid]: `text` is a deprecated spelling of the log format `pretty`
+  --> log_format_text.yaml:22:19 (observability.logs.format)
+  = hint: write `format: pretty`; `text` will be rejected in a future version
+0 errors, 1 warning

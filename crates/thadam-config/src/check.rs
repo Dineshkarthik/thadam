@@ -2,6 +2,8 @@
 //! section, is deserialized on its own from the parsed `serde_json::Value`, so
 //! one bad item does not hide the others (ADR-0012, "collecting all errors").
 
+use std::collections::BTreeMap;
+
 use thadam_core::codes;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -10,11 +12,12 @@ use serde_json::{Map, Value};
 use crate::ctx::Ctx;
 use crate::path::{self, PathExt, PathVec, Seg};
 use crate::predicate::{Condition, Literal, Predicate, Test};
-use crate::scalars::DurationSpec;
+use crate::scalars::{CountSpec, DurationSpec, FieldTypeSpec};
 use crate::spans::Anchor;
 use crate::spec::{
-    CONFIG_VERSION, ConnectorSpec, DatasetSpec, IdentityLevel, ObservabilitySpec, PipelineMeta,
-    QuarantineSpec, RuntimeSpec, SinkSpec, TransformSpec, ValidateRule, WalSpec,
+    CONFIG_VERSION, ConnectorSpec, DatasetSpec, EnrichFieldSpec, EnrichFormat, EnrichKeySpec,
+    IdentityLevel, ObservabilitySpec, OnMissSpec, PipelineMeta, QuarantineSpec, RuntimeSpec,
+    SinkSpec, TransformSpec, ValidateRule, WalSpec, WatchField,
 };
 
 /// The top-level keys, in document order.
@@ -31,9 +34,18 @@ pub(crate) const SECTIONS: [&str; 10] = [
     "observability",
 ];
 
-const TRANSFORM_KINDS: [&str; 3] = ["validate", "on_change", "filter"];
-const PREDICATE_KEYS: [&str; 13] = [
-    "all", "any", "not", "field", "eq", "ne", "lt", "le", "gt", "ge", "in", "min", "max",
+const TRANSFORM_KINDS: [&str; 8] = [
+    "validate",
+    "on_change",
+    "filter",
+    "sample",
+    "enrich",
+    "rename",
+    "project",
+    "cast",
+];
+const PREDICATE_KEYS: [&str; 14] = [
+    "all", "any", "not", "field", "eq", "ne", "lt", "le", "gt", "ge", "in", "min", "max", "null",
 ];
 const MAX_PREDICATE_DEPTH: usize = 8;
 const MAX_PREDICATE_NODES: usize = 64;
@@ -464,6 +476,20 @@ pub(crate) fn parse_document(root: &Value, ctx: &mut Ctx<'_>) -> Option<Parsed> 
     let quarantine = optional_section::<QuarantineSpec>(map, "quarantine", ctx);
     let runtime = optional_section::<RuntimeSpec>(map, "runtime", ctx);
     let observability = optional_section::<ObservabilitySpec>(map, "observability", ctx);
+    let text_spelling = map
+        .get("observability")
+        .and_then(|o| o.get("logs"))
+        .and_then(|l| l.get("format"))
+        .is_some_and(|f| f.as_str() == Some("text"));
+    if observability.is_some() && text_spelling {
+        ctx.warn(
+            codes::CONFIG_INVALID,
+            &Vec::new().key("observability").key("logs").key("format"),
+            Anchor::Value,
+            "`text` is a deprecated spelling of the log format `pretty`",
+            Some("write `format: pretty`; `text` will be rejected in a future version".to_owned()),
+        );
+    }
 
     let sources = match list_of(map, "sources", true, ctx) {
         Some(items) => {
@@ -529,7 +555,7 @@ struct OnChangeRaw {
     dataset: String,
     #[serde(default)]
     sinks: Option<Vec<String>>,
-    fields: Vec<String>,
+    fields: Vec<WatchField>,
     #[serde(default)]
     heartbeat: Option<DurationSpec>,
 }
@@ -542,6 +568,61 @@ struct FilterRaw {
     sinks: Option<Vec<String>>,
     #[serde(rename = "where")]
     where_: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SampleRaw {
+    dataset: String,
+    #[serde(default)]
+    sinks: Option<Vec<String>>,
+    #[serde(default)]
+    every_n: Option<CountSpec>,
+    #[serde(default)]
+    min_interval: Option<DurationSpec>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EnrichRaw {
+    dataset: String,
+    #[serde(default)]
+    sinks: Option<Vec<String>>,
+    file: String,
+    #[serde(default)]
+    format: Option<EnrichFormat>,
+    key: EnrichKeySpec,
+    add: Vec<EnrichFieldSpec>,
+    /// An unquoted `on_miss: null` is YAML null; it means the `null` policy.
+    #[serde(default)]
+    on_miss: Option<OnMissSpec>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RenameRaw {
+    dataset: String,
+    #[serde(default)]
+    sinks: Option<Vec<String>>,
+    fields: BTreeMap<String, String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectRaw {
+    dataset: String,
+    #[serde(default)]
+    sinks: Option<Vec<String>>,
+    fields: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CastRaw {
+    dataset: String,
+    #[serde(default)]
+    sinks: Option<Vec<String>>,
+    fields: BTreeMap<String, FieldTypeSpec>,
 }
 
 fn parse_transforms(items: &[Value], ctx: &mut Ctx<'_>) -> Section<TransformSpec> {
@@ -624,6 +705,51 @@ fn parse_transform(item: &Value, base: &PathVec, ctx: &mut Ctx<'_>) -> Option<Tr
                 dataset: raw.dataset,
                 sinks: raw.sinks,
                 where_: predicate,
+            })
+        }
+        "sample" => {
+            let raw = typed::<SampleRaw>(&rest, base, ctx)?;
+            Some(TransformSpec::Sample {
+                dataset: raw.dataset,
+                sinks: raw.sinks,
+                every_n: raw.every_n,
+                min_interval: raw.min_interval,
+            })
+        }
+        "enrich" => {
+            let raw = typed::<EnrichRaw>(&rest, base, ctx)?;
+            Some(TransformSpec::Enrich {
+                dataset: raw.dataset,
+                sinks: raw.sinks,
+                file: raw.file,
+                format: raw.format,
+                key: raw.key,
+                add: raw.add,
+                on_miss: raw.on_miss.unwrap_or_default(),
+            })
+        }
+        "rename" => {
+            let raw = typed::<RenameRaw>(&rest, base, ctx)?;
+            Some(TransformSpec::Rename {
+                dataset: raw.dataset,
+                sinks: raw.sinks,
+                fields: raw.fields,
+            })
+        }
+        "project" => {
+            let raw = typed::<ProjectRaw>(&rest, base, ctx)?;
+            Some(TransformSpec::Project {
+                dataset: raw.dataset,
+                sinks: raw.sinks,
+                fields: raw.fields,
+            })
+        }
+        "cast" => {
+            let raw = typed::<CastRaw>(&rest, base, ctx)?;
+            Some(TransformSpec::Cast {
+                dataset: raw.dataset,
+                sinks: raw.sinks,
+                fields: raw.fields,
             })
         }
         other => {
@@ -746,10 +872,11 @@ fn literal(v: &Value, path: &PathVec, ctx: &mut Ctx<'_>) -> Option<Literal> {
             }
         }
         Value::Null => {
-            ctx.invalid(
+            ctx.invalid_hint(
                 path,
                 Anchor::Value,
-                "`null` is not supported in predicates in config version 1",
+                "a predicate value cannot be `null`",
+                "to test for a null or missing value, write `{ field: <name>, null: true }`",
             );
             None
         }
@@ -792,7 +919,7 @@ fn parse_condition(
                 &path.key(key),
                 Anchor::Key,
                 format!(
-                    "unknown predicate key `{key}`, expected `field` with one of eq, ne, lt, le, gt, ge, in, min, max, or all, any, not"
+                    "unknown predicate key `{key}`, expected `field` with one of eq, ne, lt, le, gt, ge, in, null, min, max, or all, any, not"
                 ),
                 hint,
             );
@@ -824,7 +951,7 @@ fn parse_condition(
         }
     };
 
-    let simple: Vec<&str> = ["eq", "ne", "lt", "le", "gt", "ge", "in"]
+    let simple: Vec<&str> = ["eq", "ne", "lt", "le", "gt", "ge", "in", "null"]
         .into_iter()
         .filter(|k| obj.contains_key(*k))
         .collect();
@@ -836,7 +963,7 @@ fn parse_condition(
                 path,
                 Anchor::Key,
                 "a condition needs a test",
-                "add one of eq, ne, lt, le, gt, ge, in, or min/max",
+                "add one of eq, ne, lt, le, gt, ge, in, null, or min/max",
             );
         }
         return None;
@@ -874,6 +1001,18 @@ fn parse_condition(
             "le" => Test::Le(numeric_literal(value, op, &op_path, ctx)?),
             "gt" => Test::Gt(numeric_literal(value, op, &op_path, ctx)?),
             "ge" => Test::Ge(numeric_literal(value, op, &op_path, ctx)?),
+            "null" => {
+                let Value::Bool(b) = value else {
+                    ctx.invalid_hint(
+                        &op_path,
+                        Anchor::Value,
+                        "`null` takes a boolean (`true` or `false`)",
+                        "`null: true` matches a null or missing value, `null: false` a present one",
+                    );
+                    return None;
+                };
+                Test::IsNull(*b)
+            }
             _ => {
                 let Some(items) = value
                     .as_array()

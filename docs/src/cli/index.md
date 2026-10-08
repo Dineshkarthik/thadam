@@ -84,8 +84,10 @@ Options:
                                  mismatch (pipeline name or WAL binding) and
                                  rewriting it. Never accepts a format version
                                  newer than this binary knows
-      --log-format <FORMAT>      The log output format: `json` or `pretty`
-                                 [default: pretty]
+      --log-format <FORMAT>      The log output format: `json` or `pretty`.
+                                 Defaults to `observability.logs.format` in
+                                 the config file (`json` when the section is
+                                 absent)
       --log-level <LEVEL>        The minimum log level (e.g., `info`, `debug`,
                                  `warn`) [default: info]
       --admin-bind <ADDR>        The admin server bind address

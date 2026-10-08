@@ -5,10 +5,10 @@ Structured logs are the runtime's narrative channel; metrics tell you what moved
 ## Format and destination
 
 - **Sink:** stderr, via a bounded, **lossy** non-blocking writer. When the buffer fills, lines are dropped — and the drop counted — rather than back-pressuring the pipeline. Logging is never a queue that can stall capture.
-- **Formats:** `json` (one JSON object per line; the default in config) or human-readable `pretty`/`text`. Structured JSON is the production choice.
+- **Formats:** `json` (one JSON object per line; the config default) or human-readable `pretty`. The config also accepts `text` as a deprecated alias for `pretty` (validation warns). Structured JSON is the production choice.
 - **Level:** `trace` < `debug` < `info` (default) < `warn` < `error`; also accepts env-filter strings (`thadam_runtime=debug,warn`).
 
-Precedence for a single run: `thadam run --log-format` / `--log-level` override [`observability.logs`](../configuration/runtime-observability.md#logs).
+Precedence for a single run: `thadam run --log-format` overrides [`observability.logs.format`](../configuration/runtime-observability.md#logs); without the flag, the config value applies (`json` by default). `--log-level` sets the minimum level for the run.
 
 ## What is and is not logged
 
@@ -22,7 +22,3 @@ Precedence for a single run: `thadam run --log-format` / `--log-level` override 
 - A `degraded` component in `/status` with a rising `retries` counter has its last error in the logs and in the component state.
 - `SESSION_LOST` messages mean the broker forgot a session that was expected; check broker persistence settings ([required broker settings](../sources/mqtt.md#required-broker-settings)).
 - The writer is lossy: if you depend on complete logs, drain stderr promptly (a collector sidecar) rather than filling the bounded buffer.
-
-## Known limitation
-
-At this stage of the build-out, `thadam run` initializes its logging guard in a scope that drops it again immediately, so application log lines after startup can be lost silently. This is a known pre-alpha defect (tracked by the ongoing runtime PRs), not intended behavior; it is listed here so operators are not surprised by quiet stderr. Metrics and `/status` are unaffected.

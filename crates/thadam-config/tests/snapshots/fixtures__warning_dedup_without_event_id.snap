@@ -1,8 +1,0 @@
----
-source: crates/thadam-config/tests/fixtures.rs
-expression: "checked.report.render(&format!(\"{name}.yaml\"))"
----
-warning[config.invalid]: `dedup` has little effect without `event_id.key`: the default event ID changes when a message is redelivered
-  --> dedup_without_event_id.yaml:14:5 (datasets[0].dedup)
-  = hint: add `event_id: { key: [...] }` with names that identify a message
-0 errors, 1 warning

@@ -72,7 +72,7 @@ sinks:
 runtime: { memory_target: 256MiB }
 
 observability:
-  logs: { format: text, level: info }
+  logs: { format: pretty, level: info }
   admin: { bind: "127.0.0.1:9464" }
 ```
 

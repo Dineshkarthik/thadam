@@ -1,0 +1,8 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.invalid]: `level` is already a field of dataset `readings`, or the new name of another renamed field
+  --> rename_onto_existing.yaml:19:56 (transforms[0].fields.temp)
+  = hint: choose a name no other field has or is renamed to
+1 error, 0 warnings

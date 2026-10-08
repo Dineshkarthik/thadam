@@ -1,10 +1,8 @@
 # Transform reference
 
-Transforms are the synchronous, pure steps a [per-sink chain](../concepts/per-sink-chains.md) runs between decode and delivery. This page covers **every step kind implemented in `thadam-transform`**, with its options and examples.
+Transforms are the synchronous, pure steps a [per-sink chain](../concepts/per-sink-chains.md) runs between decode and delivery. This page covers **every step kind implemented in `thadam-transform`**, with its options and examples. All eight kinds are accepted in the top-level `transforms:` list of config version 1.
 
-> **Config reachability.** Config version 1 accepts only `validate`, `on_change`, and `filter` in the top-level `transforms:` list — the five others (`sample`, `enrich`, `rename`, `project`, `cast`) exist in the engine and are tested, but this binary's configuration parser rejects them (`unknown transform kind`), so **they cannot be used from a pipeline file today**. They are documented here for completeness and for when the config surface widens. Each section states its reachability.
-
-For the three config-reachable kinds, see also the [configuration reference](../configuration/transforms.md), which has the same information organized by config key.
+See also the [configuration reference](../configuration/transforms.md), which has the same information organized by config key.
 
 ## Execution model recap
 
@@ -25,7 +23,7 @@ For the three config-reachable kinds, see also the [configuration reference](../
 
 ## `on_change` — deadband with heartbeat
 
-**Config: accepted (field-name form).** Keeps an event only when a watched field changed, or when `heartbeat` of ingest time passed. Lossy by design; not deduplication (ADR-0011 D17). Full key table: [`kind: on_change`](../configuration/transforms.md#on_change).
+**Config: accepted.** Keeps an event only when a watched field changed, or when `heartbeat` of ingest time passed. Lossy by design; not deduplication (ADR-0011 D17). Full key table: [`kind: on_change`](../configuration/transforms.md#on_change).
 
 ```yaml
 - kind: on_change
@@ -34,7 +32,7 @@ For the three config-reachable kinds, see also the [configuration reference](../
   heartbeat: 5m
 ```
 
-Engine form (not accepted in config version 1): watched fields may also be `{ field: <name>, deadband: <number> }` with an absolute numeric deadband (default 0).
+Watched fields may be bare names or `{ field: <name>, deadband: <number> }` entries with an absolute numeric deadband (default 0); both forms are accepted in config.
 
 ## `filter` — structured predicates
 
@@ -51,14 +49,13 @@ Engine form (not accepted in config version 1): watched fields may also be `{ fi
           - { field: soc_pct, min: 10 }
 ```
 
-Tests in the engine: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `min`, `max`, and `null` (`null: true` tests for null-or-missing; config version 1 accepts all but `null`). Combinators: `all`, `any`, `not`. `expr:` is reserved and refused. Names resolve against dataset fields, identity levels, the explode index field, `quality.status`, `quality.flags`, and `quality.reason`; missing/null fields make ordered tests false and `ne` true.
+Tests: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `min`, `max`, and `null` (`null: true` tests for null-or-missing); config version 1 accepts all of them. Combinators: `all`, `any`, `not`. `expr:` is reserved and refused. Names resolve against dataset fields, identity levels, the explode index field, `quality.status`, `quality.flags`, and `quality.reason`; missing/null fields make ordered tests false and `ne` true.
 
 ## `sample` — every-N and minimum-interval
 
-**Engine only — not accepted in config version 1.** Keeps the first event and every Nth after it, and/or events at least an interval apart (ingest time), per asset.
+**Config: accepted.** Keeps the first event and every Nth after it, and/or events at least an interval apart (ingest time), per asset. Full key table: [`kind: sample`](../configuration/transforms.md#sample).
 
 ```yaml
-# Rejected by thadam validate today; documented from thadam-transform.
 - kind: sample
   dataset: imu
   every_n: 10
@@ -72,10 +69,9 @@ Tests in the engine: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `min`, `max`, and
 
 ## `enrich` — static table lookup
 
-**Engine only — not accepted in config version 1.** Adds fields from a static CSV or YAML table, read once at chain-compile time; the file's SHA-256 is recorded as the enrichment hash in lineage (one of the three inputs of replay row-set equivalence). Relative paths resolve against the config file's directory.
+**Config: accepted.** Adds fields from a static CSV or YAML table, read once at chain-compile time; the file's SHA-256 is recorded as the enrichment hash in lineage (one of the three inputs of replay row-set equivalence). Relative paths resolve against the config file's directory. Full key table: [`kind: enrich`](../configuration/transforms.md#enrich).
 
 ```yaml
-# Not accepted in config version 1 today.
 - kind: enrich
   dataset: telemetry
   file: robots.yaml
@@ -88,7 +84,7 @@ Tests in the engine: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `min`, `max`, and
 
 ## `rename` — field rename
 
-**Engine only — not accepted in config version 1.** Renames fields without touching values.
+**Config: accepted.** Renames fields without touching values. Full key table: [`kind: rename`](../configuration/transforms.md#rename).
 
 ```yaml
 - kind: rename
@@ -98,7 +94,7 @@ Tests in the engine: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `min`, `max`, and
 
 ## `project` — keep a subset
 
-**Engine only — not accepted in config version 1.** Keeps only the listed fields, in the listed order.
+**Config: accepted.** Keeps only the listed fields, in the listed order. Full key table: [`kind: project`](../configuration/transforms.md#project).
 
 ```yaml
 - kind: project
@@ -108,7 +104,7 @@ Tests in the engine: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `min`, `max`, and
 
 ## `cast` — widening only
 
-**Engine only — not accepted in config version 1.** Widens field types (`i32` → `i64` → `f64` direction). Narrowing is a *compile error* (`schema.narrowing`), matching the schema-evolution rules for datasets.
+**Config: accepted.** Widens field types (`i32` → `i64`, `f32` → `f64`, and so on). Narrowing is rejected: `config.invalid` at validation and a *compile error* (`schema.narrowing`) in the engine, matching the schema-evolution rules for datasets. Full key table: [`kind: cast`](../configuration/transforms.md#cast).
 
 ```yaml
 - kind: cast

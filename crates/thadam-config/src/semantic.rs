@@ -2,21 +2,26 @@
 //! references between sections, identifier and pointer syntax, and predicate
 //! names and literal types resolved against the declared schema.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::ops::RangeInclusive;
+use std::path::Path;
 
 use thadam_core::codes;
-use thadam_core::{FieldType, MAX_ASSET_LEVELS, MAX_SHAPE_FIELDS, QualityFlags, QualityStatus};
+use thadam_core::{
+    FieldType, MAX_ASSET_LEVELS, MAX_SHAPE_FIELDS, QualityFlags, QualityStatus, ValueType,
+};
 
 use crate::check::{Parsed, Section, closest};
 use crate::ctx::Ctx;
 use crate::path::{PathExt, PathVec};
 use crate::predicate::{Condition, Literal, Predicate, Test};
+use crate::scalars::FieldTypeSpec;
 use crate::spans::Anchor;
 use crate::spec::{
-    ConnectorSpec, DECLARED_FIELD_ID_RANGE, DatasetSpec, FieldSpec, IDENTITY_LEVEL_ID_RANGE,
-    MaxLagSpec, SinkSpec, TransformSpec, WalSpec,
+    ConnectorSpec, DECLARED_FIELD_ID_RANGE, DatasetSpec, EnrichFieldSpec, EnrichFormat,
+    EnrichKeySpec, FieldSpec, IDENTITY_LEVEL_ID_RANGE, MaxLagSpec, SinkSpec, TimeUnit,
+    TransformSpec, WalSpec, WatchField,
 };
 
 /// What the connector checks read from a source or a sink.
@@ -247,24 +252,38 @@ enum Target {
     Flags,
 }
 
+/// The fields a step sees: the dataset's declared fields, changed by the
+/// `rename`, `project`, `cast`, and `enrich` steps before it.
+type FieldMap = BTreeMap<String, FieldType>;
+
 struct Names {
     dataset: String,
-    fields: HashMap<String, FieldType>,
+    fields: FieldMap,
     identity: HashSet<String>,
     index_field: Option<String>,
 }
 
 impl Names {
-    fn new(ds: &DatasetSpec) -> Self {
+    fn with_fields(ds: &DatasetSpec, fields: FieldMap) -> Self {
         Names {
             dataset: ds.id.clone(),
-            fields: ds
-                .fields
-                .iter()
-                .map(|f| (f.name.clone(), f.ty.field_type().clone()))
-                .collect(),
+            fields,
             identity: ds.identity.iter().map(|l| l.name.clone()).collect(),
             index_field: ds.explode.as_ref().and_then(|e| e.index_field.clone()),
+        }
+    }
+
+    /// Whether a new field may not take `name`: it is a field, an identity
+    /// level, or the `explode` index field already.
+    fn taken(&self, name: &str) -> Option<&'static str> {
+        if self.fields.contains_key(name) {
+            Some("a field")
+        } else if self.identity.contains(name) {
+            Some("an identity level")
+        } else if self.index_field.as_deref() == Some(name) {
+            Some("the `explode.index_field`")
+        } else {
+            None
         }
     }
 
@@ -298,6 +317,13 @@ impl Names {
     }
 }
 
+fn declared_fields(ds: &DatasetSpec) -> FieldMap {
+    ds.fields
+        .iter()
+        .map(|f| (f.name.clone(), f.ty.field_type().clone()))
+        .collect()
+}
+
 struct Checker<'p, 'c, 'a> {
     ctx: &'c mut Ctx<'a>,
     parsed: &'p Parsed,
@@ -328,7 +354,7 @@ pub(crate) fn check(parsed: &Parsed, kinds: &KindPolicy, ctx: &mut Ctx<'_>) {
     c.runtime();
 }
 
-impl Checker<'_, '_, '_> {
+impl<'p> Checker<'p, '_, '_> {
     fn pipeline(&mut self) {
         let Some(p) = &self.parsed.pipeline else {
             return;
@@ -750,6 +776,27 @@ impl Checker<'_, '_, '_> {
                     "`max_skew` must be greater than zero",
                 );
             }
+            if let Some(offset) = &t.default_offset {
+                let p = base.key("time").key("default_offset");
+                if t.unit != TimeUnit::Rfc3339 {
+                    self.ctx.invalid_hint(
+                        &p,
+                        Anchor::Key,
+                        "`default_offset` only applies to `unit: rfc3339`",
+                        format!(
+                            "`unit: {}` reads a number, which carries no offset: remove `default_offset`, or set `unit: rfc3339` to read text",
+                            t.unit.as_str()
+                        ),
+                    );
+                } else if let Err(msg) = check_utc_offset(offset) {
+                    self.ctx.invalid_hint(
+                        &p,
+                        Anchor::Value,
+                        msg,
+                        "write an offset such as `+02:00`, `-0530`, `+01`, or `Z`",
+                    );
+                }
+            }
         }
         if let Some(e) = &ds.explode {
             if let Err(msg) = check_pointer(&e.path, false) {
@@ -818,39 +865,40 @@ impl Checker<'_, '_, '_> {
                 );
             }
             if ds.event_id.is_none() {
-                self.ctx.warn(
-                codes::CONFIG_INVALID,
+                self.ctx.error(
+                    codes::CONFIG_INVALID,
                     &base.key("dedup"),
                     Anchor::Key,
-                    "`dedup` has little effect without `event_id.key`: the default event ID changes when a message is redelivered",
-                    Some("add `event_id: { key: [...] }` with names that identify a message".into()),
+                    "`dedup` requires `event_id.key`: without a content-derived event ID, the default ID changes when a message is redelivered (ADR-0011 D17)",
+                    Some("add `event_id: { key: [...] }` with the identity levels and fields that identify a message".into()),
                 );
             }
         }
     }
 
-    fn dataset_named(&self, id: &str) -> Option<&DatasetSpec> {
-        let idx = self
-            .parsed
+    fn dataset_named(&self, id: &str) -> Option<&'p DatasetSpec> {
+        let parsed: &'p Parsed = self.parsed;
+        let idx = parsed
             .datasets
             .ids
             .iter()
             .position(|d| d.as_deref() == Some(id))?;
-        self.parsed.datasets.items.as_ref()?.get(idx)?.as_ref()
+        parsed.datasets.items.as_ref()?.get(idx)?.as_ref()
     }
 
     fn transforms(&mut self) {
         let Some(list) = &self.parsed.transforms.items else {
             return;
         };
+        let mut views: Views = HashMap::new();
         for (i, t) in list.iter().enumerate() {
             let Some(t) = t else { continue };
             let base = Vec::new().key("transforms").idx(i);
-            self.transform(&base, t);
+            self.transform(&base, t, &mut views);
         }
     }
 
-    fn transform(&mut self, base: &PathVec, t: &TransformSpec) {
+    fn transform(&mut self, base: &PathVec, t: &TransformSpec, views: &mut Views) {
         let dataset = t.dataset();
         let known = self.dataset_ids.contains(dataset);
         if !known {
@@ -889,7 +937,46 @@ impl Checker<'_, '_, '_> {
         let Some(ds) = self.dataset_named(dataset) else {
             return;
         };
-        let names = Names::new(ds);
+
+        // Each sink has its own chain, so the fields a step sees depend on
+        // which earlier steps apply to that sink. Check the step once per
+        // distinct set of fields among the sinks it applies to.
+        let mut all: Vec<String> = self.sink_ids.iter().cloned().collect();
+        all.sort();
+        if all.is_empty() {
+            all.push(String::new());
+        }
+        let view = views.entry(dataset.to_owned()).or_insert_with(|| {
+            all.iter()
+                .map(|s| (s.clone(), declared_fields(ds)))
+                .collect()
+        });
+        let mut applies: Vec<&String> = match t.sinks() {
+            Some(list) => all.iter().filter(|s| list.contains(s)).collect(),
+            None => all.iter().collect(),
+        };
+        if applies.is_empty() {
+            applies = all.iter().collect();
+        }
+        let mut groups: Vec<(FieldMap, Vec<&String>)> = Vec::new();
+        for sink in applies {
+            let fields = view.get(sink).cloned().unwrap_or_default();
+            match groups.iter_mut().find(|(f, _)| *f == fields) {
+                Some((_, sinks)) => sinks.push(sink),
+                None => groups.push((fields, vec![sink])),
+            }
+        }
+        for (fields, sinks) in groups {
+            let names = Names::with_fields(ds, fields);
+            self.step(base, t, &names);
+            let next = evolve(t, &names);
+            for sink in sinks {
+                view.insert(sink.clone(), next.clone());
+            }
+        }
+    }
+
+    fn step(&mut self, base: &PathVec, t: &TransformSpec, names: &Names) {
         match t {
             TransformSpec::Validate { rules, .. } => {
                 if rules.is_empty() {
@@ -900,35 +987,13 @@ impl Checker<'_, '_, '_> {
                     );
                 }
                 for (r, rule) in rules.iter().enumerate() {
-                    self.rule(&base.key("rules").idx(r), rule, &names);
+                    self.rule(&base.key("rules").idx(r), rule, names);
                 }
             }
             TransformSpec::OnChange {
                 fields, heartbeat, ..
             } => {
-                if fields.is_empty() {
-                    self.ctx.invalid(
-                        &base.key("fields"),
-                        Anchor::Value,
-                        "`fields` needs at least one field",
-                    );
-                }
-                for (k, f) in fields.iter().enumerate() {
-                    if !names.fields.contains_key(f) {
-                        let hint = closest(f, names.fields.keys().map(String::as_str))
-                            .map(|c| format!("did you mean `{c}`?"));
-                        self.ctx.error(
-                            codes::CONFIG_INVALID,
-                            &base.key("fields").idx(k),
-                            Anchor::Key,
-                            format!(
-                                "`{f}` is not a declared field of dataset `{}`",
-                                names.dataset
-                            ),
-                            hint,
-                        );
-                    }
-                }
+                self.on_change_fields(base, fields, names);
                 if heartbeat.is_some_and(|d| d.get().is_zero()) {
                     self.ctx.invalid(
                         &base.key("heartbeat"),
@@ -938,7 +1003,372 @@ impl Checker<'_, '_, '_> {
                 }
             }
             TransformSpec::Filter { where_, .. } => {
-                self.predicate(&base.key("where"), where_, &names);
+                self.predicate(&base.key("where"), where_, names);
+            }
+            TransformSpec::Sample {
+                every_n,
+                min_interval,
+                ..
+            } => {
+                if every_n.is_none() && min_interval.is_none() {
+                    self.ctx.invalid_hint(
+                        base,
+                        Anchor::Key,
+                        "`sample` needs `every_n`, `min_interval`, or both",
+                        "for example `every_n: 10` keeps every 10th event, `min_interval: 1s` at most one a second",
+                    );
+                }
+                if every_n.is_some_and(|n| n.get() == 0) {
+                    self.ctx.invalid(
+                        &base.key("every_n"),
+                        Anchor::Value,
+                        "`every_n` must be at least 1",
+                    );
+                }
+                if min_interval.is_some_and(|d| d.get().is_zero()) {
+                    self.ctx.invalid(
+                        &base.key("min_interval"),
+                        Anchor::Value,
+                        "`min_interval` must be greater than zero",
+                    );
+                }
+            }
+            TransformSpec::Enrich {
+                file,
+                format,
+                key,
+                add,
+                ..
+            } => self.enrich(base, file, *format, key, add, names),
+            TransformSpec::Rename { fields, .. } => self.rename(base, fields, names),
+            TransformSpec::Project { fields, .. } => self.project(base, fields, names),
+            TransformSpec::Cast { fields, .. } => self.cast(base, fields, names),
+        }
+    }
+
+    /// Reports `name` as not a field a step can use, with a typo suggestion.
+    fn unknown_step_field(&mut self, path: &PathVec, anchor: Anchor, name: &str, names: &Names) {
+        let hint = if names.identity.contains(name) {
+            Some(
+                "identity levels are part of the asset path, not record fields, so this step cannot use them"
+                    .to_owned(),
+            )
+        } else {
+            closest(name, names.fields.keys().map(String::as_str))
+                .map(|c| format!("did you mean `{c}`?"))
+        };
+        self.ctx.error(
+            codes::CONFIG_INVALID,
+            path,
+            anchor,
+            format!(
+                "`{name}` is not a declared field of dataset `{}`",
+                names.dataset
+            ),
+            hint,
+        );
+    }
+
+    fn on_change_fields(&mut self, base: &PathVec, fields: &[WatchField], names: &Names) {
+        if fields.is_empty() {
+            self.ctx.invalid(
+                &base.key("fields"),
+                Anchor::Value,
+                "`fields` needs at least one field",
+            );
+        }
+        let mut seen = HashSet::new();
+        for (k, w) in fields.iter().enumerate() {
+            let p = base.key("fields").idx(k);
+            let Some(ty) = names.fields.get(&w.field) else {
+                self.unknown_step_field(&p, Anchor::Key, &w.field, names);
+                continue;
+            };
+            if !seen.insert(w.field.as_str()) {
+                self.ctx.invalid(
+                    &p,
+                    Anchor::Key,
+                    format!("field `{}` is listed twice", w.field),
+                );
+                continue;
+            }
+            if !w.deadband.is_finite() || w.deadband < 0.0 {
+                self.ctx.invalid(
+                    &p.key("deadband"),
+                    Anchor::Value,
+                    "`deadband` must be a finite number, zero or more",
+                );
+            } else if w.deadband > 0.0 && !is_numeric_or_numeric_list(ty) {
+                self.ctx.invalid_hint(
+                    &p.key("deadband"),
+                    Anchor::Value,
+                    format!(
+                        "`deadband` needs a numeric field or a list of numbers, but `{}` is `{}`",
+                        w.field,
+                        type_label(ty)
+                    ),
+                    "remove `deadband`, or watch a numeric field",
+                );
+            }
+        }
+    }
+
+    fn enrich(
+        &mut self,
+        base: &PathVec,
+        file: &str,
+        format: Option<EnrichFormat>,
+        key: &EnrichKeySpec,
+        add: &[EnrichFieldSpec],
+        names: &Names,
+    ) {
+        let extension = Path::new(file)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or_default();
+        if file.trim().is_empty() {
+            self.ctx
+                .invalid(&base.key("file"), Anchor::Value, "`file` must not be empty");
+        } else if format.is_none() && !matches!(extension, "csv" | "yaml" | "yml") {
+            self.ctx.invalid_hint(
+                &base.key("file"),
+                Anchor::Value,
+                format!("cannot tell the table format from `{file}`"),
+                "name the file `*.csv`, `*.yaml` or `*.yml`, or set `format: csv` or `format: yaml`",
+            );
+        }
+        let csv = match format {
+            Some(f) => f == EnrichFormat::Csv,
+            None => extension == "csv",
+        };
+
+        let key_path = base.key("key");
+        match names.fields.get(&key.field) {
+            Some(FieldType::Str) => {}
+            Some(ty) if int_range(ty).is_some() => {}
+            Some(ty) => self.ctx.invalid(
+                &key_path.key("field"),
+                Anchor::Value,
+                format!(
+                    "an enrichment key must be a string or integer field, but `{}` is `{}`",
+                    key.field,
+                    type_label(ty)
+                ),
+            ),
+            None if names.identity.contains(&key.field) => {}
+            None => {
+                let candidates = names
+                    .fields
+                    .keys()
+                    .map(String::as_str)
+                    .chain(names.identity.iter().map(String::as_str));
+                let hint = closest(&key.field, candidates)
+                    .map(|c| format!("did you mean `{c}`?"))
+                    .unwrap_or_else(|| {
+                        "the key is a string or integer field of the dataset, or an identity level"
+                            .to_owned()
+                    });
+                self.ctx.error(
+                    codes::CONFIG_INVALID,
+                    &key_path.key("field"),
+                    Anchor::Value,
+                    format!(
+                        "`{}` is neither a field nor an identity level of dataset `{}`",
+                        key.field, names.dataset
+                    ),
+                    Some(hint),
+                );
+            }
+        }
+        if key.column.trim().is_empty() {
+            self.ctx.invalid(
+                &key_path.key("column"),
+                Anchor::Value,
+                "`column` must not be empty",
+            );
+        }
+
+        if add.is_empty() {
+            self.ctx.invalid_hint(
+                &base.key("add"),
+                Anchor::Value,
+                "`add` needs at least one field",
+                "for example `add: [{ name: model, type: str }]`",
+            );
+        }
+        let mut seen = HashSet::new();
+        for (i, a) in add.iter().enumerate() {
+            let p = base.key("add").idx(i);
+            if !name_ok(&a.name) {
+                self.ctx.invalid_hint(
+                    &p.key("name"),
+                    Anchor::Value,
+                    format!("`{}` is not a valid field name", a.name),
+                    "names start with a letter and use letters, digits, and `_`; a leading `_` is reserved for Thadam columns",
+                );
+            } else if let Some(what) = names.taken(&a.name) {
+                self.ctx.invalid_hint(
+                    &p.key("name"),
+                    Anchor::Value,
+                    format!(
+                        "`{}` is already {what} of dataset `{}`",
+                        a.name, names.dataset
+                    ),
+                    "an added field needs a new name; use `rename` first to free the old one",
+                );
+            } else if !seen.insert(a.name.as_str()) {
+                self.ctx.invalid(
+                    &p.key("name"),
+                    Anchor::Value,
+                    format!("`{}` is added twice", a.name),
+                );
+            }
+            for (k, value) in [("column", &a.column), ("unit", &a.unit)] {
+                if value.as_deref().is_some_and(|v| v.trim().is_empty()) {
+                    self.ctx
+                        .invalid(&p.key(k), Anchor::Value, format!("`{k}` must not be empty"));
+                }
+            }
+            self.enrich_type(&p, a, csv);
+        }
+    }
+
+    fn enrich_type(&mut self, p: &PathVec, a: &EnrichFieldSpec, csv: bool) {
+        let ty = a.ty.field_type();
+        let label = type_label(ty);
+        match ty {
+            FieldType::Bytes | FieldType::List(_) if list_unsupported(ty) => self.ctx.invalid(
+                &p.key("type"),
+                Anchor::Value,
+                format!("`enrich` cannot add a field of type `{label}`"),
+            ),
+            FieldType::List(_) if csv => self.ctx.invalid_hint(
+                &p.key("type"),
+                Anchor::Value,
+                format!("a CSV column cannot hold a list, but `{}` is `{label}`", a.name),
+                "use a YAML table, or add a scalar field",
+            ),
+            FieldType::Ts => match a.unit.as_deref() {
+                None => self.ctx.invalid_hint(
+                    p,
+                    Anchor::Key,
+                    "a `ts` field needs `unit`",
+                    "write `unit: s`, `ms`, `us`, or `ns` for epoch numbers, or `unit: rfc3339` for text",
+                ),
+                Some(u) if !u.trim().is_empty() && !is_time_unit(u) => self.ctx.invalid(
+                    &p.key("unit"),
+                    Anchor::Value,
+                    format!("unknown time unit `{u}`; use s, ms, us, ns, or rfc3339"),
+                ),
+                Some(_) => {}
+            },
+            _ => {}
+        }
+    }
+
+    fn rename(&mut self, base: &PathVec, fields: &BTreeMap<String, String>, names: &Names) {
+        let fields_path = base.key("fields");
+        if fields.is_empty() {
+            self.ctx.invalid_hint(
+                &fields_path,
+                Anchor::Value,
+                "`fields` needs at least one entry",
+                "for example `fields: { old_name: new_name }`",
+            );
+        }
+        // Renames apply together, so a name freed by one entry may be taken by
+        // another (a swap is fine); only the names that stay are in the way.
+        let mut taken: HashSet<&str> = names
+            .fields
+            .keys()
+            .map(String::as_str)
+            .filter(|f| fields.get(*f).is_none_or(|new| new == f))
+            .collect();
+        for (old, new) in fields {
+            let p = fields_path.key(old);
+            if !names.fields.contains_key(old) {
+                self.unknown_step_field(&p, Anchor::Key, old, names);
+                continue;
+            }
+            if !name_ok(new) {
+                self.ctx.invalid_hint(
+                    &p,
+                    Anchor::Value,
+                    format!("`{new}` is not a valid field name"),
+                    "names start with a letter and use letters, digits, and `_`; a leading `_` is reserved for Thadam columns",
+                );
+            } else if new == old {
+                // Renaming a field to its own name is a no-op.
+            } else if names.identity.contains(new) || names.index_field.as_deref() == Some(new) {
+                let what = if names.identity.contains(new) {
+                    "an identity level"
+                } else {
+                    "the `explode.index_field`"
+                };
+                self.ctx.invalid(
+                    &p,
+                    Anchor::Value,
+                    format!("`{new}` is already {what} of dataset `{}`", names.dataset),
+                );
+            } else if !taken.insert(new.as_str()) {
+                self.ctx.invalid_hint(
+                    &p,
+                    Anchor::Value,
+                    format!("`{new}` is already a field of dataset `{}`, or the new name of another renamed field", names.dataset),
+                    "choose a name no other field has or is renamed to",
+                );
+            }
+        }
+    }
+
+    fn project(&mut self, base: &PathVec, fields: &[String], names: &Names) {
+        if fields.is_empty() {
+            self.ctx.invalid_hint(
+                &base.key("fields"),
+                Anchor::Value,
+                "`fields` needs at least one field",
+                "list the fields to keep",
+            );
+        }
+        let mut seen = HashSet::new();
+        for (k, f) in fields.iter().enumerate() {
+            let p = base.key("fields").idx(k);
+            if !names.fields.contains_key(f) {
+                self.unknown_step_field(&p, Anchor::Key, f, names);
+            } else if !seen.insert(f.as_str()) {
+                self.ctx
+                    .invalid(&p, Anchor::Key, format!("field `{f}` is listed twice"));
+            }
+        }
+    }
+
+    fn cast(&mut self, base: &PathVec, fields: &BTreeMap<String, FieldTypeSpec>, names: &Names) {
+        let fields_path = base.key("fields");
+        if fields.is_empty() {
+            self.ctx.invalid_hint(
+                &fields_path,
+                Anchor::Value,
+                "`fields` needs at least one entry",
+                "for example `fields: { temp: f64 }`",
+            );
+        }
+        for (name, target) in fields {
+            let p = fields_path.key(name);
+            let Some(from) = names.fields.get(name) else {
+                self.unknown_step_field(&p, Anchor::Key, name, names);
+                continue;
+            };
+            if !widens(from, target.field_type()) {
+                self.ctx.invalid_hint(
+                    &p,
+                    Anchor::Value,
+                    format!(
+                        "cannot cast `{name}` from `{}` to `{}`: casts only widen",
+                        type_label(from),
+                        target.canonical()
+                    ),
+                    "widening casts: i8 < i16 < i32 < i64, u8 < u16 < u32 < u64, an unsigned integer to a larger signed one, f32 to f64, list<f32> to list<f64>, list<i32> to list<i64>",
+                );
             }
         }
     }
@@ -1026,6 +1456,9 @@ impl Checker<'_, '_, '_> {
             self.unknown_name(&p.key("field"), Anchor::Value, &c.field, names);
             return;
         };
+        if matches!(c.test, Test::IsNull(_)) {
+            return;
+        }
         let (op, literals): (&str, Vec<&Literal>) = match &c.test {
             Test::Eq(l) => ("eq", vec![l]),
             Test::Ne(l) => ("ne", vec![l]),
@@ -1035,8 +1468,12 @@ impl Checker<'_, '_, '_> {
             Test::Ge(l) => ("ge", vec![l]),
             Test::In(ls) => ("in", ls.iter().collect()),
             Test::Between { min, max } => ("min", min.iter().chain(max.iter()).collect()),
+            Test::IsNull(_) => ("null", Vec::new()),
         };
-        let ordered = !matches!(c.test, Test::Eq(_) | Test::Ne(_) | Test::In(_));
+        let ordered = !matches!(
+            c.test,
+            Test::Eq(_) | Test::Ne(_) | Test::In(_) | Test::IsNull(_)
+        );
         let op_path = |c: &Condition, idx: usize| -> PathVec {
             match &c.test {
                 Test::Between { min, .. } => p.key(if idx == 0 && min.is_some() {
@@ -1155,6 +1592,147 @@ fn is_numeric_or_numeric_list(ty: &FieldType) -> bool {
     }
 }
 
+/// The fields each step sees, per dataset and per sink (the empty sink name
+/// stands in when the configuration has none).
+type Views = HashMap<String, BTreeMap<String, FieldMap>>;
+
+/// The fields after `t`, as far as they can be told when the step has errors.
+fn evolve(t: &TransformSpec, names: &Names) -> FieldMap {
+    let mut out = names.fields.clone();
+    match t {
+        TransformSpec::Rename { fields, .. } => {
+            out = names
+                .fields
+                .iter()
+                .map(|(name, ty)| (fields.get(name).unwrap_or(name).clone(), ty.clone()))
+                .collect();
+        }
+        TransformSpec::Project { fields, .. } => {
+            out.retain(|name, _| fields.contains(name));
+        }
+        TransformSpec::Cast { fields, .. } => {
+            for (name, target) in fields {
+                if let Some(slot) = out.get_mut(name)
+                    && widens(slot, target.field_type())
+                {
+                    *slot = target.field_type().clone();
+                }
+            }
+        }
+        TransformSpec::Enrich { add, .. } => {
+            for a in add {
+                if names.taken(&a.name).is_none() {
+                    out.entry(a.name.clone())
+                        .or_insert_with(|| a.ty.field_type().clone());
+                }
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+/// `thadam-core`'s runtime type for a declared type; every list the engine has
+/// no packed form for is plain `List`.
+fn value_type(ty: &FieldType) -> Option<ValueType> {
+    Some(match ty {
+        FieldType::Bool => ValueType::Bool,
+        FieldType::I8 => ValueType::I8,
+        FieldType::I16 => ValueType::I16,
+        FieldType::I32 => ValueType::I32,
+        FieldType::I64 => ValueType::I64,
+        FieldType::U8 => ValueType::U8,
+        FieldType::U16 => ValueType::U16,
+        FieldType::U32 => ValueType::U32,
+        FieldType::U64 => ValueType::U64,
+        FieldType::F32 => ValueType::F32,
+        FieldType::F64 => ValueType::F64,
+        FieldType::Str => ValueType::Str,
+        FieldType::Bytes => ValueType::Bytes,
+        FieldType::Ts => ValueType::Ts,
+        FieldType::List(inner) => match **inner {
+            FieldType::F32 => ValueType::F32s,
+            FieldType::F64 => ValueType::F64s,
+            FieldType::I32 => ValueType::I32s,
+            FieldType::I64 => ValueType::I64s,
+            _ => ValueType::List,
+        },
+        _ => return None,
+    })
+}
+
+/// Whether `cast` may turn `from` into `to`: the same type, or a widening in
+/// `thadam-core`'s lattice. Lists with no packed form only cast to themselves.
+fn widens(from: &FieldType, to: &FieldType) -> bool {
+    if from == to {
+        return true;
+    }
+    match (value_type(from), value_type(to)) {
+        (Some(ValueType::List), _) | (_, Some(ValueType::List)) => false,
+        (Some(a), Some(b)) => a.widens_to(b),
+        _ => false,
+    }
+}
+
+/// Types `enrich` has no column decoder for: `bytes`, and lists of `bytes`,
+/// `ts`, or lists.
+fn list_unsupported(ty: &FieldType) -> bool {
+    match ty {
+        FieldType::Bytes => true,
+        FieldType::List(inner) => matches!(
+            **inner,
+            FieldType::Bytes | FieldType::Ts | FieldType::List(_)
+        ),
+        _ => false,
+    }
+}
+
+fn is_time_unit(u: &str) -> bool {
+    matches!(u, "s" | "ms" | "us" | "ns" | "rfc3339")
+}
+
+/// Checks a UTC offset the way `thadam-transform` parses `default_offset`:
+/// `Z`, `z`, `UTC`, or a sign and two-digit hours with optional minutes, as
+/// `+HH:MM`, `+HHMM`, or `+HH`; hours at most 23, minutes at most 59.
+pub(crate) fn check_utc_offset(s: &str) -> Result<(), String> {
+    const FORMS: &str = "write `+HH:MM`, `-HH:MM`, `+HHMM`, `+HH`, or `Z`";
+    if s.len() > 64 {
+        return Err("a UTC offset is at most 64 characters".to_owned());
+    }
+    if matches!(s, "Z" | "z" | "UTC") {
+        return Ok(());
+    }
+    let bad = || format!("`{s}` is not a UTC offset: {FORMS}");
+    let rest = s
+        .strip_prefix('+')
+        .or_else(|| s.strip_prefix('-'))
+        .ok_or_else(bad)?
+        .as_bytes();
+    let (hh, mm) = match *rest {
+        [h1, h2] => ([h1, h2], None),
+        [h1, h2, b':', m1, m2] | [h1, h2, m1, m2] => ([h1, h2], Some([m1, m2])),
+        _ => return Err(bad()),
+    };
+    let two_digits = |[a, b]: [u8; 2]| -> Option<u32> {
+        (a.is_ascii_digit() && b.is_ascii_digit())
+            .then(|| u32::from(a - b'0') * 10 + u32::from(b - b'0'))
+    };
+    let hours = two_digits(hh).ok_or_else(bad)?;
+    let minutes = match mm {
+        Some(pair) => two_digits(pair).ok_or_else(bad)?,
+        None => 0,
+    };
+    if hours > 23 {
+        return Err(format!(
+            "the offset hours in `{s}` are above 23: offsets run from -23:59 to +23:59"
+        ));
+    }
+    if minutes > 59 {
+        return Err(format!("the offset minutes in `{s}` are above 59"));
+    }
+    Ok(())
+}
+
 /// Why `lit` cannot be compared with a field of type `ty`, if it cannot.
 fn literal_problem(field: &str, ty: &FieldType, lit: &Literal, ordered: bool) -> Option<String> {
     match ty {
@@ -1206,5 +1784,56 @@ fn literal_problem(field: &str, ty: &FieldType, lit: &Literal, ordered: bool) ->
             "`{field}` is `{}`, which predicates cannot compare",
             type_label(other)
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn utc_offsets_follow_the_engine_grammar() {
+        for good in [
+            "+02:00", "-05:30", "+0200", "-0530", "+02", "-23", "+23:59", "Z", "z", "UTC",
+        ] {
+            assert_eq!(check_utc_offset(good), Ok(()), "{good}");
+        }
+        for bad in [
+            "",
+            "+",
+            "02:00",
+            "+2",
+            "+002",
+            "+02:0",
+            "+02:",
+            "+0:00",
+            "+02:00:00",
+            "+24:00",
+            "+02:60",
+            " +02:00",
+            "+02:00 ",
+            "utc",
+            "+0２:00",
+            "+a€",
+            "+€€",
+            "é",
+        ] {
+            assert!(check_utc_offset(bad).is_err(), "{bad:?}");
+        }
+        assert!(check_utc_offset(&format!("+{}", "0".repeat(64))).is_err());
+    }
+
+    #[test]
+    fn widening_follows_the_core_lattice() {
+        use FieldType as T;
+        let list = |t: T| T::List(Box::new(t));
+        assert!(widens(&T::U8, &T::I16));
+        assert!(widens(&T::F32, &T::F64));
+        assert!(widens(&list(T::I32), &list(T::I64)));
+        assert!(widens(&list(T::Str), &list(T::Str)));
+        assert!(!widens(&T::I64, &T::U64));
+        assert!(!widens(&T::U64, &T::I64));
+        assert!(!widens(&list(T::Str), &list(T::Bool)));
+        assert!(!widens(&T::I32, &T::F64));
     }
 }

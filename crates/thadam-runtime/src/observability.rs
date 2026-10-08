@@ -14,15 +14,12 @@ use prometheus_client::registry::Registry;
 
 use crate::metrics::{MetricEvent, MetricsSink};
 
-/// Label set for metrics that need source, sink, and dataset labels.
+/// Label set for source metrics: the source only. Sink- and dataset-scoped
+/// detail belongs to the chain metrics instead of empty labels on intake ones.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-pub struct MetricLabels {
+pub struct SourceLabels {
     /// The source identifier.
     pub source: String,
-    /// The sink identifier.
-    pub sink: String,
-    /// The dataset identifier.
-    pub dataset: String,
 }
 
 /// Label set for metrics with source and reason.
@@ -94,10 +91,10 @@ pub struct SinkDatasetOutcomeLabels {
 pub struct PrometheusMetrics {
     registry: Registry,
     // Counters
-    source_messages_total: Family<MetricLabels, Counter>,
-    source_bytes_total: Family<MetricLabels, Counter>,
+    source_messages_total: Family<SourceLabels, Counter>,
+    source_bytes_total: Family<SourceLabels, Counter>,
     source_dropped_total: Family<SourceReasonLabels, Counter>,
-    source_restart_total: Family<MetricLabels, Counter>,
+    source_restart_total: Family<SourceLabels, Counter>,
     chain_events_total: Family<SinkDatasetOutcomeLabels, Counter>,
     rejects_total: Family<SinkDomainLabels, Counter>,
     wal_gap_total: Family<SinkKindLabels, Counter>,
@@ -115,7 +112,7 @@ pub struct PrometheusMetrics {
     component_state: Family<ComponentStateLabels, Gauge>,
     clock_synced: Gauge,
     // Histograms
-    source_ack_latency_seconds: Family<MetricLabels, Histogram, fn() -> Histogram>,
+    source_ack_latency_seconds: Family<SourceLabels, Histogram, fn() -> Histogram>,
     batch_write_latency_seconds: Family<SinkLabels, Histogram, fn() -> Histogram>,
 }
 
@@ -125,122 +122,119 @@ impl PrometheusMetrics {
     pub fn new() -> Self {
         let mut registry = Registry::default();
 
-        // Counters
+        // Counters register without the `_total` suffix: the text encoder
+        // appends it once, so a suffixed registration would encode twice.
         let source_messages_total = Family::default();
         registry.register(
-            "thadam_source_messages_total",
+            "thadam_source_messages",
             "Total number of messages received from sources",
             source_messages_total.clone(),
         );
 
         let source_bytes_total = Family::default();
         registry.register(
-            "thadam_source_bytes_total",
+            "thadam_source_bytes",
             "Total bytes received from sources",
             source_bytes_total.clone(),
         );
 
         let source_dropped_total = Family::default();
         registry.register(
-            "thadam_source_dropped_total",
+            "thadam_source_dropped",
             "Total messages dropped by source",
             source_dropped_total.clone(),
         );
 
         let source_restart_total = Family::default();
         registry.register(
-            "thadam_source_restart_total",
+            "thadam_source_restart",
             "Total number of source restarts",
             source_restart_total.clone(),
         );
 
         let chain_events_total = Family::default();
         registry.register(
-            "thadam_chain_events_total",
+            "thadam_chain_events",
             "Total events produced by chains",
             chain_events_total.clone(),
         );
 
         let rejects_total = Family::default();
         registry.register(
-            "thadam_rejects_total",
+            "thadam_rejects",
             "Total records or events rejected",
             rejects_total.clone(),
         );
 
         let wal_gap_total = Family::default();
         registry.register(
-            "thadam_wal_gap_total",
+            "thadam_wal_gap",
             "Total WAL gaps seen by readers",
             wal_gap_total.clone(),
         );
 
         let chain_panic_total = Family::default();
         registry.register(
-            "thadam_chain_panic_total",
+            "thadam_chain_panic",
             "Total chain panics",
             chain_panic_total.clone(),
         );
 
         let cursor_committed_total = Family::default();
         registry.register(
-            "thadam_cursor_committed_total",
+            "thadam_cursor_committed",
             "Total cursor commits",
             cursor_committed_total.clone(),
         );
 
         let batch_written_total = Family::default();
         registry.register(
-            "thadam_batch_written_total",
+            "thadam_batch_written",
             "Total batch writes",
             batch_written_total.clone(),
         );
 
         let batch_written_events_total = Family::default();
         registry.register(
-            "thadam_batch_written_events_total",
+            "thadam_batch_written_events",
             "Total events written in batches",
             batch_written_events_total.clone(),
         );
 
         let retry_total = Family::default();
-        registry.register(
-            "thadam_retry_total",
-            "Total retry attempts",
-            retry_total.clone(),
-        );
+        registry.register("thadam_retry", "Total retry attempts", retry_total.clone());
 
         let bisect_total = Family::default();
         registry.register(
-            "thadam_batch_bisect_total",
+            "thadam_batch_bisect",
             "Total batch bisects",
             bisect_total.clone(),
         );
 
         let quarantined_total = Family::default();
         registry.register(
-            "thadam_quarantined_total",
+            "thadam_quarantined",
             "Total records quarantined",
             quarantined_total.clone(),
         );
 
         let rejects_dropped_total = Family::default();
         registry.register(
-            "thadam_rejects_dropped_total",
+            "thadam_rejects_dropped",
             "Total rejects dropped",
             rejects_dropped_total.clone(),
         );
 
         let wal_maintained_deleted_bytes_total = Counter::default();
         registry.register(
-            "thadam_wal_maintained_deleted_bytes_total",
+            "thadam_wal_maintained_deleted_bytes",
             "Total bytes deleted by WAL maintenance",
             wal_maintained_deleted_bytes_total.clone(),
         );
 
         let wal_maintained_evicted_bytes_total = Counter::default();
         registry.register(
-            "thadam_wal_evicted_bytes_total",
+            "thadam_wal_evicted_bytes",
             "Total bytes evicted by WAL maintenance",
             wal_maintained_evicted_bytes_total.clone(),
         );
@@ -322,7 +316,8 @@ impl PrometheusMetrics {
         buffer
     }
 
-    /// Returns a sorted list of all registered metric names.
+    /// Returns a sorted list of the exported metric names: the registered
+    /// names plus the `_total` the encoder adds to counters.
     #[must_use]
     pub fn metric_names(&self) -> Vec<&'static str> {
         let mut names = vec![
@@ -367,10 +362,8 @@ impl MetricsSink for PrometheusMetrics {
                 messages,
                 bytes,
             } => {
-                let labels = MetricLabels {
+                let labels = SourceLabels {
                     source: source.to_string(),
-                    sink: String::new(),
-                    dataset: String::new(),
                 };
                 self.source_messages_total
                     .get_or_create(&labels)
@@ -380,10 +373,8 @@ impl MetricsSink for PrometheusMetrics {
                     .inc_by(bytes as u64);
             }
             MetricEvent::SourceAcked { source, latency } => {
-                let labels = MetricLabels {
+                let labels = SourceLabels {
                     source: source.to_string(),
-                    sink: String::new(),
-                    dataset: String::new(),
                 };
                 self.source_ack_latency_seconds
                     .get_or_create(&labels)
@@ -403,22 +394,21 @@ impl MetricsSink for PrometheusMetrics {
                     .inc_by(count as u64);
             }
             MetricEvent::SourceRestart { source } => {
-                let labels = MetricLabels {
+                let labels = SourceLabels {
                     source: source.to_string(),
-                    sink: String::new(),
-                    dataset: String::new(),
                 };
                 self.source_restart_total.get_or_create(&labels).inc();
             }
             MetricEvent::ChainEvents {
                 sink,
                 dataset,
+                outcome,
                 events,
             } => {
                 let labels = SinkDatasetOutcomeLabels {
                     sink: sink.to_string(),
                     dataset: dataset.to_string(),
-                    outcome: "written".to_string(),
+                    outcome: outcome.to_string(),
                 };
                 self.chain_events_total
                     .get_or_create(&labels)

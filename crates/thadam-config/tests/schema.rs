@@ -77,7 +77,16 @@ fn required_keys_match_the_documented_rules() {
 #[test]
 fn transform_kinds_are_listed() {
     let text = json_schema()["$defs"]["TransformSpec"].to_string();
-    for kind in ["validate", "on_change", "filter"] {
+    for kind in [
+        "validate",
+        "on_change",
+        "filter",
+        "sample",
+        "enrich",
+        "rename",
+        "project",
+        "cast",
+    ] {
         assert!(text.contains(kind), "{kind}");
     }
     assert!(text.contains("\"where\""));

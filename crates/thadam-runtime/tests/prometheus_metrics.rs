@@ -2,62 +2,146 @@
 
 use thadam_runtime::{MetricEvent, MetricsSink, PrometheusMetrics};
 
-/// Test that metric_names() returns a non-empty, sorted list where every
-/// name starts with `thadam_`.
+/// The exact list of exported metric names: every counter carries its `_total`
+/// suffix exactly once (the text encoder appends it; registrations omit it).
+/// This pins the names the way an insta snapshot would, so they cannot drift.
 #[test]
-fn test_metric_names_sorted_and_prefixed() {
+fn test_metric_names_exact_list() {
     let metrics = PrometheusMetrics::new();
     let names = metrics.metric_names();
-
-    // Must be non-empty
-    assert!(
-        !names.is_empty(),
-        "metric_names() should return a non-empty list"
-    );
-
-    // Must be sorted
-    let mut sorted_names = names.clone();
-    sorted_names.sort_unstable();
-    assert_eq!(
-        names, sorted_names,
-        "metric_names() should return a sorted list"
-    );
-
-    // Every name must start with "thadam_"
+    let expected: Vec<&str> = vec![
+        "thadam_batch_bisect_total",
+        "thadam_batch_write_seconds",
+        "thadam_batch_written_events_total",
+        "thadam_batch_written_total",
+        "thadam_chain_events_total",
+        "thadam_chain_panic_total",
+        "thadam_clock_synced",
+        "thadam_component_state",
+        "thadam_cursor_committed_total",
+        "thadam_quarantined_total",
+        "thadam_rejects_dropped_total",
+        "thadam_rejects_total",
+        "thadam_retry_total",
+        "thadam_source_ack_latency_seconds",
+        "thadam_source_bytes_total",
+        "thadam_source_dropped_total",
+        "thadam_source_messages_total",
+        "thadam_source_restart_total",
+        "thadam_wal_evicted_bytes_total",
+        "thadam_wal_gap_total",
+        "thadam_wal_maintained_deleted_bytes_total",
+    ];
+    assert_eq!(names, expected, "metric_names() pins the exported names");
     for name in &names {
         assert!(
             name.starts_with("thadam_"),
             "metric name '{name}' should start with 'thadam_'",
         );
+        assert!(
+            !name.contains("_total_total"),
+            "metric name '{name}' must carry `_total` exactly once",
+        );
     }
 }
 
-/// Test that sending two events of a counter-type variant makes encode()
-/// contain that metric with value 2.
+/// Sending two events of a counter variant makes encode() contain that metric
+/// with exactly one `_total` and the given labels, with value 2.
 #[test]
 fn test_counter_increment() {
     let metrics = PrometheusMetrics::new();
 
-    // Use ChainEvents as a counter-type variant
     let event = MetricEvent::ChainEvents {
         sink: "test_sink",
         dataset: "test_dataset",
+        outcome: "filtered",
         events: 1,
     };
 
-    // Record two events
     metrics.record(event);
     metrics.record(event);
 
-    // Encode and check for the metric with value 2
     let encoded = metrics.encode();
 
-    // The metric should contain the counter with value 2
-    // Note: prometheus-client adds _total suffix for counters
     assert!(
-        encoded.contains("thadam_chain_events_total_total{sink=\"test_sink\",dataset=\"test_dataset\",outcome=\"written\"} 2")
-        || encoded.contains("thadam_chain_events_total_total{dataset=\"test_dataset\",outcome=\"written\",sink=\"test_sink\"} 2"),
+        encoded.contains(
+            "thadam_chain_events_total{sink=\"test_sink\",dataset=\"test_dataset\",outcome=\"filtered\"} 2"
+        ),
         "encoded metrics should contain thadam_chain_events_total with value 2, got:\n{}",
         encoded
     );
+    assert!(
+        !encoded.contains("chain_events_total_total"),
+        "counter names encode with exactly one _total, got:\n{}",
+        encoded
+    );
+}
+
+/// Source metrics carry only the `source` label; the sink/dataset labels are
+/// chain-metric detail and must not appear on intake series.
+#[test]
+fn test_source_metrics_have_only_the_source_label() {
+    let metrics = PrometheusMetrics::new();
+
+    metrics.record(MetricEvent::SourceBatch {
+        source: "mqtt-in",
+        messages: 3,
+        bytes: 512,
+    });
+
+    let encoded = metrics.encode();
+
+    for family in ["thadam_source_messages_total", "thadam_source_bytes_total"] {
+        let series = encoded
+            .lines()
+            .find(|l| l.starts_with(family) && !l.starts_with("# "))
+            .unwrap_or_else(|| panic!("no series for {family} in:\n{encoded}"));
+        assert!(
+            series.contains("source=\"mqtt-in\""),
+            "{family} should be labelled with the source: {series}"
+        );
+        assert!(
+            !series.contains("sink=") && !series.contains("dataset="),
+            "{family} must not carry sink/dataset labels: {series}"
+        );
+    }
+}
+
+/// Each chain outcome lands in its own series.
+#[test]
+fn test_chain_outcomes_are_separate_series() {
+    let metrics = PrometheusMetrics::new();
+
+    for (outcome, events) in [
+        ("written", 4usize),
+        ("filtered", 2),
+        ("deduped", 1),
+        ("rejected", 1),
+        ("exploded", 6),
+    ] {
+        metrics.record(MetricEvent::ChainEvents {
+            sink: "out",
+            dataset: "d",
+            outcome,
+            events,
+        });
+    }
+
+    let encoded = metrics.encode();
+
+    for (outcome, events) in [
+        ("written", 4),
+        ("filtered", 2),
+        ("deduped", 1),
+        ("rejected", 1),
+        ("exploded", 6),
+    ] {
+        let want = format!(
+            "thadam_chain_events_total{{sink=\"out\",dataset=\"d\",outcome=\"{outcome}\"}} {events}"
+        );
+        assert!(
+            encoded.contains(&want),
+            "missing outcome series `{want}` in:\n{encoded}"
+        );
+    }
 }

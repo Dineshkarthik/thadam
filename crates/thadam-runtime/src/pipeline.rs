@@ -782,6 +782,7 @@ impl Pipeline {
                 drain: drain.clone(),
                 start: start_rx,
                 ready: Some(ready_tx),
+                last_stats: None,
             };
             sup.spawn(Group::Lanes, chain_c, task.run());
         }

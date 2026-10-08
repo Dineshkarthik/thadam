@@ -8,7 +8,10 @@
 //!
 //! Canonical form: compact JSON, object keys sorted, durations as normalized
 //! text, sizes and counts as integers, identity levels in written order (their
-//! order is meaningful, so it is hashed alongside the sorted map). The digest is
+//! order is meaningful, so it is hashed alongside the sorted map). A key that
+//! holds its default is omitted, which is what lets new keys be added without
+//! a new version: an `on_change` deadband of zero serializes as the bare field
+//! name and an `enrich` `on_miss` of `null` is left out. The digest is
 //! SHA-256 over `b"thadam-config-hash-v1\0"` followed by that JSON, truncated to
 //! 16 bytes. Changing any of this requires a new [`CONFIG_HASH_VERSION`].
 

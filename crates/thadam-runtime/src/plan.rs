@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use thadam_config::{
     DatasetSpec, DecodeFormat, FsyncSpec, MaxLagSpec, OnFull as ConfigOnFull, PipelineSpec,
-    SinkSpec, StartFromSpec, TimeUnit, TransformSpec,
+    SinkSpec, StartFromSpec, TransformSpec,
 };
 use thadam_core::{BudgetCategory, DiskBudget, ErrorDomain, ThadamError, codes};
 use thadam_transform::ChainSpec;
@@ -169,13 +169,18 @@ fn transforms_for<'a>(
         .collect()
 }
 
-/// Whether the sink's chain has steps whose state a warm start rebuilds.
+/// Whether the sink's chain has steps whose state a warm start rebuilds:
+/// dedup, `on_change`, and `sample` (its per-asset counters and last-kept
+/// ingest times).
 pub(crate) fn chain_has_state(spec: &PipelineSpec, sink_id: &str, only: Option<&[String]>) -> bool {
     let ds = selected(spec, only);
     ds.iter().any(|d| d.dedup.is_some())
-        || transforms_for(spec, sink_id, &ds)
-            .iter()
-            .any(|t| matches!(t, TransformSpec::OnChange { .. }))
+        || transforms_for(spec, sink_id, &ds).iter().any(|t| {
+            matches!(
+                t,
+                TransformSpec::OnChange { .. } | TransformSpec::Sample { .. }
+            )
+        })
 }
 
 fn dataset_value(d: &DatasetSpec, path: &str) -> Result<Value, ThadamError> {
@@ -226,24 +231,15 @@ fn dataset_value(d: &DatasetSpec, path: &str) -> Result<Value, ThadamError> {
         );
     }
     if let Some(t) = &d.time {
-        let unit = match t.unit {
-            TimeUnit::S => "s",
-            TimeUnit::Ms => "ms",
-            TimeUnit::Us => "us",
-            TimeUnit::Ns => "ns",
-            _ => {
-                return Err(config_error(
-                    &format!("{path}.time.unit"),
-                    "unsupported time unit",
-                ));
-            }
-        };
         let mut tm = Map::new();
         tm.insert("field".into(), json!(t.field));
-        tm.insert("unit".into(), json!(unit));
+        tm.insert("unit".into(), json!(t.unit.as_str()));
         tm.insert("domain".into(), json!(t.domain.domain().as_str()));
         if let Some(s) = t.max_skew {
             tm.insert("max_skew".into(), json!(duration_text(s.get())));
+        }
+        if let Some(offset) = &t.default_offset {
+            tm.insert("default_offset".into(), json!(offset));
         }
         m.insert("time".into(), Value::Object(tm));
     }
@@ -271,14 +267,23 @@ fn dataset_value(d: &DatasetSpec, path: &str) -> Result<Value, ThadamError> {
 
 fn transform_value(t: &TransformSpec, path: &str) -> Result<Value, ThadamError> {
     let mut v = serde_json::to_value(t).map_err(|e| config_error(path, e.to_string()))?;
-    if let (
-        TransformSpec::OnChange {
-            heartbeat: Some(h), ..
-        },
-        Some(obj),
-    ) = (t, v.as_object_mut())
-    {
-        obj.insert("heartbeat".into(), json!(duration_text(h.get())));
+    // The derived form of every kind matches the engine's spec except for
+    // durations: they humantime-serialize compositely (`1m 30s`), which its
+    // `HumanDuration` refuses, so they travel as nanoseconds.
+    if let Some(obj) = v.as_object_mut() {
+        let duration = match t {
+            TransformSpec::OnChange {
+                heartbeat: Some(d), ..
+            } => Some(("heartbeat", d.get())),
+            TransformSpec::Sample {
+                min_interval: Some(d),
+                ..
+            } => Some(("min_interval", d.get())),
+            _ => None,
+        };
+        if let Some((key, d)) = duration {
+            obj.insert(key.into(), json!(duration_text(d)));
+        }
     }
     Ok(v)
 }
@@ -324,10 +329,15 @@ pub(crate) fn chain_spec(
 #[cfg(test)]
 mod tests {
     use thadam_config::MapEnv;
+    use thadam_transform as rt;
 
     use super::*;
 
-    fn spec_with_sinks(sinks: &str) -> PipelineSpec {
+    /// A pipeline with one dataset `d` (fields `n: u64` and `temp: f32`) and
+    /// the given sinks. `dataset_options` is spliced into the dataset mapping
+    /// (indented, with a trailing newline when non-empty) and `extra` between
+    /// the datasets and sinks sections, for `transforms:`.
+    fn spec_with_parts(sinks: &str, dataset_options: &str, extra: &str) -> PipelineSpec {
         let yaml = format!(
             r#"version: 1
 pipeline: {{ name: test, node_id: node-1, data_dir: /tmp/thadam-plan-test }}
@@ -338,14 +348,19 @@ datasets:
   - id: d
     match: {{ source: src }}
     decode: json
-    fields:
+{dataset_options}    fields:
       - {{ id: 1000, name: n, type: u64, from: /n, required: true }}
-sinks:
+      - {{ id: 1001, name: temp, type: f32, from: /temp }}
+{extra}sinks:
 {sinks}
 "#
         );
         thadam_config::load_str(&yaml, &MapEnv::new())
             .unwrap_or_else(|r| panic!("{}", r.render(&yaml)))
+    }
+
+    fn spec_with_sinks(sinks: &str) -> PipelineSpec {
+        spec_with_parts(sinks, "", "")
     }
 
     fn consumers(spec: &PipelineSpec) -> Vec<ConsumerSpec> {
@@ -402,5 +417,172 @@ sinks:
         );
         assert_eq!(start_from(0, &spec.sinks[0]).unwrap(), StartFrom::Earliest);
         assert_eq!(start_from(1, &spec.sinks[1]).unwrap(), StartFrom::Latest);
+    }
+
+    /// One transform of every kind, written as a config file would write
+    /// them; `enrich`'s file is read when a chain is compiled, not by
+    /// `ChainSpec::from_value`.
+    const EACH_KIND: &str = r#"transforms:
+  - { kind: validate, dataset: d, rules: [{ field: temp, min: -40, max: 150, flag: OUT_OF_RANGE, status: bad }] }
+  - { kind: on_change, dataset: d, fields: [n, { field: temp, deadband: 0.5 }], heartbeat: 5m }
+  - { kind: filter, dataset: d, where: { field: temp, null: false } }
+  - { kind: sample, dataset: d, every_n: 2, min_interval: 90s }
+  - kind: enrich
+    dataset: d
+    file: devices.csv
+    key: { field: n, column: id }
+    add:
+      - { name: model, type: str }
+    on_miss: reject
+  - { kind: cast, dataset: d, fields: { temp: f64 } }
+  - { kind: rename, dataset: d, fields: { temp: temp_c } }
+  - { kind: project, dataset: d, fields: [n, temp_c, model] }
+"#;
+
+    #[test]
+    fn every_transform_kind_deserializes_into_a_chain_spec() {
+        let spec = spec_with_parts("  - { id: a, kind: recseg }", "", EACH_KIND);
+        let chain = chain_spec(&spec, "a", None, None).unwrap();
+        let kinds: Vec<&str> = chain
+            .transforms
+            .iter()
+            .map(rt::TransformSpec::kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                "validate",
+                "on_change",
+                "filter",
+                "sample",
+                "enrich",
+                "cast",
+                "rename",
+                "project"
+            ]
+        );
+
+        let rt::TransformSpec::Enrich(e) = &chain.transforms[4] else {
+            panic!("transforms: {kinds:?}")
+        };
+        assert_eq!(e.file, "devices.csv");
+        assert_eq!(e.on_miss, rt::OnMiss::Reject);
+        assert_eq!(e.key.field, "n");
+        assert_eq!(e.key.column, "id");
+        assert_eq!(e.add.len(), 1);
+        assert_eq!(e.add[0].name, "model");
+        assert_eq!(e.add[0].ty, "str");
+
+        let rt::TransformSpec::Cast(c) = &chain.transforms[5] else {
+            panic!("transforms: {kinds:?}")
+        };
+        assert_eq!(c.fields.get("temp").map(String::as_str), Some("f64"));
+
+        let rt::TransformSpec::Rename(r) = &chain.transforms[6] else {
+            panic!("transforms: {kinds:?}")
+        };
+        assert_eq!(r.fields.get("temp").map(String::as_str), Some("temp_c"));
+
+        let rt::TransformSpec::Project(p) = &chain.transforms[7] else {
+            panic!("transforms: {kinds:?}")
+        };
+        assert_eq!(p.fields, ["n", "temp_c", "model"]);
+    }
+
+    #[test]
+    fn sample_min_interval_reaches_the_engine_as_nanoseconds() {
+        let spec = spec_with_parts(
+            "  - { id: a, kind: recseg }",
+            "",
+            "transforms:\n  - { kind: sample, dataset: d, every_n: 2, min_interval: 90s }\n",
+        );
+        let v = chain_value(&spec, "a", None).unwrap();
+        assert_eq!(
+            v["transforms"][0]["min_interval"],
+            json!("90000000000ns"),
+            "humantime text (`1m 30s`) does not parse in thadam-transform"
+        );
+        assert_eq!(v["transforms"][0]["every_n"], json!(2));
+        let chain = chain_spec(&spec, "a", None, None).unwrap();
+        let rt::TransformSpec::Sample(s) = &chain.transforms[0] else {
+            panic!("{:?}", chain.transforms)
+        };
+        assert_eq!(s.every_n, Some(2));
+        assert_eq!(s.min_interval.map(|d| d.0), Some(Duration::from_secs(90)));
+    }
+
+    #[test]
+    fn rfc3339_time_unit_and_default_offset_pass_through() {
+        let spec = spec_with_parts(
+            "  - { id: a, kind: recseg }",
+            "    time: { field: /ts, unit: rfc3339, domain: utc, default_offset: \"+02:00\" }\n",
+            "",
+        );
+        let v = chain_value(&spec, "a", None).unwrap();
+        assert_eq!(v["datasets"][0]["time"]["unit"], json!("rfc3339"));
+        assert_eq!(v["datasets"][0]["time"]["default_offset"], json!("+02:00"));
+        let chain = chain_spec(&spec, "a", None, None).unwrap();
+        let time = chain.datasets[0].time.as_ref().unwrap();
+        assert_eq!(time.unit, "rfc3339");
+        assert_eq!(time.default_offset.as_deref(), Some("+02:00"));
+
+        let epoch = spec_with_parts(
+            "  - { id: a, kind: recseg }",
+            "    time: { field: /ts, unit: us, domain: utc }\n",
+            "",
+        );
+        let chain = chain_spec(&epoch, "a", None, None).unwrap();
+        assert_eq!(chain.datasets[0].time.as_ref().unwrap().unit, "us");
+    }
+
+    #[test]
+    fn on_change_deadband_watches_reach_the_engine() {
+        let spec = spec_with_parts(
+            "  - { id: a, kind: recseg }",
+            "",
+            "transforms:\n  - { kind: on_change, dataset: d, fields: [n, { field: temp, deadband: 0.5 }], heartbeat: 90s }\n",
+        );
+        let chain = chain_spec(&spec, "a", None, None).unwrap();
+        let rt::TransformSpec::OnChange(oc) = &chain.transforms[0] else {
+            panic!("{:?}", chain.transforms)
+        };
+        assert_eq!(oc.fields.len(), 2);
+        assert_eq!(oc.fields[0].field, "n");
+        assert_eq!(oc.fields[0].deadband, 0.0);
+        assert_eq!(oc.fields[1].field, "temp");
+        assert_eq!(oc.fields[1].deadband, 0.5);
+        assert_eq!(oc.heartbeat.map(|h| h.0), Some(Duration::from_secs(90)));
+    }
+
+    #[test]
+    fn filter_null_test_reaches_the_engine() {
+        let spec = spec_with_parts(
+            "  - { id: a, kind: recseg }",
+            "",
+            "transforms:\n  - { kind: filter, dataset: d, where: { field: temp, null: true } }\n",
+        );
+        let chain = chain_spec(&spec, "a", None, None).unwrap();
+        let rt::TransformSpec::Filter(f) = &chain.transforms[0] else {
+            panic!("{:?}", chain.transforms)
+        };
+        let p = f.where_.as_ref().unwrap();
+        assert_eq!(p.field.as_deref(), Some("temp"));
+        assert_eq!(p.null, Some(true));
+    }
+
+    #[test]
+    fn sample_steps_make_a_chain_stateful() {
+        let sampled = spec_with_parts(
+            "  - { id: a, kind: recseg }",
+            "",
+            "transforms:\n  - { kind: sample, dataset: d, every_n: 2 }\n",
+        );
+        assert!(chain_has_state(&sampled, "a", None));
+        let filtered = spec_with_parts(
+            "  - { id: a, kind: recseg }",
+            "",
+            "transforms:\n  - { kind: filter, dataset: d, where: { field: n, gt: 0 } }\n",
+        );
+        assert!(!chain_has_state(&filtered, "a", None));
     }
 }

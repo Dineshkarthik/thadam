@@ -25,7 +25,7 @@ use crate::registry;
 pub fn run(
     path: &Path,
     repair: bool,
-    log_format: thadam_runtime::LogFormat,
+    log_format: Option<thadam_runtime::LogFormat>,
     log_level: &str,
     admin_bind: Option<&str>,
     admin_token_file: Option<&Path>,
@@ -43,11 +43,21 @@ pub fn run(
         }
     };
 
-    // 3. Initialize logging
-    if let Err(e) = init_logging(log_format, log_level) {
-        let _ = writeln!(err, "failed to initialize logging: {e}");
-        return Exit::RuntimeFailure;
-    }
+    // 3. Initialize logging. The `--log-format` flag wins; without it the
+    // config's `observability.logs.format` applies.
+    let log_format = log_format.unwrap_or(match spec.observability.logs.format {
+        thadam_config::LogFormat::Json => thadam_runtime::LogFormat::Json,
+        _ => thadam_runtime::LogFormat::Pretty,
+    });
+    // The guard must stay alive until the run ends: dropping it closes the
+    // non-blocking writer's channel and every later record is lost.
+    let _logging_guard = match init_logging(log_format, log_level) {
+        Ok(guard) => guard,
+        Err(e) => {
+            let _ = writeln!(err, "failed to initialize logging: {e}");
+            return Exit::RuntimeFailure;
+        }
+    };
 
     // 4. Build the Tokio runtime
     let worker_threads = spec

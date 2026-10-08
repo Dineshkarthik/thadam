@@ -4,25 +4,23 @@ Thadam exports Prometheus metrics in OpenMetrics text format on [`GET /metrics`]
 
 ## Implemented metrics
 
-These are registered by the runtime today (`thadam-runtime`'s Prometheus sink).
+These are registered by the runtime today (`thadam-runtime`'s Prometheus sink). Exported counter names always end in exactly one `_total`.
 
 ### Intake
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `thadam_source_messages_total` | counter | `source`[^1] | Messages received from a source. |
-| `thadam_source_bytes_total` | counter | `source`[^1] | Payload bytes received from a source. |
+| `thadam_source_messages_total` | counter | `source` | Messages received from a source. |
+| `thadam_source_bytes_total` | counter | `source` | Payload bytes received from a source. |
 | `thadam_source_dropped_total` | counter | `source`, `reason` | Messages dropped by a source (e.g. QoS 0 overflow). |
-| `thadam_source_restart_total` | counter | `source`[^1] | Source reopens after transient errors. |
-| `thadam_source_ack_latency_seconds` | histogram | `source`[^1] | Submission → acknowledgement latency. Buckets: 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10. |
-
-[^1]: Source metrics share one label struct and also carry `sink` and `dataset` labels, which are empty strings for intake metrics.
+| `thadam_source_restart_total` | counter | `source` | Source reopens after transient errors. |
+| `thadam_source_ack_latency_seconds` | histogram | `source` | Submission → acknowledgement latency. Buckets: 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10. |
 
 ### Processing (per chain)
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `thadam_chain_events_total` | counter | `sink`, `dataset`, `outcome` | Events produced by chains. `outcome` is currently always `written` (reserved for `filtered`, `deduped`, `rejected`, `exploded`). |
+| `thadam_chain_events_total` | counter | `sink`, `dataset`, `outcome` | Events produced by chains, per chain batch from the chain's own stats. `outcome` is one of `written`, `filtered`, `deduped`, `rejected`, `exploded`. The same rejects also appear in `thadam_rejects_total{domain}`, sliced by error domain instead of dataset; poison-frame rejects (whole frames rejected after panic retries) bypass the chain stats and appear only in `thadam_rejects_total`, not in the `rejected` outcome. |
 | `thadam_rejects_total` | counter | `sink`, `domain` | Records/events rejected, by error domain (`decode`, `schema`, `transform`, `quality`, …). |
 | `thadam_wal_gap_total` | counter | `sink`, `kind` | WAL gap items delivered to readers; `kind` is `corrupt`, `evicted`, or `missing`. |
 | `thadam_chain_panic_total` | counter | `sink` | Chain panics caught at the task boundary (each is followed by a rebuild). |
@@ -55,4 +53,4 @@ Per-source connection detail (MQTT epoch, ack pipeline depth, queue sizes, unack
 
 ## Planned metric names {#planned}
 
-ARCHITECTURE.md section 14 lists the consolidated metric set, some of which are **planned — not yet emitted** by this build. Names reserved there for later PRs include `thadam_wal_commit_seconds`, `thadam_wal_fsync_seconds`, `thadam_wal_disk_bytes`, `thadam_wal_budget_bytes`, `thadam_recovery_seconds`, `thadam_recovery_truncated_bytes`, `thadam_source_connected`, `thadam_source_backpressure_seconds_total`, `thadam_ack_oldest_age_seconds`, `thadam_source_unacked_max`, `thadam_source_stale_acks_total`, `thadam_quality_flags_total{dataset,flag}`, `thadam_segment_files{state}`, `thadam_segment_bytes{state}`, `thadam_segment_finalize_seconds`, `thadam_sink_lag_bytes`, `thadam_sink_lag_seconds`, `thadam_ship_bytes_total`, `thadam_ship_uploads_total{outcome}`, `thadam_ship_retry_age_seconds`, `thadam_ship_upload_seconds`, `thadam_log_dropped_total`, and `thadam_sink_delivery_class{class}`. Every metric name is snapshot-tested, so names do not drift silently.
+ARCHITECTURE.md section 14 lists the consolidated metric set, some of which are **planned — not yet emitted** by this build. Names reserved there for later PRs include `thadam_wal_commit_seconds`, `thadam_wal_fsync_seconds`, `thadam_wal_disk_bytes`, `thadam_wal_budget_bytes`, `thadam_recovery_seconds`, `thadam_recovery_truncated_bytes`, `thadam_source_connected`, `thadam_source_backpressure_seconds_total`, `thadam_ack_oldest_age_seconds`, `thadam_source_unacked_max`, `thadam_source_stale_acks_total`, `thadam_quality_flags_total{dataset,flag}`, `thadam_segment_files{state}`, `thadam_segment_bytes{state}`, `thadam_segment_finalize_seconds`, `thadam_sink_lag_bytes`, `thadam_sink_lag_seconds`, `thadam_ship_bytes_total`, `thadam_ship_uploads_total{outcome}`, `thadam_ship_retry_age_seconds`, `thadam_ship_upload_seconds`, `thadam_log_dropped_total`, and `thadam_sink_delivery_class{class}`. Every metric name is pinned by an exact-list test, so names do not drift silently.

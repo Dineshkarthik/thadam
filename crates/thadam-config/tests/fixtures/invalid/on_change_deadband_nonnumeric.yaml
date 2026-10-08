@@ -1,4 +1,4 @@
-# dedup configured on the dataset without an event_id (valid, yields a warning)
+# on_change gives a deadband to `level`, which is a string
 version: 1
 pipeline: { name: demo, node_id: n1, data_dir: /var/lib/thadam }
 sources:
@@ -11,11 +11,12 @@ datasets:
     match: { source: src, topic: "t/+/data" }
     decode: json
     identity: { device: { id: 100, template: "{topic.1}" } }
-    dedup: { window: 10m, max_keys: 100k }
     time: { field: /ts, unit: ms, domain: utc }
     fields:
       - { id: 1000, name: temp, type: f32, from: /temp }
       - { id: 1001, name: level, type: str, from: /level }
+transforms:
+  - { kind: on_change, dataset: readings, fields: [{ field: level, deadband: 0.5 }] }
 sinks:
   - id: local
     kind: parquet

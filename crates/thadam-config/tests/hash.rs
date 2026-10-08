@@ -255,3 +255,83 @@ fn sink_policies_survive_a_serialization_round_trip() {
     assert_eq!(again, spec);
     assert_eq!(again.config_hash(), spec.config_hash());
 }
+
+fn with_transform(step: &str) -> String {
+    minimal().replacen("sinks:\n", &format!("transforms:\n  - {step}\nsinks:\n"), 1)
+}
+
+#[test]
+fn a_zero_deadband_hashes_like_the_plain_field_name() {
+    let plain = hash(&with_transform(
+        "{ kind: on_change, dataset: readings, fields: [temp, level] }",
+    ));
+    let zero = hash(&with_transform(
+        "{ kind: on_change, dataset: readings, fields: [temp, { field: level, deadband: 0 }] }",
+    ));
+    let omitted = hash(&with_transform(
+        "{ kind: on_change, dataset: readings, fields: [{ field: temp }, level] }",
+    ));
+    let float_zero = hash(&with_transform(
+        "{ kind: on_change, dataset: readings, fields: [temp, { field: level, deadband: 0.0 }] }",
+    ));
+    assert_eq!(plain, zero);
+    assert_eq!(plain, omitted);
+    assert_eq!(plain, float_zero);
+    let some = hash(&with_transform(
+        "{ kind: on_change, dataset: readings, fields: [{ field: temp, deadband: 0.5 }, level] }",
+    ));
+    assert_ne!(plain, some, "a real deadband is part of the configuration");
+    assert_ne!(
+        some,
+        hash(&with_transform(
+            "{ kind: on_change, dataset: readings, fields: [{ field: temp, deadband: 0.25 }, level] }",
+        ))
+    );
+}
+
+#[test]
+fn the_default_on_miss_hashes_like_leaving_it_out() {
+    let step = |rest: &str| {
+        format!(
+            "{{ kind: enrich, dataset: readings, file: t.csv, key: {{ field: device, column: id }}, add: [{{ name: model, type: str }}]{rest} }}"
+        )
+    };
+    let written = hash(&with_transform(&step(", on_miss: \"null\"")));
+    let omitted = hash(&with_transform(&step("")));
+    assert_eq!(written, omitted);
+    for other in ["reject", "drop"] {
+        assert_ne!(
+            hash(&with_transform(&step(&format!(", on_miss: {other}")))),
+            omitted,
+            "{other}"
+        );
+    }
+}
+
+#[test]
+fn watch_fields_keep_their_written_form_when_serialized() {
+    let spec = load(
+        &with_transform(
+            "{ kind: on_change, dataset: readings, fields: [temp, { field: level, deadband: 0 }] }",
+        ),
+        &MapEnv::new(),
+    );
+    let value = serde_json::to_value(&spec.transforms[0]).unwrap();
+    assert_eq!(value["fields"], serde_json::json!(["temp", "level"]));
+    let again = load(&serde_json::to_string(&spec).unwrap(), &MapEnv::new());
+    assert_eq!(again.config_hash(), spec.config_hash());
+}
+
+#[test]
+fn time_without_a_default_offset_hashes_as_before() {
+    let canonical = load(&minimal(), &MapEnv::new()).canonical_json();
+    assert!(!canonical.contains("default_offset"), "{canonical}");
+    let with = hash(&minimal().replace(
+        "unit: ms, domain: utc }",
+        "unit: rfc3339, domain: utc, default_offset: \"+02:00\" }",
+    ));
+    let without =
+        hash(&minimal().replace("unit: ms, domain: utc }", "unit: rfc3339, domain: utc }"));
+    assert_ne!(with, without);
+    assert_ne!(without, hash(&minimal()));
+}

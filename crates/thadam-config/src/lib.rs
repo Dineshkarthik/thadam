@@ -52,7 +52,11 @@
 //!    means every sink.
 //! 3. **Hash:** see [`CONFIG_HASH_VERSION`] and [`PipelineSpec::config_hash`]. It is
 //!    taken after typed normalization but before interpolation: interpolated
-//!    values are hashed as written, so a rotated secret does not move it.
+//!    values are hashed as written, so a rotated secret does not move it. Every key
+//!    added after the first release is omitted from the serialized form at its
+//!    default, so [`CONFIG_HASH_VERSION`] stays 1: `on_miss: null` is omitted, and
+//!    an `on_change` entry with `deadband: 0` serializes as the bare field name, so
+//!    `fields: [mode]` and `fields: [{ field: mode, deadband: 0 }]` hash alike.
 //! 4. **Interpolation:** parsed string scalars only; `$${` escapes; no nesting, no
 //!    defaults; results are strings; errors name the variable or file, never its
 //!    value. The `serde-saphyr` `properties` feature is not used.
@@ -67,10 +71,15 @@
 //!    hand so errors point at the key (`transforms[1].heartbeat`).
 //! 9. **Scalar hazards** (`yes`/`no` are text, `014` and `1_000` are numbers at the
 //!    `Value` boundary, quoted numbers are strings) are pinned by tests.
-//! 10. Predicates use `all`/`any`/`not` and `eq ne lt le gt ge in min max`; names
+//! 10. Predicates use `all`/`any`/`not` and `eq ne lt le gt ge in null min max`; names
 //!     resolve against the dataset (fields, identity levels, the `explode` index
 //!     field, `quality.status|flags|reason`) and literals are type-checked, with
 //!     integers above `i64::MAX` kept as `u64`.
+//! 11. **Transforms:** all eight kinds of `thadam-transform` are accepted, with its
+//!     option names. A step is checked against the dataset's fields as left by the
+//!     earlier steps that apply to the same sink, so `rename`, `project`, `cast`,
+//!     and `enrich` change what later steps may name. An `enrich` table is read
+//!     when the chain is compiled, never while validating.
 //!
 //! # Parquet field IDs (ADR-0013, "PR13 implementation decisions")
 //!
@@ -129,6 +138,7 @@
 mod check;
 mod ctx;
 mod diagnostics;
+mod doc;
 mod estimate;
 mod hash;
 mod interpolate;
@@ -160,10 +170,11 @@ pub use semantic::KindPolicy;
 pub use source::{EnvSource, MAX_SECRET_FILE_BYTES, MapEnv, ProcessEnv};
 pub use spec::{
     AdminSpec, CONFIG_VERSION, ConnectorSpec, DECLARED_FIELD_ID_RANGE, DatasetSpec, DecodeFormat,
-    DedupSpec, EventIdSpec, ExplodeSpec, FieldSpec, FsyncSpec, IDENTITY_LEVEL_ID_RANGE,
-    IdentityLevel, LogFormat, LogLevel, LogsSpec, MatchSpec, MaxLagSpec, ObservabilitySpec, OnFull,
-    PipelineMeta, PipelineSpec, QuarantineFormat, QuarantineSpec, RuleStatus, RuntimeSpec,
-    SinkSpec, StartFromSpec, TimeSpec, TimeUnit, TransformSpec, ValidateRule, WalSpec,
+    DedupSpec, EnrichFieldSpec, EnrichFormat, EnrichKeySpec, EventIdSpec, ExplodeSpec, FieldSpec,
+    FsyncSpec, IDENTITY_LEVEL_ID_RANGE, IdentityLevel, LogFormat, LogLevel, LogsSpec, MatchSpec,
+    MaxLagSpec, ObservabilitySpec, OnFull, OnMissSpec, PipelineMeta, PipelineSpec,
+    QuarantineFormat, QuarantineSpec, RuleStatus, RuntimeSpec, SinkSpec, StartFromSpec, TimeSpec,
+    TimeUnit, TransformSpec, ValidateRule, WalSpec, WatchField,
 };
 
 use crate::ctx::Ctx;
@@ -321,7 +332,7 @@ fn parse_value(
             max_depth: MAX_YAML_DEPTH,
         },
     };
-    serde_saphyr::from_str_with_options::<Value>(src, options)
+    serde_saphyr::from_str_with_options::<doc::Doc>(src, options).map(|doc| doc.0)
 }
 
 /// Validates configuration text and reports every problem found.

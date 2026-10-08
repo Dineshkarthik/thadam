@@ -49,7 +49,7 @@ A dataset is an output table: a `match` (source and topic), a decode format, an 
 
 ## Event IDs and deduplication
 
-By default the event ID is deterministic per WAL record (`xxh3_128` over the epoch, frame sequence, and record index), so it is stable across replay but **different for a broker redelivery** — which is exactly when duplicates appear. A dataset may instead derive IDs from content with [`event_id: { key: [...] }`](../configuration/datasets.md#event_id) (for example `[site, robot, seq]`); only a content-derived ID survives redelivery, and it is required for meaningful deduplication. D17 (ADR-0011) fixes the responsibility split: dedup inside Thadam is best-effort over a bounded, warm-started window; authoritative deduplication happens downstream (`ReplacingMergeTree`, `QUALIFY`, `DISTINCT ON`).
+By default the event ID is deterministic per WAL record (`xxh3_128` over the epoch, frame sequence, and record index), so it is stable across replay but **different for a broker redelivery** — which is exactly when duplicates appear. A dataset may instead derive IDs from content with [`event_id: { key: [...] }`](../configuration/datasets.md#event_id) (for example `[site, robot, seq]`); only a content-derived ID survives redelivery, so `dedup` without it is a validation error (ADR-0011 D17). D17 (ADR-0011) fixes the responsibility split: dedup inside Thadam is best-effort over a bounded, warm-started window; authoritative deduplication happens downstream (`ReplacingMergeTree`, `QUALIFY`, `DISTINCT ON`).
 
 ## Payloads and media
 

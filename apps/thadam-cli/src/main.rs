@@ -71,9 +71,11 @@ struct RunArgs {
     /// this binary knows.
     #[arg(long)]
     repair: bool,
-    /// The log output format: `json` or `pretty`.
-    #[arg(long, value_name = "FORMAT", default_value = "pretty")]
-    log_format: LogFormatArg,
+    /// The log output format: `json` or `pretty`. Defaults to
+    /// `observability.logs.format` in the config file (`json` when the
+    /// section is absent).
+    #[arg(long, value_name = "FORMAT")]
+    log_format: Option<LogFormatArg>,
     /// The minimum log level (e.g., `info`, `debug`, `warn`).
     #[arg(long, value_name = "LEVEL", default_value = "info")]
     log_level: String,
@@ -173,7 +175,7 @@ fn main() -> ExitCode {
         Command::Run(args) => run::run(
             &args.path,
             args.repair,
-            args.log_format.into_runtime_format(),
+            args.log_format.map(LogFormatArg::into_runtime_format),
             &args.log_level,
             args.admin_bind.as_deref(),
             args.admin_token_file.as_deref(),

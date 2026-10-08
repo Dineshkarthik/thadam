@@ -1,0 +1,46 @@
+# every transform kind, the `null` test, an on_change deadband, and RFC 3339 time
+# with a default offset; the enrich table is read at startup, not by validation
+version: 1
+pipeline: { name: demo, node_id: n1, data_dir: /var/lib/thadam }
+sources:
+  - id: src
+    kind: mqtt
+    config: { url: "mqtt://broker:1883", topics: [{ filter: "t/+/data", qos: 1 }] }
+wal: { max_disk: 1GiB, on_full: block }
+datasets:
+  - id: readings
+    match: { source: src, topic: "t/+/data" }
+    decode: json
+    identity: { device: { id: 100, template: "{topic.1}" } }
+    time: { field: /ts, unit: rfc3339, domain: utc, default_offset: "+02:00" }
+    fields:
+      - { id: 1000, name: temp, type: f32, from: /temp }
+      - { id: 1001, name: level, type: str, from: /level }
+      - { id: 1002, name: count, type: i32, from: /count }
+transforms:
+  - kind: on_change
+    dataset: readings
+    fields: [level, { field: temp, deadband: 0.5 }]
+    heartbeat: 5m
+  - kind: filter
+    dataset: readings
+    where:
+      all:
+        - { field: level, null: false }
+        - { field: quality.reason, null: true }
+  - { kind: sample, dataset: readings, sinks: [local], every_n: 10, min_interval: 1s }
+  - kind: enrich
+    dataset: readings
+    file: devices.csv
+    key: { field: device, column: id }
+    add:
+      - { name: model, type: str }
+      - { name: installed, type: ts, unit: rfc3339, column: installed_at }
+    on_miss: reject
+  - { kind: cast, dataset: readings, fields: { temp: f64, count: i64 } }
+  - { kind: rename, dataset: readings, fields: { level: severity, model: robot_model } }
+  - { kind: project, dataset: readings, fields: [temp, severity, robot_model, count, installed] }
+sinks:
+  - id: local
+    kind: parquet
+    config: { datasets: [readings] }

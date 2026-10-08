@@ -712,6 +712,22 @@ pub enum TimeUnit {
     Us,
     /// Nanoseconds.
     Ns,
+    /// RFC 3339 text such as `2026-10-07T12:34:56+02:00`, not a number.
+    Rfc3339,
+}
+
+impl TimeUnit {
+    /// The unit as `thadam-transform` spells it: `s`, `ms`, `us`, `ns`, or
+    /// `rfc3339`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TimeUnit::S => "s",
+            TimeUnit::Ms => "ms",
+            TimeUnit::Us => "us",
+            TimeUnit::Ns => "ns",
+            TimeUnit::Rfc3339 => "rfc3339",
+        }
+    }
 }
 
 /// How the source timestamp is read.
@@ -721,13 +737,18 @@ pub enum TimeUnit {
 pub struct TimeSpec {
     /// A JSON Pointer to the timestamp.
     pub field: String,
-    /// The unit of the number.
+    /// The unit of the number, or `rfc3339` for text.
     pub unit: TimeUnit,
     /// The clock the device's time is on.
     pub domain: TimeDomainSpec,
     /// Beyond this distance from ingest time, the event is flagged `CLOCK_SKEW`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_skew: Option<DurationSpec>,
+    /// The UTC offset assumed for `rfc3339` text that carries none, such as
+    /// `+02:00`. Only valid with `unit: rfc3339`; without it, offset-less text
+    /// is a runtime reject.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_offset: Option<String>,
 }
 
 /// One declared field of a dataset.
@@ -872,10 +893,199 @@ pub struct ValidateRule {
     pub status: RuleStatus,
 }
 
+/// A field `on_change` watches, with an optional absolute deadband.
+///
+/// Written as a bare field name or as `{ field, deadband }`. A deadband of zero
+/// serializes as the bare name, so both spellings of the same step hash alike.
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct WatchField {
+    /// The watched field.
+    pub field: String,
+    /// A numeric change must exceed this to count; zero when absent.
+    pub deadband: f64,
+}
+
+impl WatchField {
+    /// A watch on `field` with the given deadband.
+    pub fn new(field: impl Into<String>, deadband: f64) -> Self {
+        WatchField {
+            field: field.into(),
+            deadband,
+        }
+    }
+}
+
+/// The keys of the mapping form. Refusing an unknown key while reading the key
+/// itself (as derived code does) keeps it in the error's path.
+enum WatchKey {
+    Field,
+    Deadband,
+}
+
+impl<'de> Deserialize<'de> for WatchKey {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl Visitor<'_> for V {
+            type Value = WatchKey;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("`field` or `deadband`")
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<WatchKey, E> {
+                match v {
+                    "field" => Ok(WatchKey::Field),
+                    "deadband" => Ok(WatchKey::Deadband),
+                    other => Err(E::unknown_field(other, &["field", "deadband"])),
+                }
+            }
+        }
+        d.deserialize_identifier(V)
+    }
+}
+
+impl<'de> Deserialize<'de> for WatchField {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = WatchField;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a field name, or a mapping `{ field: <name>, deadband: <number> }`")
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<WatchField, E> {
+                Ok(WatchField::new(v, 0.0))
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<WatchField, A::Error> {
+                let mut field: Option<String> = None;
+                let mut deadband: Option<f64> = None;
+                while let Some(key) = map.next_key::<WatchKey>()? {
+                    match key {
+                        WatchKey::Field => {
+                            if field.is_some() {
+                                return Err(de::Error::duplicate_field("field"));
+                            }
+                            field = Some(map.next_value()?);
+                        }
+                        WatchKey::Deadband => {
+                            if deadband.is_some() {
+                                return Err(de::Error::duplicate_field("deadband"));
+                            }
+                            deadband = Some(map.next_value()?);
+                        }
+                    }
+                }
+                let field = field.ok_or_else(|| de::Error::missing_field("field"))?;
+                Ok(WatchField::new(field, deadband.unwrap_or(0.0)))
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+impl Serialize for WatchField {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        if self.deadband == 0.0 {
+            return s.serialize_str(&self.field);
+        }
+        let mut m = s.serialize_map(Some(2))?;
+        m.serialize_entry("field", &self.field)?;
+        m.serialize_entry("deadband", &self.deadband)?;
+        m.end()
+    }
+}
+
+impl JsonSchema for WatchField {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "WatchField".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "A field name, or `{ field, deadband }`: the field is passed on only when it moved by more than the deadband (numeric fields only; default 0).",
+            "oneOf": [
+                { "type": "string" },
+                {
+                    "type": "object",
+                    "properties": {
+                        "field": { "type": "string" },
+                        "deadband": { "type": "number", "minimum": 0 }
+                    },
+                    "required": ["field"],
+                    "additionalProperties": false
+                }
+            ]
+        })
+    }
+}
+
+/// What `enrich` does when the key has no row in the table.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum OnMissSpec {
+    /// The added fields are null.
+    #[default]
+    Null,
+    /// The event is rejected.
+    Reject,
+    /// The event is dropped and counted.
+    Drop,
+}
+
+/// The file format of an `enrich` table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum EnrichFormat {
+    /// A CSV file with a header row.
+    Csv,
+    /// A YAML list of rows, or a mapping from key to row.
+    Yaml,
+}
+
+/// The join between an event and an `enrich` table.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct EnrichKeySpec {
+    /// The event's field or identity level to look up; a string or integer.
+    pub field: String,
+    /// The table column that holds the key.
+    pub column: String,
+}
+
+/// A field `enrich` adds from a table column.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct EnrichFieldSpec {
+    /// The new field's name.
+    pub name: String,
+    /// The new field's type; a `ts` field needs `unit`.
+    #[serde(rename = "type")]
+    pub ty: FieldTypeSpec,
+    /// The table column to read; the field name when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<String>,
+    /// The unit of the value (a UCUM code such as `mV`); for a `ts` field, the
+    /// epoch unit (`s`, `ms`, `us`, `ns`) or `rfc3339`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+}
+
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
 /// A step applied to one dataset.
 ///
 /// Every step takes the `dataset` it applies to and an optional `sinks` list
 /// restricting it to those sinks (open item O2; absent means all sinks).
+/// Option names and meanings match the steps of `thadam-transform`.
 #[derive(Clone, Debug, PartialEq, Serialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 #[non_exhaustive]
@@ -897,8 +1107,9 @@ pub enum TransformSpec {
         /// Restricts the step to these sink ids.
         #[serde(skip_serializing_if = "Option::is_none")]
         sinks: Option<Vec<String>>,
-        /// The fields compared with the previous event.
-        fields: Vec<String>,
+        /// The fields compared with the previous event, each with an optional
+        /// deadband.
+        fields: Vec<WatchField>,
         /// An event is passed at least this often.
         #[serde(skip_serializing_if = "Option::is_none")]
         heartbeat: Option<DurationSpec>,
@@ -914,6 +1125,73 @@ pub enum TransformSpec {
         #[serde(rename = "where")]
         where_: Predicate,
     },
+    /// Keeps every Nth event and/or events at least an interval apart, per asset.
+    Sample {
+        /// The dataset the step applies to.
+        dataset: String,
+        /// Restricts the step to these sink ids.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sinks: Option<Vec<String>>,
+        /// Keeps an asset's first event and every Nth after it; at least 1.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        every_n: Option<CountSpec>,
+        /// Keeps an event only when this much ingest time passed since the
+        /// asset's last kept event; greater than zero.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        min_interval: Option<DurationSpec>,
+    },
+    /// Adds fields from a static CSV or YAML table.
+    Enrich {
+        /// The dataset the step applies to.
+        dataset: String,
+        /// Restricts the step to these sink ids.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sinks: Option<Vec<String>>,
+        /// The table file; a relative path resolves against the config file's
+        /// directory. It is read when the transform chain is compiled, not
+        /// when the configuration is validated.
+        file: String,
+        /// The table format; inferred from the file extension when absent.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        format: Option<EnrichFormat>,
+        /// The join key.
+        key: EnrichKeySpec,
+        /// The fields to add.
+        add: Vec<EnrichFieldSpec>,
+        /// What happens when the key has no row; `null` when absent.
+        #[serde(default, skip_serializing_if = "is_default")]
+        on_miss: OnMissSpec,
+    },
+    /// Renames fields without touching values.
+    Rename {
+        /// The dataset the step applies to.
+        dataset: String,
+        /// Restricts the step to these sink ids.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sinks: Option<Vec<String>>,
+        /// Old field name to new field name.
+        fields: BTreeMap<String, String>,
+    },
+    /// Keeps only the listed fields, in the listed order.
+    Project {
+        /// The dataset the step applies to.
+        dataset: String,
+        /// Restricts the step to these sink ids.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sinks: Option<Vec<String>>,
+        /// The fields to keep.
+        fields: Vec<String>,
+    },
+    /// Widens field types; narrowing is an error.
+    Cast {
+        /// The dataset the step applies to.
+        dataset: String,
+        /// Restricts the step to these sink ids.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sinks: Option<Vec<String>>,
+        /// Field name to the wider type.
+        fields: BTreeMap<String, FieldTypeSpec>,
+    },
 }
 
 impl TransformSpec {
@@ -922,7 +1200,12 @@ impl TransformSpec {
         match self {
             TransformSpec::Validate { dataset, .. }
             | TransformSpec::OnChange { dataset, .. }
-            | TransformSpec::Filter { dataset, .. } => dataset,
+            | TransformSpec::Filter { dataset, .. }
+            | TransformSpec::Sample { dataset, .. }
+            | TransformSpec::Enrich { dataset, .. }
+            | TransformSpec::Rename { dataset, .. }
+            | TransformSpec::Project { dataset, .. }
+            | TransformSpec::Cast { dataset, .. } => dataset,
         }
     }
 
@@ -931,7 +1214,12 @@ impl TransformSpec {
         match self {
             TransformSpec::Validate { sinks, .. }
             | TransformSpec::OnChange { sinks, .. }
-            | TransformSpec::Filter { sinks, .. } => sinks.as_deref(),
+            | TransformSpec::Filter { sinks, .. }
+            | TransformSpec::Sample { sinks, .. }
+            | TransformSpec::Enrich { sinks, .. }
+            | TransformSpec::Rename { sinks, .. }
+            | TransformSpec::Project { sinks, .. }
+            | TransformSpec::Cast { sinks, .. } => sinks.as_deref(),
         }
     }
 
@@ -941,6 +1229,11 @@ impl TransformSpec {
             TransformSpec::Validate { .. } => "validate",
             TransformSpec::OnChange { .. } => "on_change",
             TransformSpec::Filter { .. } => "filter",
+            TransformSpec::Sample { .. } => "sample",
+            TransformSpec::Enrich { .. } => "enrich",
+            TransformSpec::Rename { .. } => "rename",
+            TransformSpec::Project { .. } => "project",
+            TransformSpec::Cast { .. } => "cast",
         }
     }
 }
@@ -958,16 +1251,30 @@ pub struct RuntimeSpec {
     pub memory_target: Option<SizeSpec>,
 }
 
-/// The log output format.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+/// The log output format: `json` or `pretty`. The older spelling `text` is
+/// still read as a deprecated alias for `pretty` (validation warns); the
+/// serialized, and therefore hashed, form is always `pretty`, so a config
+/// that spells it `text` hashes as if it said `pretty` from this version on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum LogFormat {
     /// One JSON object per line.
     #[default]
     Json,
-    /// Human-readable text.
-    Text,
+    /// Human-readable output.
+    Pretty,
+}
+
+impl<'de> Deserialize<'de> for LogFormat {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        match s.as_str() {
+            "json" => Ok(LogFormat::Json),
+            "pretty" | "text" => Ok(LogFormat::Pretty),
+            other => Err(de::Error::unknown_variant(other, &["json", "pretty"])),
+        }
+    }
 }
 
 /// The minimum log level.

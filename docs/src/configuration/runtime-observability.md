@@ -24,16 +24,16 @@ The deeper runtime tuning — shutdown timeout (30 s), drain timeout (10 s), cur
 ```yaml
 observability:
   logs:
-    format: json        # json (default) | text
+    format: json        # json (default) | pretty
     level: info         # trace | debug | info (default) | warn | error
 ```
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `format` | `json` or `text` | `json` | Structured JSON lines (one object per line) or human-readable text. Structured JSON is the default. |
+| `format` | `json` or `pretty` | `json` | Structured JSON lines (one object per line) or human-readable output. `text` is a deprecated alias for `pretty` and warns at validation. Structured JSON is the default. |
 | `level` | level name | `info` | The minimum log level. |
 
-Logs go to stderr through a bounded, **lossy** writer: when the buffer fills, lines are dropped and the drop is counted (`thadam_log_dropped_total`, once wired) rather than blocking the pipeline. Payloads and secrets are never logged. `thadam run --log-format` and `--log-level` override this section for a single run; `--log-level` accepts env-filter strings such as `thadam_runtime=debug,warn`.
+Logs go to stderr through a bounded, **lossy** writer: when the buffer fills, lines are dropped and the drop is counted (`thadam_log_dropped_total`, once wired) rather than blocking the pipeline. Payloads and secrets are never logged. `thadam run --log-format` overrides `observability.logs.format` for a single run; without the flag, the config value is used (`json` when the section is absent). `--log-level` sets the minimum level for a run and accepts env-filter strings such as `thadam_runtime=debug,warn`.
 
 ### `observability.admin` {#admin}
 

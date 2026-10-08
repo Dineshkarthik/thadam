@@ -11,9 +11,10 @@
 //! ```
 //!
 //! `all`, `any`, and `not` combine conditions. A condition names a `field` and
-//! one test: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, or a `min`/`max` range
-//! (inclusive; either or both). Integer literals above `i64::MAX` are kept as
-//! `u64`, never widened to a float.
+//! one test: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `null`, or a `min`/`max`
+//! range (inclusive; either or both). `null: true` is true when the value is
+//! null or missing, `null: false` when it is present and not null. Integer
+//! literals above `i64::MAX` are kept as `u64`, never widened to a float.
 //!
 //! This module only represents predicates. Evaluation lives in
 //! `thadam-transform`; the key spellings here are what PR9 compiles.
@@ -93,6 +94,9 @@ pub enum Test {
         /// The inclusive upper bound.
         max: Option<Literal>,
     },
+    /// `null: true` tests that the value is null or missing; `null: false`
+    /// that it is present and not null.
+    IsNull(bool),
 }
 
 /// A test on one field.
@@ -148,6 +152,7 @@ impl Serialize for Predicate {
                     Test::Gt(l) => m.serialize_entry("gt", l)?,
                     Test::Ge(l) => m.serialize_entry("ge", l)?,
                     Test::In(ls) => m.serialize_entry("in", ls)?,
+                    Test::IsNull(b) => m.serialize_entry("null", b)?,
                     Test::Between { min, max } => {
                         if let Some(l) = min {
                             m.serialize_entry("min", l)?;
@@ -205,7 +210,8 @@ impl JsonSchema for Predicate {
                         "ge": number,
                         "in": { "type": "array", "items": literal, "minItems": 1 },
                         "min": number,
-                        "max": number
+                        "max": number,
+                        "null": { "type": "boolean" }
                     },
                     "required": ["field"],
                     "additionalProperties": false
