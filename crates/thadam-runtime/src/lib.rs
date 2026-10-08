@@ -141,6 +141,7 @@ mod datadir;
 mod exit;
 pub mod failpoints;
 mod lane;
+pub mod logging;
 mod metrics;
 mod observability;
 mod options;
@@ -159,6 +160,7 @@ pub use datadir::{
 };
 pub use exit::ExitStatus;
 pub use failpoints::Failpoints;
+pub use logging::{LogFormat, LoggingGuard, init_logging};
 pub use metrics::{MetricEvent, MetricsSink, NoopMetrics};
 pub use observability::PrometheusMetrics;
 pub use options::{BackoffPolicy, ClockSyncProbe, RuntimeOptions};

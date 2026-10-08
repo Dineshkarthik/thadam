@@ -59,7 +59,9 @@ thiserror = "2.0.21"
 tokio = { version = "1.53", default-features = false }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-util = { version = "0.7.19", default-features = false }
-tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json", "env-filter", "ansi", "std"] }
+tracing-appender = "0.2"
 twox-hash = { version = "2.1", default-features = false, features = ["xxhash3_128"] }
 
 criterion = { version = "0.8", default-features = false }
