@@ -2,7 +2,7 @@
 
 - **Status:** Draft
 - **Date:** 2026-10-07
-- **Updated:** 2026-10-07 (spike S1 evidence and recommendations folded in; PR6 and PR7 implementation deviations recorded in "Implementation notes (PR6 and PR7)"; status unchanged)
+- **Updated:** 2026-10-07 (spike S1 evidence and recommendations folded in; PR6 and PR7 implementation deviations recorded in "Implementation notes (PR6 and PR7)"; status unchanged); 2026-10-08 (per-sink consumer policy keys recorded in "Retention" from `thadam-config`, commit `f2c2282`; status unchanged)
 - **Deciders:** Project owner
 
 **Implementation status.** The owner decided to build the WAL now from the S1 design and to re-validate it on reference hardware (x86 NVMe, ARM eMMC) later. `thadam-wal` (PR6 and PR7) is implemented in commit `0c4cf6f`. Format v1 is **versioned but not frozen**: segment headers, `wal.json`, and cursor files carry format versions and a binary refuses a version it does not know, but the `interval(10ms)` fsync default, Linux preallocation, the segment size, and the `RawFrame` field numbers stay provisional until that re-run. This ADR stays **Draft**. Where the implementation differs from the text below, "Implementation notes (PR6 and PR7)" is the current behavior.
@@ -109,6 +109,8 @@ Each consumer has one file, `cursors/<name>.cur`, holding epoch, committed posit
 ### Retention
 
 Whole segments are deleted once every required sink's cursor has passed them, subject to `retain_for`, a reprocessing window bounded by the disk budget. Each sink is `required: true|false` with an optional `max_lag`. A sink that exceeds `max_lag` is evicted from retention, which is an explicit, counted loss for that sink. All time-based decisions use monotonic durations and WAL offsets, never wall-clock comparisons. Reclaim is an `unlink` followed by a directory fsync; S1 measured steady disk at the backlog plus one segment.
+
+**Per-sink policy keys as defined in `thadam-config` (`SinkSpec`), since the PR10 follow-up `f2c2282` (2026-10-08).** Next to `id`, `kind`, and `config`, a sink entry takes `required` (default `true`), `max_lag`, and `start_from`. `required: false` makes the sink an optional consumer that never holds retention back: a reader that falls behind eviction sees a gap as before (`Gap::Evicted`). `max_lag` is exactly one of `{ bytes: <size> }` (WAL bytes between the sink's position and the end) or `{ age: <duration> }` (age of the oldest WAL data the sink has not consumed), always greater than zero; the validation spellings (`bytes`, `age`) are fixed, and `max_lag` on a `required: false` sink is refused by `thadam validate`, because there is nothing to limit. A required sink past `max_lag` stops pinning retention, an explicit, counted loss for that sink. `start_from` (`earliest`, the default, or `latest`) applies only to a sink with no committed WAL cursor; `latest` commits that cursor at the current durable end during startup, so a restart cannot skip data, and a sink with a cursor always resumes from it. Serialization and the config hash omit keys at their defaults, so existing configurations keep their hash (fixture `sink_policies.yaml` in `thadam-config`).
 
 ### Disk budget and `on_full` (D4)
 

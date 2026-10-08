@@ -1,6 +1,6 @@
 # Readiness gate: re-run of 2026-10-07 (after the owner decisions)
 
-Status: **CONDITIONALLY READY, implementation under way.** PR1 to PR9, PR12, and PR13 are done and committed (hashes in "Implementation status after wave 2"); wave 3, the runtime (PR10), is not started / paused. The WAL was built ahead of ADR-0004's acceptance by the owner's choice, so its on-disk format is versioned but not frozen: the ADR-0004 hardware re-run still gates the freeze and the acceptance. The owner still needs to apply `docs/design/product-amendments.md` Part A to `product.md`.
+Status: **CONDITIONALLY READY, implementation under way.** PR1 to PR9, PR12, and PR13 are done and committed, and so is wave 3's PR10, the runtime (`e2dd744`, plus the `f2c2282` contract and sink-policy follow-up); PR11 (observability, admin API, `thadam run`, `thadam status`) is in progress (hashes in "Implementation status (waves 2 and 3)"). The WAL was built ahead of ADR-0004's acceptance by the owner's choice, so its on-disk format is versioned but not frozen: the ADR-0004 hardware re-run still gates the freeze and the acceptance. The owner still needs to apply `docs/design/product-amendments.md` Part A to `product.md`.
 
 Date: 2026-10-07 (status updated after wave 2, commits `8cc03a2` to `2a681ce`, the same day). This document re-runs the checklist in section 1 of the readiness gate plan (`thadam_mvp_readiness_gate`) against the current documents and evidence, after the owner's decisions of the same day (ADR acceptances, B7, and the EMQX pin; see `docs/design/owner-decisions.md`). It supersedes the plan's "NOT READY" paragraph for tracking purposes and is updated whenever a blocker moves. The sources of truth it summarizes are `ARCHITECTURE.md`, `docs/design/owner-decisions.md`, `docs/design/adr/`, and the spike reports in `docs/design/spikes/` (S1 WAL, S2 MQTT, D8 record representation, ADR-0012 YAML, ADR-0018 filter).
 
@@ -32,14 +32,15 @@ The overall verdict is a conjunction. The practical question is which work can s
 | PR6, PR7 (WAL writer, readers, cursors, retention) | ADR-0004 accepted, which needs the S1 re-run on reference hardware | **Done**, `0c4cf6f`, built ahead of the acceptance by the owner's choice. The format is versioned but not frozen; the freeze and ADR-0004's acceptance still wait for the hardware re-run. |
 | PR8 (transform part 1) | PR3 | **Done**, `424c2cc` (with PR9). |
 | PR9 (transform part 2) | PR3 and PR8 | **Done**, `424c2cc` (with PR8). ADR-0018 is Accepted; its PR9 details are recorded in the `thadam-transform` crate documentation. |
-| PR10, PR11 (runtime, observability) | PR3 to PR8 | **Not started / paused** (wave 3). D5 and D6 are signed, so no decision blocks them. |
+| PR10 (`thadam-runtime` core) | PR3 to PR8 | **Done**, `e2dd744`, plus the `f2c2282` follow-up (segment-sink appends grouped by dataset; per-sink `required`/`max_lag`/`start_from` in `thadam-config`). D5 and D6 were signed, so no decision blocked it. |
+| PR11 (observability, admin API, `thadam run`, `thadam status`) | PR10 | **In progress.** The runtime attaches through the `PipelineHandle::status` snapshots and the `MetricsSink` callback added in PR10. |
 | PR12 (`thadam-mqtt`) | PR4 and the runtime sequence | **Done**, `2a681ce`. ADR-0006 is Accepted (amended 2026-10-07: TLS is terminated in `thadam-mqtt`); EMQX is pinned to 5.8.x for CI. |
 | PR13 (`thadam-arrow`) | Earlier PRs | **Done**, `4fa3802`. ADR-0013 is Accepted; PR13 closed O4, O5, and the unsigned default. |
 | PR14 onward | Earlier PRs | Not started. |
 
-### Implementation status after wave 2
+### Implementation status (waves 2 and 3)
 
-Commits `8cc03a2` to `2a681ce`, plus one test-only follow-up.
+Commits `8cc03a2` to `2a681ce` (wave 2), the test-only follow-up `4857bcc`, and wave 3 so far: PR10 (`e2dd744`) and its follow-up (`f2c2282`).
 
 | Commit | PRs | What it added |
 |---|---|---|
@@ -49,6 +50,8 @@ Commits `8cc03a2` to `2a681ce`, plus one test-only follow-up.
 | `4fa3802` | PR13 | `thadam-arrow` encoder with stable field IDs |
 | `2a681ce` | PR12 | `thadam-mqtt` source with ordered acks and the TLS relay |
 | `4857bcc` | none | Test-only: the `thadam-wal` crash-loop test now gates its kills on child readiness. The flake is fixed. |
+| `e2dd744` | PR10 | `thadam-runtime` core: drivers, supervisor, shutdown, and recovery; settles the `thadam.json`/`wal.json` split (identity in `wal.json`, `thadam.json` references it) |
+| `f2c2282` | PR10 follow-up | `SegmentSink::append` takes a `SegmentBatch` with events grouped by dataset; per-sink `required` (default `true`), `max_lag` (`bytes` or `age`), and `start_from` (`earliest`/`latest`) in `thadam-config` |
 
 Decisions made while implementing, and where they are recorded:
 
@@ -109,7 +112,7 @@ Closed in this pass: acceptance of ADRs 0001, 0002, 0003, 0006, 0011, 0012, 0013
 
 ### What flips the project to fully READY
 
-Blocker 2 closed, and, for the WAL format freeze only, blocker 3 (with blocker 4 as its dependency). Blocker 1 is closed. Work proceeds incrementally: wave 2 is done, and wave 3 (the runtime) is not started / paused. The owner action in blocker 2 does not gate code, but it gates README, demo, and release wording.
+Blocker 2 closed, and, for the WAL format freeze only, blocker 3 (with blocker 4 as its dependency). Blocker 1 is closed. Work proceeds incrementally: wave 2 and PR10 (the runtime core) are done, and PR11 is in progress. The owner action in blocker 2 does not gate code, but it gates README, demo, and release wording.
 
 ## 4. Caveats on the evidence
 
@@ -170,7 +173,7 @@ The `clippy.toml` settings (`allow-unwrap-in-tests`, `allow-expect-in-tests`) ta
 
 ## 7. Next pull requests
 
-Historical: this section is the plan as written before PR1 to PR5 were committed. PR1 (`079b2c6`), PR2 (`ba0bb03`), PR3 and PR4 (`31bbbab`), and PR5 (`8cc03a2`) are done, as are PR6 to PR9, PR12, and PR13 (see "Implementation status after wave 2"); the next work is wave 3, the runtime (PR10), which is not started / paused. The text below is kept for the scope it recorded.
+Historical: this section is the plan as written before PR1 to PR5 were committed. PR1 (`079b2c6`), PR2 (`ba0bb03`), PR3 and PR4 (`31bbbab`), and PR5 (`8cc03a2`) are done, as are PR6 to PR9, PR12, and PR13 and wave 3's PR10 (see "Implementation status (waves 2 and 3)"); the next work is PR11, which is in progress. The text below is kept for the scope it recorded.
 
 The repository had no commits of this work when this section was written: every file was untracked. Suggested commit order, all for the owner to approve and a maintainer to run (this pass did not stage, commit, or branch).
 

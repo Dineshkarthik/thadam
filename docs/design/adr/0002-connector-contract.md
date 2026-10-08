@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-07
-- **Updated:** 2026-10-07 (owner decisions B6 recorded; spike S2 evidence folded in; accepted)
+- **Updated:** 2026-10-07 (owner decisions B6 recorded; spike S2 evidence folded in; accepted); 2026-10-08 ("Implementation notes" added for the grouped segment-sink append of the PR10 follow-up `f2c2282`; status unchanged)
 - **Deciders:** Project owner
 
 **Acceptance.** Accepted by project owner on 2026-10-07 (`docs/design/owner-decisions.md`, section "ADR acceptances"). The owner signed D5 and D6 on 2026-10-07 (B6), and spike S2 has confirmed the mechanics the contract depends on (liveness by withholding acknowledgements, ordered acknowledgement, payload-stripped handles) and settled the cancel-safety question. The unticked items in "Evidence and validation required" are implementation-time verification, not blockers: they happen in PR3, PR4, PR10, and PR12 and in later milestones. Three of them could in principle reopen a clause, and each has a named revisit trigger: the Zenoh pull-contract prototype (M2), the Parquet and ClickHouse prototypes against both sink shapes (PR14 and M3), and the contract-overhead benchmarks (PR4). Open item O8 (the `SinkBatch` type) is an interface detail that PR3 and PR4 define and does not change a decision here.
@@ -90,6 +90,14 @@ Source suite: liveness, cancel-safety (random drops), ack ordering under randomi
 ### What this ADR supersedes
 
 From ARCHITECTURE.md section 19: the push-style `Source::run(ctx)` with an `Emitter`; the single `Sink` trait with `open/write/flush/close`; capability negotiation, `contract_version`, and `SourceFactory::descriptor` with `accepts`, `ordering`, and `requires_schema`; and `ConfigValue` tied to a YAML crate. product.md section 19 sketched push-style traits and says not to lock the design before benchmarks, so the contract is accepted but stays 0.x and unstable until after the first release.
+
+## Implementation notes (PR10 and `f2c2282`, 2026-10-08)
+
+The trait sketches in the Decision section are what the owner signed on 2026-10-07; the first runtime implementation (PR10, `e2dd744`, and its follow-up `f2c2282`) fixed the real signatures. One change relative to the sketch is worth recording here:
+
+- **`SegmentSink::append` receives events grouped by dataset (`f2c2282`).** The sketch above passed an `EventBatch`, one dataset's events. As built, `append` takes a `SegmentBatch` (`thadam-core`): the segment driver passes each chain read as a single `append` covering one WAL range, with the events per dataset collected in `datasets: Vec<DatasetEvents>` in declaration order (empty datasets included). Sink rejects index the events in the flattened order (datasets in declaration order, WAL order within each), the same order `SegmentBatch::events` iterates, and the runtime never calls `poll_commit`, `finalize_all`, or `recover` in the middle of an `append`; successive batches have strictly increasing, non-overlapping origins, so a sink may derive its watermark from appended origins. Rows routed to quarantine are appended under `QUARANTINE_DATASET` (`"_quarantine"`) so the sink keeps them separate. `BatchSink` is unchanged: `write` still takes a `SinkBatch` with no dataset id, so the batch driver concatenates the datasets' events; grouping it the same way is open work that `thadam-clickhouse` (one table per dataset) needs before PR20.
+
+This changes no decision of this ADR (the two sink shapes, ordered acknowledgement, and the cursor rules are untouched); the contract is 0.x and unstable, so the signature change needs no deprecation period.
 
 ## Alternatives considered
 
