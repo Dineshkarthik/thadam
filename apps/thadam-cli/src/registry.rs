@@ -1,16 +1,9 @@
 //! The connector registry builder.
 //!
 //! This module provides a helper to construct the [`Registry`] with all
-//! source and sink factories registered, and exports the lists of known kinds
-//! for configuration validation.
+//! source and sink factories registered.
 
 use thadam_runtime::Registry;
-
-/// Registered source kinds.
-pub const SOURCE_KINDS: &[&str] = &["mqtt"];
-
-/// Registered sink kinds.
-pub const SINK_KINDS: &[&str] = &["parquet", "object_store"];
 
 /// Build a [`Registry`] with all source and sink factories registered.
 ///
@@ -110,14 +103,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn source_kinds_includes_mqtt() {
-        assert!(SOURCE_KINDS.contains(&"mqtt"));
+    fn build_registry_registers_mqtt_source() {
+        let registry = build_registry();
+        let policy = registry.kind_policy();
+        // Verify mqtt source is registered
+        assert!(
+            policy
+                .source_kinds
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|s| s == "mqtt"))
+        );
     }
 
     #[test]
-    fn sink_kinds_includes_parquet_and_object_store() {
-        assert!(SINK_KINDS.contains(&"parquet"));
-        assert!(SINK_KINDS.contains(&"object_store"));
+    fn build_registry_registers_parquet_and_object_store_sinks() {
+        let registry = build_registry();
+        let policy = registry.kind_policy();
+        // Verify sinks are registered
+        assert!(
+            policy
+                .sink_kinds
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|s| s == "parquet"))
+        );
+        assert!(
+            policy
+                .sink_kinds
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|s| s == "object_store"))
+        );
     }
 
     #[test]

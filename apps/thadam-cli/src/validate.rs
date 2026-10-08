@@ -3,9 +3,7 @@
 use std::io::Write;
 use std::path::Path;
 
-use thadam_config::{
-    CONFIG_HASH_VERSION, CheckOptions, EnvSource, KindPolicy, UnresolvedPolicy, check_file,
-};
+use thadam_config::{CONFIG_HASH_VERSION, CheckOptions, EnvSource, UnresolvedPolicy, check_file};
 
 use crate::exit::Exit;
 use crate::registry;
@@ -32,11 +30,9 @@ pub fn run(
     } else {
         UnresolvedPolicy::Error
     };
-    let opts = CheckOptions::new().unresolved(policy).kinds(
-        KindPolicy::new()
-            .sources(registry::SOURCE_KINDS.iter().copied())
-            .sinks(registry::SINK_KINDS.iter().copied()),
-    );
+    let opts = CheckOptions::new()
+        .unresolved(policy)
+        .kinds(registry::build_registry().kind_policy());
     let checked = check_file(path, env, &opts);
     let name = path.display().to_string();
 

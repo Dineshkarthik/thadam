@@ -18,6 +18,7 @@
 mod exit;
 mod registry;
 mod run;
+mod status;
 mod validate;
 
 use std::io::Write;
@@ -47,6 +48,8 @@ enum Command {
     Schema,
     /// Run a pipeline configuration.
     Run(RunArgs),
+    /// Check the admin server status.
+    Status(StatusArgs),
 }
 
 #[derive(Args)]
@@ -80,6 +83,16 @@ struct RunArgs {
     /// Path to a file containing the admin server bearer token.
     #[arg(long, value_name = "PATH")]
     admin_token_file: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct StatusArgs {
+    /// The admin server URL (default: http://127.0.0.1:9464).
+    #[arg(long, value_name = "URL")]
+    admin_url: Option<String>,
+    /// Path to a file containing the admin server bearer token.
+    #[arg(long, value_name = "PATH")]
+    token_file: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -164,6 +177,12 @@ fn main() -> ExitCode {
             &args.log_level,
             args.admin_bind.as_deref(),
             args.admin_token_file.as_deref(),
+            &mut err,
+        ),
+        Command::Status(args) => status::run(
+            args.admin_url.as_deref(),
+            args.token_file.as_deref(),
+            &mut out,
             &mut err,
         ),
     };
