@@ -12,9 +12,9 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use thadam_config::{MapEnv, PipelineSpec};
 use thadam_core::{
-    BatchSink, BatchSinkFactory, BuildContext, ErrorDomain, Event, EventBatch, Reject, ThadamError,
-    SegmentSink, SegmentSinkFactory, Service, ServiceContext, ServiceFactory, SinkContext, Source,
-    SourceFactory, Value, WalPos, WalRange, codes,
+    BatchSink, BatchSinkFactory, BuildContext, ErrorDomain, Event, Reject, ThadamError,
+    SegmentBatch, SegmentSink, SegmentSinkFactory, Service, ServiceContext, ServiceFactory,
+    SinkContext, Source, SourceFactory, Value, WalPos, WalRange, codes,
 };
 use thadam_runtime::{BackoffPolicy, Pipeline, Registry, RunReport, RuntimeOptions};
 use thadam_testkit::{
@@ -204,6 +204,10 @@ pub struct RecInner {
     /// Makes the next `append` calls fail with this error.
     pub append_errors: Vec<ThadamError>,
     pub appends: u64,
+    /// The dataset ids of every `append`, in the order they were listed.
+    pub dataset_lists: Vec<Vec<String>>,
+    /// Events received per dataset.
+    pub dataset_events: BTreeMap<String, usize>,
 }
 
 /// A durable-in-memory segment sink that keeps every row (`kind: recseg`,
@@ -224,6 +228,14 @@ impl RecStore {
     }
     pub fn eligible(&self) -> Vec<WalRange> {
         lock(&self.0).eligible.clone()
+    }
+    /// The dataset lists of every `append`, in call order.
+    pub fn dataset_lists(&self) -> Vec<Vec<String>> {
+        lock(&self.0).dataset_lists.clone()
+    }
+    /// Events received per dataset.
+    pub fn dataset_events(&self) -> BTreeMap<String, usize> {
+        lock(&self.0).dataset_events.clone()
     }
     pub fn ns(&self) -> Vec<u64> {
         let mut v: Vec<u64> = self
@@ -280,10 +292,20 @@ impl SegmentSink for RecSink {
         Ok(last)
     }
 
-    async fn append(&mut self, batch: EventBatch) -> Result<Vec<Reject>, ThadamError> {
+    async fn append(&mut self, batch: SegmentBatch) -> Result<Vec<Reject>, ThadamError> {
         let (stall, panic_n, err) = {
             let mut st = lock(&self.store.0);
             st.appends += 1;
+            st.dataset_lists.push(
+                batch
+                    .datasets
+                    .iter()
+                    .map(|d| d.dataset.to_string())
+                    .collect(),
+            );
+            for d in &batch.datasets {
+                *st.dataset_events.entry(d.dataset.to_string()).or_default() += d.events.len();
+            }
             let err = if st.append_errors.is_empty() {
                 None
             } else {
@@ -298,7 +320,7 @@ impl SegmentSink for RecSink {
             return Err(e);
         }
         if let Some(n) = panic_n
-            && batch.events.iter().any(|e| event_n(e) == Some(n))
+            && batch.events().any(|(_, e)| event_n(e) == Some(n))
         {
             lock(&self.store.0).panic_on_n = None;
             panic!("test sink panics on n = {n}");
@@ -311,7 +333,7 @@ impl SegmentSink for RecSink {
             ));
         }
         self.last = Some(batch.origin.last());
-        let rows = batch.events.iter().map(Row::of).collect();
+        let rows = batch.events().map(|(_, e)| Row::of(e)).collect();
         self.buffered.push((batch.origin, rows));
         Ok(Vec::new())
     }

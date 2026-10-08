@@ -233,7 +233,8 @@ pub trait Classify {
 /// quarantine and the rest of the batch proceeds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reject {
-    /// Position of the rejected event within the batch.
+    /// Position of the rejected event within the batch. For a segment sink,
+    /// the position in `SegmentBatch::events` (datasets in order, then events).
     pub index: u32,
     /// Why it was rejected.
     pub error: ThadamError,

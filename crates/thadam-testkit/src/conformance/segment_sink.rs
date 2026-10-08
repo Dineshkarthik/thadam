@@ -5,15 +5,18 @@
 //! resumes from the position `recover` reports. The checks here cover the two
 //! things that must hold for that to be safe: the watermark only moves forward
 //! and never ahead of what is durable, and after a crash at any failpoint no
-//! WAL frame is lost or lands in two files.
+//! WAL frame is lost or lands in two files. Every check appends
+//! [`SegmentBatch`](thadam_core::SegmentBatch)es that spread events over three
+//! datasets, and one check confirms the datasets stay apart.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use thadam_core::{DiskBudget, SegmentSink, Shutdown, SinkContext, SinkId, WalPos, WalRange};
 
 use crate::FakeClock;
-use crate::fixtures::test_batch;
+use crate::fixtures::test_segment_batch_across;
 use crate::memory_segment_sink::{Failpoint, MemorySegmentSink, MemorySegmentStore};
 use crate::util::SplitMix64;
 
@@ -36,8 +39,21 @@ pub trait SegmentSinkFixture: Send + Sync {
     /// WAL ranges of the finalized files currently on "disk".
     fn finalized_ranges(&self) -> Vec<WalRange>;
 
+    /// Events per dataset across the finalized files on "disk", or `None` if
+    /// the fixture cannot tell (the per-dataset check is then skipped).
+    fn finalized_dataset_events(&self) -> Option<BTreeMap<String, usize>> {
+        None
+    }
+
     /// Wipes the durable state.
     fn reset(&self);
+}
+
+/// The datasets every check spreads its events over.
+const DATASETS: [&str; 3] = ["alpha", "beta", "gamma"];
+
+fn batch(first: u64, last: u64) -> thadam_core::SegmentBatch {
+    test_segment_batch_across(1, first, last, &DATASETS)
 }
 
 /// Runs the suite against [`MemorySegmentSink`].
@@ -87,6 +103,16 @@ impl SegmentSinkFixture for MemorySegmentFixture {
 
     fn finalized_ranges(&self) -> Vec<WalRange> {
         self.store.finalized_ranges()
+    }
+
+    fn finalized_dataset_events(&self) -> Option<BTreeMap<String, usize>> {
+        let mut total: BTreeMap<String, usize> = BTreeMap::new();
+        for file in self.store.files() {
+            for (dataset, n) in file.datasets {
+                *total.entry(dataset).or_default() += n;
+            }
+        }
+        Some(total)
     }
 
     fn reset(&self) {
@@ -146,7 +172,7 @@ pub async fn watermark_is_monotonic_and_complete(fixture: &dyn SegmentSinkFixtur
     let mut watermark: Option<WalPos> = None;
     while appended < FRAMES {
         let n = rng.between(1, 3).min(FRAMES - appended);
-        let batch = test_batch(1, appended + 1, appended + n);
+        let batch = batch(appended + 1, appended + n);
         let rejected = sink
             .append(batch)
             .await
@@ -202,7 +228,7 @@ pub async fn recovery_after_crash_at_every_failpoint(fixture: &dyn SegmentSinkFi
                 if frame == arm_before_frame {
                     fixture.arm(failpoint);
                 }
-                if sink.append(test_batch(1, frame, frame)).await.is_err() {
+                if sink.append(batch(frame, frame)).await.is_err() {
                     crashed = true;
                     break;
                 }
@@ -235,7 +261,7 @@ pub async fn recovery_after_crash_at_every_failpoint(fixture: &dyn SegmentSinkFi
             let resume = durable.map_or(1, |p| p.get() + 1);
             for frame in resume..=FRAMES {
                 restarted
-                    .append(test_batch(1, frame, frame))
+                    .append(batch(frame, frame))
                     .await
                     .unwrap_or_else(|e| panic!("{scenario}: replay of frame {frame} failed: {e}"));
                 restarted.poll_commit().await.unwrap_or_else(|e| {
@@ -252,8 +278,46 @@ pub async fn recovery_after_crash_at_every_failpoint(fixture: &dyn SegmentSinkFi
     }
 }
 
+/// Events of different datasets stay in their own dataset: after everything is
+/// finalized, each dataset holds exactly the events it was given, including a
+/// dataset that receives none in most batches.
+pub async fn datasets_are_kept_apart(fixture: &dyn SegmentSinkFixture) {
+    const FRAMES: u64 = 30;
+    fixture.reset();
+    let mut sink = fixture.open_sink();
+    recover(sink.as_mut()).await;
+
+    let mut expected: BTreeMap<String, usize> = BTreeMap::new();
+    for frame in 1..=FRAMES {
+        let b = batch(frame, frame);
+        for d in &b.datasets {
+            *expected.entry(d.dataset.to_string()).or_default() += d.events.len();
+        }
+        let rejected = sink
+            .append(b)
+            .await
+            .unwrap_or_else(|e| panic!("append failed: {e}"));
+        assert!(rejected.is_empty(), "the suite appends only valid events");
+        sink.poll_commit()
+            .await
+            .unwrap_or_else(|e| panic!("poll_commit failed: {e}"));
+    }
+    sink.finalize_all()
+        .await
+        .unwrap_or_else(|e| panic!("finalize_all failed: {e}"));
+
+    let Some(actual) = fixture.finalized_dataset_events() else {
+        return;
+    };
+    assert_eq!(
+        actual, expected,
+        "events per dataset after finalize_all differ from what was appended (datasets were merged, lost, or duplicated)"
+    );
+}
+
 /// Runs every check against `fixture`.
 pub async fn run_all(fixture: &dyn SegmentSinkFixture, seed: u64) {
     watermark_is_monotonic_and_complete(fixture, seed).await;
     recovery_after_crash_at_every_failpoint(fixture).await;
+    datasets_are_kept_apart(fixture).await;
 }

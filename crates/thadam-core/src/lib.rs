@@ -72,7 +72,9 @@ mod text;
 mod time;
 mod value;
 
-pub use batch::{EventBatch, RawBatch, RawMessage};
+pub use batch::{
+    DatasetEvents, EventBatch, QUARANTINE_DATASET, RawBatch, RawMessage, SegmentBatch,
+};
 pub use budget::{BudgetCategory, BudgetExceeded, CategoryUsage, DiskBudget};
 pub use clock::{Clock, SyncFlag, SystemClock};
 pub use connector::{

@@ -103,6 +103,24 @@
 //!   `FieldDef::field_id`; [`DatasetSpec::level_ids`] gives the `(name, id)`
 //!   pairs for `thadam_arrow::DatasetSchema::builder(..).level(name, id)`.
 //!
+//! # Per-sink WAL policy
+//!
+//! A sink entry takes three keys next to `id`, `kind`, and `config` (see
+//! [`SinkSpec`]):
+//!
+//! ```yaml
+//! required: false              # default true
+//! max_lag: { bytes: 2GiB }     # or { age: 30m }; optional, needs required: true
+//! start_from: latest           # earliest (default) | latest
+//! ```
+//!
+//! - `required: false` makes the sink an optional WAL consumer: it never holds
+//!   retention back. `max_lag` bounds how far a required sink may fall behind
+//!   before it stops holding it back, so the two together are refused.
+//! - `start_from` only applies to a sink with no committed WAL cursor.
+//! - A sink serializes (and hashes) without a key that holds its default, so
+//!   existing configurations keep their [`PipelineSpec::config_hash`].
+//!
 //! # Versioning
 //!
 //! `version: 1` is mandatory. A newer or unknown version is refused with
@@ -143,9 +161,9 @@ pub use source::{EnvSource, MAX_SECRET_FILE_BYTES, MapEnv, ProcessEnv};
 pub use spec::{
     AdminSpec, CONFIG_VERSION, ConnectorSpec, DECLARED_FIELD_ID_RANGE, DatasetSpec, DecodeFormat,
     DedupSpec, EventIdSpec, ExplodeSpec, FieldSpec, FsyncSpec, IDENTITY_LEVEL_ID_RANGE,
-    IdentityLevel, LogFormat, LogLevel, LogsSpec, MatchSpec, ObservabilitySpec, OnFull,
+    IdentityLevel, LogFormat, LogLevel, LogsSpec, MatchSpec, MaxLagSpec, ObservabilitySpec, OnFull,
     PipelineMeta, PipelineSpec, QuarantineFormat, QuarantineSpec, RuleStatus, RuntimeSpec,
-    SinkSpec, TimeSpec, TimeUnit, TransformSpec, ValidateRule, WalSpec,
+    SinkSpec, StartFromSpec, TimeSpec, TimeUnit, TransformSpec, ValidateRule, WalSpec,
 };
 
 use crate::ctx::Ctx;
@@ -412,27 +430,42 @@ fn finish(ctx: Ctx<'_>, spec: Option<PipelineSpec>) -> Checked {
 }
 
 fn assemble(parsed: check::Parsed, sites: Vec<spec::InterpolationSite>) -> Option<PipelineSpec> {
-    let connectors =
-        |section: &str, items: Option<Vec<Option<ConnectorSpec>>>| -> Option<Vec<ConnectorSpec>> {
-            let items: Option<Vec<ConnectorSpec>> = items?.into_iter().collect();
-            let mut items = items?;
-            for (i, c) in items.iter_mut().enumerate() {
-                if c.config.is_null() {
-                    c.config = Value::Object(serde_json::Map::new());
-                }
-                let prefix = Vec::new().key(section).idx(i).key("config");
-                c.secret_paths = sites
-                    .iter()
-                    .filter(|s| s.is_under(&prefix))
-                    .map(|s| path::pointer(&s.path[prefix.len()..]))
-                    .collect();
+    let secret_paths = |section: &str, i: usize| -> Vec<String> {
+        let prefix = Vec::new().key(section).idx(i).key("config");
+        sites
+            .iter()
+            .filter(|s| s.is_under(&prefix))
+            .map(|s| path::pointer(&s.path[prefix.len()..]))
+            .collect()
+    };
+    let sources: Vec<ConnectorSpec> = parsed.sources.items?.into_iter().collect::<Option<_>>()?;
+    let sources = sources
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut c)| {
+            if c.config.is_null() {
+                c.config = Value::Object(serde_json::Map::new());
             }
-            Some(items)
-        };
+            c.secret_paths = secret_paths("sources", i);
+            c
+        })
+        .collect();
+    let sinks: Vec<SinkSpec> = parsed.sinks.items?.into_iter().collect::<Option<_>>()?;
+    let sinks = sinks
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut c)| {
+            if c.config.is_null() {
+                c.config = Value::Object(serde_json::Map::new());
+            }
+            c.secret_paths = secret_paths("sinks", i);
+            c
+        })
+        .collect();
     Some(PipelineSpec {
         version: CONFIG_VERSION,
         pipeline: parsed.pipeline?,
-        sources: connectors("sources", parsed.sources.items)?,
+        sources,
         wal: parsed.wal?,
         quarantine: parsed.quarantine?,
         datasets: parsed
@@ -445,7 +478,7 @@ fn assemble(parsed: check::Parsed, sites: Vec<spec::InterpolationSite>) -> Optio
             .items?
             .into_iter()
             .collect::<Option<Vec<_>>>()?,
-        sinks: connectors("sinks", parsed.sinks.items)?,
+        sinks,
         runtime: parsed.runtime?,
         observability: parsed.observability?,
         interpolations: sites.clone(),

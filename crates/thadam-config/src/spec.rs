@@ -115,30 +115,38 @@ fn empty_config() -> serde_json::Value {
     serde_json::Value::Object(serde_json::Map::new())
 }
 
-/// A sink has the same shape as a source.
-pub type SinkSpec = ConnectorSpec;
+fn redact(config: &serde_json::Value, secret_paths: &[String]) -> serde_json::Value {
+    let mut cfg = config.clone();
+    for ptr in secret_paths {
+        if let Some(slot) = cfg.pointer_mut(ptr) {
+            *slot = serde_json::Value::String(REDACTED.to_owned());
+        }
+    }
+    cfg
+}
+
+fn interpolated(
+    config: &serde_json::Value,
+    secret_paths: &[String],
+) -> Vec<(String, Secret<String>)> {
+    secret_paths
+        .iter()
+        .filter_map(|ptr| {
+            let s = config.pointer(ptr)?.as_str()?;
+            Some((ptr.clone(), Secret::new(s.to_owned())))
+        })
+        .collect()
+}
 
 impl ConnectorSpec {
     /// `config` with every interpolated value replaced by `<redacted>`.
     pub fn redacted_config(&self) -> serde_json::Value {
-        let mut cfg = self.config.clone();
-        for ptr in &self.secret_paths {
-            if let Some(slot) = cfg.pointer_mut(ptr) {
-                *slot = serde_json::Value::String(REDACTED.to_owned());
-            }
-        }
-        cfg
+        redact(&self.config, &self.secret_paths)
     }
 
     /// The interpolated string values, as `(pointer, secret)` pairs.
     pub fn secrets(&self) -> Vec<(String, Secret<String>)> {
-        self.secret_paths
-            .iter()
-            .filter_map(|ptr| {
-                let s = self.config.pointer(ptr)?.as_str()?;
-                Some((ptr.clone(), Secret::new(s.to_owned())))
-            })
-            .collect()
+        interpolated(&self.config, &self.secret_paths)
     }
 }
 
@@ -160,6 +168,202 @@ impl fmt::Debug for ConnectorSpec {
             .field("id", &self.id)
             .field("kind", &self.kind)
             .field("config", &self.redacted_config())
+            .finish()
+    }
+}
+
+fn default_required() -> bool {
+    true
+}
+
+/// Where a sink starts when it has no committed WAL cursor yet.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum StartFromSpec {
+    /// The oldest frame the WAL still holds.
+    #[default]
+    Earliest,
+    /// The frame after the current end of the WAL; older data is skipped.
+    Latest,
+}
+
+impl StartFromSpec {
+    /// The key spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StartFromSpec::Earliest => "earliest",
+            StartFromSpec::Latest => "latest",
+        }
+    }
+}
+
+/// How far a required sink may fall behind the WAL before it stops holding
+/// data back: `{ bytes: <size> }` or `{ age: <duration> }`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum MaxLagSpec {
+    /// WAL bytes between the sink's position and the end of the WAL.
+    Bytes(SizeSpec),
+    /// Age of the oldest WAL data the sink has not consumed.
+    Age(DurationSpec),
+}
+
+impl<'de> Deserialize<'de> for MaxLagSpec {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = MaxLagSpec;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a mapping `{ bytes: <size> }` or `{ age: <duration> }`")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<MaxLagSpec, A::Error> {
+                let Some(key) = map.next_key::<String>()? else {
+                    return Err(de::Error::custom(
+                        "`max_lag` needs one key, `bytes` or `age`",
+                    ));
+                };
+                let lag = match key.as_str() {
+                    "bytes" => MaxLagSpec::Bytes(map.next_value::<SizeSpec>()?),
+                    "age" => MaxLagSpec::Age(map.next_value::<DurationSpec>()?),
+                    other => {
+                        return Err(de::Error::custom(format!(
+                            "unknown `max_lag` key `{other}`, expected `bytes` or `age`"
+                        )));
+                    }
+                };
+                if map.next_key::<String>()?.is_some() {
+                    return Err(de::Error::custom(
+                        "`max_lag` takes one key, `bytes` or `age`, not both",
+                    ));
+                }
+                Ok(lag)
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+impl Serialize for MaxLagSpec {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut m = s.serialize_map(Some(1))?;
+        match self {
+            MaxLagSpec::Bytes(b) => m.serialize_entry("bytes", b)?,
+            MaxLagSpec::Age(a) => m.serialize_entry("age", a)?,
+        }
+        m.end()
+    }
+}
+
+impl JsonSchema for MaxLagSpec {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "MaxLagSpec".into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let size = generator.subschema_for::<SizeSpec>();
+        let age = generator.subschema_for::<DurationSpec>();
+        schemars::json_schema!({
+            "description": "`{ bytes: <size> }` or `{ age: <duration> }`: the most a required sink may lag before it stops holding WAL data back.",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": { "bytes": size },
+                    "required": ["bytes"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": { "age": age },
+                    "required": ["age"],
+                    "additionalProperties": false
+                }
+            ]
+        })
+    }
+}
+
+/// A sink: a [`ConnectorSpec`]'s `id`, `kind`, and `config`, plus how it takes
+/// part in WAL retention.
+///
+/// `config` stays a `serde_json::Value` (D22). Values that came from `${env:}`
+/// or `${file:}` are listed in [`SinkSpec::secret_paths`] and redacted by
+/// `Debug` and `Serialize`. The three policy keys are omitted from the
+/// serialized (and hashed) form when they hold their default, so configs
+/// written before they existed keep their hash.
+#[derive(Clone, PartialEq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct SinkSpec {
+    /// A unique identifier; used in metric labels, cursor names, and file names.
+    pub id: String,
+    /// The registered sink kind, such as `parquet` or `object_store`.
+    pub kind: String,
+    /// Connector-specific configuration.
+    #[serde(default = "empty_config")]
+    #[schemars(with = "serde_json::Map<String, serde_json::Value>")]
+    pub config: serde_json::Value,
+    /// Whether the WAL keeps data until this sink has consumed it (default
+    /// `true`). A sink with `required: false` never holds retention back; if it
+    /// falls behind retention it sees a WAL gap.
+    #[serde(default = "default_required")]
+    pub required: bool,
+    /// How far a required sink may lag before it stops holding WAL data back
+    /// (an explicit, counted loss for that sink). Needs `required: true`.
+    #[serde(default)]
+    pub max_lag: Option<MaxLagSpec>,
+    /// Where a sink with no committed WAL cursor starts: `earliest` (default)
+    /// or `latest`.
+    #[serde(default)]
+    pub start_from: StartFromSpec,
+    /// JSON Pointers (relative to `config`) of values produced by interpolation.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub secret_paths: Vec<String>,
+}
+
+impl SinkSpec {
+    /// `config` with every interpolated value replaced by `<redacted>`.
+    pub fn redacted_config(&self) -> serde_json::Value {
+        redact(&self.config, &self.secret_paths)
+    }
+
+    /// The interpolated string values, as `(pointer, secret)` pairs.
+    pub fn secrets(&self) -> Vec<(String, Secret<String>)> {
+        interpolated(&self.config, &self.secret_paths)
+    }
+}
+
+impl Serialize for SinkSpec {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut m = s.serialize_map(None)?;
+        m.serialize_entry("id", &self.id)?;
+        m.serialize_entry("kind", &self.kind)?;
+        m.serialize_entry("config", &self.redacted_config())?;
+        if !self.required {
+            m.serialize_entry("required", &false)?;
+        }
+        if let Some(lag) = &self.max_lag {
+            m.serialize_entry("max_lag", lag)?;
+        }
+        if self.start_from != StartFromSpec::default() {
+            m.serialize_entry("start_from", &self.start_from)?;
+        }
+        m.end()
+    }
+}
+
+impl fmt::Debug for SinkSpec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SinkSpec")
+            .field("id", &self.id)
+            .field("kind", &self.kind)
+            .field("config", &self.redacted_config())
+            .field("required", &self.required)
+            .field("max_lag", &self.max_lag)
+            .field("start_from", &self.start_from)
             .finish()
     }
 }

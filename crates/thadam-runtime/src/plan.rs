@@ -5,12 +5,12 @@ use std::path::Path;
 use std::time::Duration;
 
 use thadam_config::{
-    DatasetSpec, DecodeFormat, FsyncSpec, OnFull as ConfigOnFull, PipelineSpec, TimeUnit,
-    TransformSpec,
+    DatasetSpec, DecodeFormat, FsyncSpec, MaxLagSpec, OnFull as ConfigOnFull, PipelineSpec,
+    SinkSpec, StartFromSpec, TimeUnit, TransformSpec,
 };
 use thadam_core::{BudgetCategory, DiskBudget, ErrorDomain, ThadamError, codes};
 use thadam_transform::ChainSpec;
-use thadam_wal::{ConsumerSpec, Fsync, OnFull, WalOptions};
+use thadam_wal::{ConsumerSpec, Fsync, MaxLag, OnFull, StartFrom, WalOptions};
 use serde_json::{Map, Value, json};
 
 /// The WAL cursor of a sink's chain.
@@ -29,9 +29,51 @@ fn duration_text(d: Duration) -> String {
     format!("{}ns", d.as_nanos())
 }
 
+pub(crate) fn max_lag(index: usize, sink: &SinkSpec) -> Result<Option<MaxLag>, ThadamError> {
+    Ok(match sink.max_lag {
+        None => None,
+        Some(MaxLagSpec::Bytes(b)) => Some(MaxLag::Bytes(b.get())),
+        Some(MaxLagSpec::Age(a)) => Some(MaxLag::Age(a.get())),
+        Some(_) => {
+            return Err(config_error(
+                &format!("sinks[{index}].max_lag"),
+                "unsupported max_lag form",
+            ));
+        }
+    })
+}
+
+/// Where a chain sink starts when its WAL cursor has never been committed.
+pub(crate) fn start_from(index: usize, sink: &SinkSpec) -> Result<StartFrom, ThadamError> {
+    match sink.start_from {
+        StartFromSpec::Earliest => Ok(StartFrom::Earliest),
+        StartFromSpec::Latest => Ok(StartFrom::Latest),
+        _ => Err(config_error(
+            &format!("sinks[{index}].start_from"),
+            "unsupported start_from",
+        )),
+    }
+}
+
+/// The WAL consumer a chain sink registers: required unless the sink says
+/// otherwise, with its optional lag limit.
+fn consumer(index: usize, sink: &SinkSpec) -> Result<ConsumerSpec, ThadamError> {
+    let name = cursor_name(&sink.id);
+    if !sink.required {
+        return Ok(ConsumerSpec::optional(name));
+    }
+    let c = ConsumerSpec::required(name);
+    Ok(match max_lag(index, sink)? {
+        Some(lag) => c.with_max_lag(lag),
+        None => c,
+    })
+}
+
+/// The WAL options for `spec`. `chain_sinks` are the sinks that read the WAL
+/// (services do not), as `(index in `spec.sinks`, spec)`.
 pub(crate) fn wal_options(
     spec: &PipelineSpec,
-    chain_sinks: &[String],
+    chain_sinks: &[(usize, &SinkSpec)],
     machine_id: Option<String>,
 ) -> Result<WalOptions, ThadamError> {
     let on_full = match spec.wal.on_full {
@@ -55,8 +97,8 @@ pub(crate) fn wal_options(
     o.group_max_bytes = o.group_max_bytes.min(o.frame_max_bytes.max(1));
     o.consumers = chain_sinks
         .iter()
-        .map(|s| ConsumerSpec::required(cursor_name(s)))
-        .collect();
+        .map(|(i, s)| consumer(*i, s))
+        .collect::<Result<_, _>>()?;
     o.node_id = Some(spec.pipeline.node_id.clone());
     o.machine_id = machine_id;
     Ok(o)
@@ -277,4 +319,88 @@ pub(crate) fn chain_spec(
         Some(dir) => cs.with_base_dir(dir),
         None => cs,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use thadam_config::MapEnv;
+
+    use super::*;
+
+    fn spec_with_sinks(sinks: &str) -> PipelineSpec {
+        let yaml = format!(
+            r#"version: 1
+pipeline: {{ name: test, node_id: node-1, data_dir: /tmp/thadam-plan-test }}
+sources:
+  - {{ id: src, kind: memory }}
+wal: {{ max_disk: 64MiB, on_full: block }}
+datasets:
+  - id: d
+    match: {{ source: src }}
+    decode: json
+    fields:
+      - {{ id: 1000, name: n, type: u64, from: /n, required: true }}
+sinks:
+{sinks}
+"#
+        );
+        thadam_config::load_str(&yaml, &MapEnv::new())
+            .unwrap_or_else(|r| panic!("{}", r.render(&yaml)))
+    }
+
+    fn consumers(spec: &PipelineSpec) -> Vec<ConsumerSpec> {
+        let sinks: Vec<_> = spec.sinks.iter().enumerate().collect();
+        wal_options(spec, &sinks, None).unwrap().consumers
+    }
+
+    #[test]
+    fn sinks_default_to_required_consumers_without_a_lag_limit() {
+        let spec = spec_with_sinks("  - { id: a, kind: recseg }");
+        assert_eq!(consumers(&spec), [ConsumerSpec::required("sink.a")]);
+    }
+
+    #[test]
+    fn required_and_max_lag_map_to_consumer_specs() {
+        let spec = spec_with_sinks(
+            "  - { id: a, kind: recseg, required: true, max_lag: { bytes: 2GiB } }\n\
+             \x20 - { id: b, kind: recseg, max_lag: { age: 30m } }\n\
+             \x20 - { id: c, kind: recseg, required: false }\n\
+             \x20 - { id: d, kind: recseg, required: false, start_from: latest }",
+        );
+        assert_eq!(
+            consumers(&spec),
+            [
+                ConsumerSpec::required("sink.a").with_max_lag(MaxLag::Bytes(2 << 30)),
+                ConsumerSpec::required("sink.b")
+                    .with_max_lag(MaxLag::Age(Duration::from_secs(1800))),
+                ConsumerSpec::optional("sink.c"),
+                ConsumerSpec::optional("sink.d"),
+            ]
+        );
+    }
+
+    #[test]
+    fn only_the_given_chain_sinks_become_consumers() {
+        let spec = spec_with_sinks(
+            "  - { id: a, kind: recseg }\n  - { id: svc, kind: recservice }\n  - { id: b, kind: recseg, required: false }",
+        );
+        let chain: Vec<_> = spec
+            .sinks
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.kind != "recservice")
+            .collect();
+        let o = wal_options(&spec, &chain, None).unwrap();
+        let names: Vec<_> = o.consumers.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["sink.a", "sink.b"]);
+    }
+
+    #[test]
+    fn start_from_maps_to_the_wal_start() {
+        let spec = spec_with_sinks(
+            "  - { id: a, kind: recseg }\n  - { id: b, kind: recseg, start_from: latest }",
+        );
+        assert_eq!(start_from(0, &spec.sinks[0]).unwrap(), StartFrom::Earliest);
+        assert_eq!(start_from(1, &spec.sinks[1]).unwrap(), StartFrom::Latest);
+    }
 }

@@ -9,7 +9,7 @@ use std::time::Instant;
 use thadam_core::{
     BudgetCategory, Clock, DeliveryClass, DiskBudget, ThadamError, Shutdown, SyncFlag,
 };
-use thadam_wal::{CursorState, Wal};
+use thadam_wal::{CursorState, MaxLag, Wal};
 use serde::Serialize;
 use tokio::sync::watch;
 
@@ -324,8 +324,46 @@ pub struct ComponentStatus {
     pub oldest_unacked_secs: Option<f64>,
 }
 
+/// A sink's `max_lag` as configured.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum MaxLagStatus {
+    /// WAL bytes between the sink and the head.
+    Bytes(u64),
+    /// Seconds of age of the oldest data the sink has not consumed.
+    AgeSecs(f64),
+}
+
+impl From<MaxLag> for MaxLagStatus {
+    fn from(lag: MaxLag) -> Self {
+        match lag {
+            MaxLag::Bytes(b) => MaxLagStatus::Bytes(b),
+            MaxLag::Age(a) => MaxLagStatus::AgeSecs(a.as_secs_f64()),
+        }
+    }
+}
+
+/// How a sink takes part in WAL retention, from its configuration.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SinkPolicy {
+    pub required: bool,
+    pub max_lag: Option<MaxLagStatus>,
+    pub start_from: &'static str,
+}
+
+impl Default for SinkPolicy {
+    fn default() -> Self {
+        SinkPolicy {
+            required: true,
+            max_lag: None,
+            start_from: "earliest",
+        }
+    }
+}
+
 /// A sink's durable progress.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[non_exhaustive]
 pub struct CursorStatus {
     /// The sink id.
@@ -338,6 +376,12 @@ pub struct CursorStatus {
     pub inflight: Option<(u64, u64)>,
     /// Durable frames not yet committed.
     pub lag_frames: u64,
+    /// Whether the WAL keeps data until this sink has consumed it.
+    pub required: bool,
+    /// The configured lag limit, if any.
+    pub max_lag: Option<MaxLagStatus>,
+    /// Where the sink starts without a committed cursor: `earliest` or `latest`.
+    pub start_from: &'static str,
 }
 
 /// The WAL in a [`StatusSnapshot`].
@@ -402,6 +446,7 @@ pub(crate) struct Shared {
     pub phase: watch::Sender<Phase>,
     pub components: Mutex<Vec<Arc<Component>>>,
     pub cursors: Mutex<BTreeMap<String, (String, CursorState)>>,
+    pub policies: BTreeMap<String, SinkPolicy>,
     pub wal: Mutex<Option<Wal>>,
     pub budget: Mutex<Arc<DiskBudget>>,
     pub sync_flag: SyncFlag,
@@ -424,13 +469,19 @@ impl std::fmt::Debug for PipelineHandle {
 }
 
 impl PipelineHandle {
-    pub(crate) fn new(pipeline: String, config_hash: String, sync_flag: SyncFlag) -> Self {
+    pub(crate) fn new(
+        pipeline: String,
+        config_hash: String,
+        sync_flag: SyncFlag,
+        policies: BTreeMap<String, SinkPolicy>,
+    ) -> Self {
         PipelineHandle(Arc::new(Shared {
             pipeline,
             config_hash,
             phase: watch::Sender::new(Phase::Built),
             components: Mutex::new(Vec::new()),
             cursors: Mutex::new(BTreeMap::new()),
+            policies,
             wal: Mutex::new(None),
             budget: Mutex::new(Arc::new(DiskBudget::new())),
             sync_flag,
@@ -488,12 +539,18 @@ impl PipelineHandle {
             .map_or(0, |p| p.get());
         let cursors = lock(&self.0.cursors)
             .iter()
-            .map(|(sink, (cursor, state))| CursorStatus {
-                sink: sink.clone(),
-                cursor: cursor.clone(),
-                committed: state.committed.get(),
-                inflight: state.inflight.map(|r| (r.first().get(), r.last().get())),
-                lag_frames: durable.saturating_sub(state.committed.get()),
+            .map(|(sink, (cursor, state))| {
+                let policy = self.0.policies.get(sink).copied().unwrap_or_default();
+                CursorStatus {
+                    sink: sink.clone(),
+                    cursor: cursor.clone(),
+                    committed: state.committed.get(),
+                    inflight: state.inflight.map(|r| (r.first().get(), r.last().get())),
+                    lag_frames: durable.saturating_sub(state.committed.get()),
+                    required: policy.required,
+                    max_lag: policy.max_lag,
+                    start_from: policy.start_from,
+                }
             })
             .collect();
         let wal = wal.map(|w| {

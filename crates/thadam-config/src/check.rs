@@ -14,7 +14,7 @@ use crate::scalars::DurationSpec;
 use crate::spans::Anchor;
 use crate::spec::{
     CONFIG_VERSION, ConnectorSpec, DatasetSpec, IdentityLevel, ObservabilitySpec, PipelineMeta,
-    QuarantineSpec, RuntimeSpec, TransformSpec, ValidateRule, WalSpec,
+    QuarantineSpec, RuntimeSpec, SinkSpec, TransformSpec, ValidateRule, WalSpec,
 };
 
 /// The top-level keys, in document order.
@@ -40,6 +40,9 @@ const MAX_PREDICATE_NODES: usize = 64;
 const MAX_IN_LIST: usize = 64;
 const MAX_UNKNOWN_RETRIES: usize = 16;
 
+/// The hint for a malformed `max_lag`, shared with the semantic checks.
+pub(crate) const MAX_LAG_HINT: &str = "write `max_lag: { bytes: 2GiB }` or `max_lag: { age: 30m }`";
+
 /// Every section after structural validation. `None` means that section or
 /// item had an error (already reported).
 pub(crate) struct Parsed {
@@ -49,7 +52,7 @@ pub(crate) struct Parsed {
     pub quarantine: Option<QuarantineSpec>,
     pub datasets: Section<DatasetSpec>,
     pub transforms: Section<TransformSpec>,
-    pub sinks: Section<ConnectorSpec>,
+    pub sinks: Section<SinkSpec>,
     pub runtime: Option<RuntimeSpec>,
     pub observability: Option<ObservabilitySpec>,
 }
@@ -201,9 +204,20 @@ fn report_serde(
             "an identity level now needs a field ID: `site: { id: 100, template: \"{topic.2}\" }`"
                 .to_owned(),
         )
+    } else if msg.contains("`bytes` or `age`") || msg.contains("`{ bytes: <size> }`") {
+        Some(MAX_LAG_HINT.to_owned())
+    } else if msg.contains("expected a boolean") {
+        Some("write `true` or `false` without quotes".to_owned())
     } else {
         None
     };
+    let hint = hint.or_else(|| {
+        let is_start_from = matches!(full.last(), Some(Seg::Key(k)) if k == "start_from");
+        (is_start_from && msg.starts_with("unknown variant `")).then(|| {
+            "`earliest` starts at the oldest data the WAL holds, `latest` at its current end"
+                .to_owned()
+        })
+    });
     let anchor = if msg.starts_with("unknown field `") {
         Anchor::Key
     } else {
@@ -458,9 +472,7 @@ pub(crate) fn parse_document(root: &Value, ctx: &mut Ctx<'_>) -> Option<Parsed> 
         None => Section::broken(),
     };
     let sinks = match list_of(map, "sinks", true, ctx) {
-        Some(items) => {
-            typed_list::<ConnectorSpec>(items, &Vec::new().key("sinks"), ctx, |_, t, _, _| t)
-        }
+        Some(items) => typed_list::<SinkSpec>(items, &Vec::new().key("sinks"), ctx, |_, t, _, _| t),
         None => Section::broken(),
     };
     let datasets = match list_of(map, "datasets", true, ctx) {

@@ -166,6 +166,36 @@ async fn sink_dataset_lists_and_per_sink_transforms_shape_each_chain() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn segment_sinks_receive_events_grouped_by_dataset() {
+    let dir = TempDataDir::new().unwrap();
+    let kit = Kit::default();
+    kit.sources.scripted("src", (1..=60).map(json_n));
+    let two_datasets = "  - id: e\n    match: { source: src }\n    decode: json\n    fields:\n      - { id: 1000, name: m, type: u64, from: /n, required: true }\n";
+    let sinks = "  - { id: out, kind: recseg, config: { frames_per_file: 3 } }\n  \
+                 - { id: only_e, kind: recseg, config: { frames_per_file: 3, datasets: [e] } }";
+    let y = yaml(dir.path(), sinks, "").replace("\nsinks:\n", &format!("{two_datasets}sinks:\n"));
+    let report = run_to_end(&kit, spec(&y), fast_opts()).await;
+    assert_eq!(report.exit, ExitStatus::Ok, "{:#?}", report.status);
+
+    let out = kit.rec.store("out");
+    assert_eq!(
+        out.dataset_events(),
+        [("d".to_owned(), 60), ("e".to_owned(), 60)].into(),
+        "each dataset keeps its own events"
+    );
+    assert!(
+        out.dataset_lists()
+            .iter()
+            .all(|l| l == &["d".to_owned(), "e".to_owned()]),
+        "every append lists every dataset in declaration order: {:?}",
+        out.dataset_lists()
+    );
+    let only = kit.rec.store("only_e");
+    assert_eq!(only.dataset_events(), [("e".to_owned(), 60)].into());
+    assert!(only.dataset_lists().iter().all(|l| l == &["e".to_owned()]));
+}
+
 #[tokio::test]
 async fn build_reports_every_config_problem_with_exit_code_two() {
     let dir = TempDataDir::new().unwrap();

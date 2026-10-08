@@ -5,8 +5,8 @@ use std::sync::OnceLock;
 
 use bytes::Bytes;
 use thadam_core::{
-    Event, EventBatch, EventId, FieldDef, FieldType, Record, Shape, ShapeRef, TimeDomain, Times,
-    Timestamp, Value, WalEpoch, WalPos, WalRange,
+    DatasetEvents, Event, EventBatch, EventId, FieldDef, FieldType, Record, SegmentBatch, Shape,
+    ShapeRef, TimeDomain, Times, Timestamp, Value, WalEpoch, WalPos, WalRange,
 };
 
 /// A payload whose first eight bytes are `id` in big-endian order, so suites
@@ -61,9 +61,71 @@ pub fn test_batch(epoch: u64, first: u64, last: u64) -> EventBatch {
     EventBatch::new(events, origin, true)
 }
 
+/// The dataset [`test_segment_batch`] puts its events under.
+pub const TEST_DATASET: &str = "events";
+
+/// [`test_batch`] as a [`SegmentBatch`] holding the single dataset
+/// [`TEST_DATASET`].
+pub fn test_segment_batch(epoch: u64, first: u64, last: u64) -> SegmentBatch {
+    SegmentBatch::single(TEST_DATASET, test_batch(epoch, first, last))
+}
+
+/// A batch over frames `first..=last` with one event per frame, spread over
+/// `datasets` by frame position (`frame % datasets.len()`), every dataset
+/// listed even when it receives no event.
+///
+/// # Panics
+///
+/// If `datasets` is empty.
+pub fn test_segment_batch_across(
+    epoch: u64,
+    first: u64,
+    last: u64,
+    datasets: &[&str],
+) -> SegmentBatch {
+    assert!(!datasets.is_empty(), "at least one dataset");
+    let source = test_batch(epoch, first, last);
+    let mut groups: Vec<DatasetEvents> = datasets
+        .iter()
+        .map(|d| DatasetEvents::new(*d, Vec::new()))
+        .collect();
+    let width = datasets.len() as u64;
+    for event in source.events {
+        let slot = usize::try_from(event.wal_pos().get() % width).unwrap_or(0);
+        groups[slot].events.push(event);
+    }
+    SegmentBatch::new(source.origin, source.clock_synced, groups)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn segment_batches_group_events_by_dataset() {
+        let b = test_segment_batch_across(1, 1, 6, &["a", "b", "c"]);
+        assert_eq!(b.datasets.len(), 3);
+        assert_eq!(b.len(), 6);
+        let frames = |name: &str| -> Vec<u64> {
+            b.dataset(name)
+                .unwrap()
+                .events
+                .iter()
+                .map(|e| e.wal_pos().get())
+                .collect()
+        };
+        assert_eq!(frames("a"), vec![3, 6]);
+        assert_eq!(frames("b"), vec![1, 4]);
+        assert_eq!(frames("c"), vec![2, 5]);
+
+        let sparse = test_segment_batch_across(1, 4, 4, &["a", "b", "c"]);
+        assert_eq!(sparse.datasets.len(), 3, "empty datasets stay listed");
+        assert_eq!(sparse.len(), 1);
+
+        let one = test_segment_batch(2, 1, 3);
+        assert_eq!(one.len(), 3);
+        assert_eq!(&*one.datasets[0].dataset, TEST_DATASET);
+    }
 
     #[test]
     fn payload_ids_round_trip() {

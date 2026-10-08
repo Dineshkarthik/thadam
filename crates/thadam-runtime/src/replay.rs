@@ -14,8 +14,8 @@ use std::sync::Arc;
 
 use thadam_config::PipelineSpec;
 use thadam_core::{
-    BuildContext, ErrorDomain, EventBatch, ThadamError, SegmentSink, Shutdown, SinkContext, SinkId,
-    WalPos, codes,
+    BuildContext, ErrorDomain, ThadamError, SegmentBatch, SegmentSink, Shutdown, SinkContext,
+    SinkId, WalPos, codes,
 };
 use thadam_transform::Chain;
 use thadam_wal::{ReadItem, StartFrom};
@@ -27,7 +27,7 @@ use crate::lane::ChainBatch;
 use crate::options::RuntimeOptions;
 use crate::plan::{self, config_error};
 use crate::registry::{Registry, SinkFactory};
-use crate::segment::merge;
+use crate::segment::split;
 
 /// Where replayed events go.
 #[non_exhaustive]
@@ -176,18 +176,18 @@ pub async fn replay(
     let existing = datadir::read_thadam_json(&layout.root)?;
     datadir::check_before_wal(existing.as_ref(), &spec.pipeline.name, opts.repair)?;
     let budget = Arc::new(plan::budget(spec));
-    let chain_ids: Vec<String> = spec
+    let chain_sinks: Vec<_> = spec
         .sinks
         .iter()
-        .filter(|s| {
+        .enumerate()
+        .filter(|(_, s)| {
             registry
                 .sink_factories(&s.kind)
                 .iter()
                 .any(|f| !matches!(f, SinkFactory::Service(_)))
         })
-        .map(|s| s.id.clone())
         .collect();
-    let wal_opts = plan::wal_options(spec, &chain_ids, opts.machine_id.clone())?;
+    let wal_opts = plan::wal_options(spec, &chain_sinks, opts.machine_id.clone())?;
     let (wal_dir, b, clock) = (layout.wal(), Arc::clone(&budget), Arc::clone(&opts.clock));
     let (wal, _) =
         tokio::task::spawn_blocking(move || thadam_wal::open(&wal_dir, wal_opts, b, clock))
@@ -324,9 +324,10 @@ pub async fn replay(
                         rejects: Vec::new(),
                         generation: 0,
                     };
-                    let (events, _) = merge(&mut cb);
-                    report.events += events.len() as u64;
-                    out.append(EventBatch::new(events, origin, synced)).await?;
+                    let (datasets, meta) = split(&mut cb);
+                    report.events += meta.len() as u64;
+                    out.append(SegmentBatch::new(origin, synced, datasets))
+                        .await?;
                     appended += 1;
                     if appended.is_multiple_of(16)
                         && let Some(w) = out.poll_commit().await?

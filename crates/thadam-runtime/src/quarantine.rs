@@ -13,9 +13,9 @@ use std::sync::{Arc, OnceLock};
 
 use bytes::Bytes;
 use thadam_core::{
-    Event, EventBatch, EventId, FieldDef, FieldType, Record, ThadamError, SegmentSink, Shape,
-    ShapeRef, SinkContext, Sym, TimeDomain, Times, Timestamp, Utf8Bytes, Value, WalEpoch, WalPos,
-    WalRange,
+    Event, EventBatch, EventId, FieldDef, FieldType, QUARANTINE_DATASET, Record, ThadamError,
+    SegmentBatch, SegmentSink, Shape, ShapeRef, SinkContext, Sym, TimeDomain, Times, Timestamp,
+    Utf8Bytes, Value, WalEpoch, WalPos, WalRange,
 };
 use thadam_transform::RejectedRaw;
 
@@ -219,7 +219,10 @@ impl Quarantine {
         let n = events.len();
         let refused = self
             .sink
-            .append(EventBatch::new(events, range, clock_synced))
+            .append(SegmentBatch::single(
+                QUARANTINE_DATASET,
+                EventBatch::new(events, range, clock_synced),
+            ))
             .await?;
         if !refused.is_empty() {
             tracing::error!(sink = %self.owner, count = refused.len(), "quarantine refused rejects");

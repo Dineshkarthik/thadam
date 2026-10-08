@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 
 use super::context::SinkContext;
-use crate::batch::EventBatch;
+use crate::batch::{EventBatch, SegmentBatch};
 use crate::error::{Reject, ThadamError};
 use crate::event::Event;
 use crate::position::{BatchId, WalPos};
@@ -128,6 +128,13 @@ pub trait BatchSink: Send + 'static {
 /// The runtime advances its cursor only to a committed watermark, at frame
 /// granularity, then calls [`SegmentSink::cursor_committed`]. After a restart
 /// it resumes from the position [`SegmentSink::recover`] returns.
+///
+/// Events arrive grouped by dataset in a [`SegmentBatch`]: one `append` per
+/// chain read, covering one WAL range for every dataset. The runtime never
+/// calls `poll_commit`, `finalize_all`, or `recover` in the middle of an
+/// `append`, and successive batches have strictly increasing, non-overlapping
+/// origins, so a sink may derive its watermark from the origins it has
+/// appended.
 #[async_trait]
 pub trait SegmentSink: Send + 'static {
     /// Recovers from a crash and returns the position the sink is durable
@@ -135,8 +142,9 @@ pub trait SegmentSink: Send + 'static {
     async fn recover(&mut self, ctx: &SinkContext) -> Result<Option<WalPos>, ThadamError>;
 
     /// Takes ownership of a batch and may buffer it. Returns the events the
-    /// sink refused.
-    async fn append(&mut self, batch: EventBatch) -> Result<Vec<Reject>, ThadamError>;
+    /// sink refused, each indexed by its position in
+    /// [`SegmentBatch::events`].
+    async fn append(&mut self, batch: SegmentBatch) -> Result<Vec<Reject>, ThadamError>;
 
     /// Finalizes files that are due and returns the new committed watermark,
     /// if it advanced.

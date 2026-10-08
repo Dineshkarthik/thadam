@@ -6,11 +6,13 @@
 //! Parquet sink (rename the file, record it in the catalog, report the
 //! watermark), with a [`Failpoint`] between each.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use thadam_core::{
-    ErrorDomain, EventBatch, Reject, ThadamError, SegmentSink, SinkContext, WalPos, WalRange, codes,
+    ErrorDomain, Reject, ThadamError, SegmentBatch, SegmentSink, SinkContext, WalPos, WalRange,
+    codes,
 };
 
 use crate::util::lock;
@@ -54,8 +56,10 @@ impl Failpoint {
 pub struct FinalizedSegment {
     /// The WAL frames the file covers.
     pub range: WalRange,
-    /// Events in the file.
+    /// Events in the file, over all datasets.
     pub events: usize,
+    /// Events per dataset. Every dataset the sink saw is listed, even with zero.
+    pub datasets: BTreeMap<String, usize>,
 }
 
 #[derive(Default)]
@@ -121,7 +125,7 @@ impl MemorySegmentStore {
 pub struct MemorySegmentSink {
     store: MemorySegmentStore,
     frames_per_segment: usize,
-    buffered: Vec<EventBatch>,
+    buffered: Vec<SegmentBatch>,
     last_appended: Option<WalPos>,
     crashed: bool,
 }
@@ -184,9 +188,16 @@ impl MemorySegmentSink {
         .map_err(|e| {
             ThadamError::permanent(ErrorDomain::Sink, codes::SINK_WRITE_FAILED, e.to_string())
         })?;
+        let mut datasets: BTreeMap<String, usize> = BTreeMap::new();
+        for batch in &self.buffered {
+            for d in &batch.datasets {
+                *datasets.entry(d.dataset.to_string()).or_default() += d.events.len();
+            }
+        }
         let segment = FinalizedSegment {
             range,
-            events: self.buffered.iter().map(EventBatch::len).sum(),
+            events: self.buffered.iter().map(SegmentBatch::len).sum(),
+            datasets,
         };
 
         self.hit(Failpoint::BeforeFinalize)?;
@@ -215,7 +226,7 @@ impl SegmentSink for MemorySegmentSink {
         Ok(durable)
     }
 
-    async fn append(&mut self, batch: EventBatch) -> Result<Vec<Reject>, ThadamError> {
+    async fn append(&mut self, batch: SegmentBatch) -> Result<Vec<Reject>, ThadamError> {
         self.check_alive()?;
         if self
             .last_appended
@@ -266,7 +277,7 @@ impl SegmentSink for MemorySegmentSink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::test_batch;
+    use crate::fixtures::{test_segment_batch, test_segment_batch_across};
     use thadam_core::{DiskBudget, Shutdown, SinkId};
     use std::path::PathBuf;
 
@@ -287,9 +298,9 @@ mod tests {
         let store = MemorySegmentStore::new();
         let mut sink = MemorySegmentSink::new(store.clone(), 3);
         assert_eq!(sink.recover(&ctx()).await.unwrap(), None);
-        sink.append(test_batch(1, 1, 2)).await.unwrap();
+        sink.append(test_segment_batch(1, 1, 2)).await.unwrap();
         assert_eq!(sink.poll_commit().await.unwrap(), None);
-        sink.append(test_batch(1, 3, 3)).await.unwrap();
+        sink.append(test_segment_batch(1, 3, 3)).await.unwrap();
         assert_eq!(sink.poll_commit().await.unwrap(), Some(WalPos::new(3)));
         assert_eq!(store.files().len(), 1);
         assert_eq!(store.files()[0].events, 3);
@@ -297,14 +308,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn finalized_segments_count_events_per_dataset() {
+        let store = MemorySegmentStore::new();
+        let mut sink = MemorySegmentSink::new(store.clone(), 4);
+        sink.recover(&ctx()).await.unwrap();
+        sink.append(test_segment_batch_across(1, 1, 2, &["a", "b", "c"]))
+            .await
+            .unwrap();
+        sink.append(test_segment_batch_across(1, 3, 4, &["a", "b", "c"]))
+            .await
+            .unwrap();
+        assert_eq!(sink.poll_commit().await.unwrap(), Some(WalPos::new(4)));
+        let file = &store.files()[0];
+        assert_eq!(file.events, 4);
+        let counts: Vec<_> = file
+            .datasets
+            .iter()
+            .map(|(k, v)| (k.as_str(), *v))
+            .collect();
+        assert_eq!(counts, [("a", 1), ("b", 2), ("c", 1)]);
+    }
+
+    #[tokio::test]
     async fn out_of_order_append_is_refused() {
         let mut sink = MemorySegmentSink::new(MemorySegmentStore::new(), 3);
-        sink.append(test_batch(1, 5, 6)).await.unwrap();
+        sink.append(test_segment_batch(1, 5, 6)).await.unwrap();
         for (a, b) in [(3, 4), (6, 7), (5, 5)] {
-            let err = sink.append(test_batch(1, a, b)).await.unwrap_err();
+            let err = sink.append(test_segment_batch(1, a, b)).await.unwrap_err();
             assert_eq!(err.code, codes::SINK_NON_MONOTONIC_APPEND);
         }
-        sink.append(test_batch(1, 7, 7)).await.unwrap();
+        sink.append(test_segment_batch(1, 7, 7)).await.unwrap();
     }
 
     #[tokio::test]
@@ -313,10 +346,10 @@ mod tests {
         let mut sink = MemorySegmentSink::new(store.clone(), 1);
         sink.recover(&ctx()).await.unwrap();
         store.arm(Failpoint::AfterRenameBeforeCatalog);
-        sink.append(test_batch(1, 1, 1)).await.unwrap();
+        sink.append(test_segment_batch(1, 1, 1)).await.unwrap();
         assert!(sink.poll_commit().await.is_err());
         assert!(
-            sink.append(test_batch(1, 2, 2)).await.is_err(),
+            sink.append(test_segment_batch(1, 2, 2)).await.is_err(),
             "a crashed sink stays dead"
         );
         assert_eq!(store.files().len(), 1);
@@ -335,10 +368,10 @@ mod tests {
         let store = MemorySegmentStore::new();
         let mut sink = MemorySegmentSink::new(store.clone(), 1);
         sink.recover(&ctx()).await.unwrap();
-        sink.append(test_batch(1, 1, 1)).await.unwrap();
+        sink.append(test_segment_batch(1, 1, 1)).await.unwrap();
         assert_eq!(sink.poll_commit().await.unwrap(), Some(WalPos::new(1)));
         store.arm(Failpoint::BeforeFinalize);
-        sink.append(test_batch(1, 2, 2)).await.unwrap();
+        sink.append(test_segment_batch(1, 2, 2)).await.unwrap();
         assert!(sink.poll_commit().await.is_err());
         let mut restarted = MemorySegmentSink::new(store.clone(), 1);
         assert_eq!(
@@ -353,7 +386,7 @@ mod tests {
         let mut sink = MemorySegmentSink::new(store.clone(), 1);
         sink.recover(&ctx()).await.unwrap();
         for p in 1..=3 {
-            sink.append(test_batch(1, p, p)).await.unwrap();
+            sink.append(test_segment_batch(1, p, p)).await.unwrap();
             sink.poll_commit().await.unwrap();
         }
         sink.cursor_committed(WalPos::new(2));

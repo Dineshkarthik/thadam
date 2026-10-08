@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use thadam_core::{
-    ErrorDomain, Event, EventBatch, Retry, ThadamError, SegmentSink, Shutdown, SinkContext, Sym,
-    Timestamp, WalPos, WalRange, codes,
+    DatasetEvents, ErrorDomain, Event, Retry, ThadamError, SegmentBatch, SegmentSink, Shutdown,
+    SinkContext, Sym, Timestamp, WalPos, WalRange, codes,
 };
 use thadam_wal::{CursorState, Wal};
 use tokio::sync::{oneshot, watch};
@@ -42,22 +42,41 @@ pub(crate) struct EventMeta {
     pub dataset: Sym,
 }
 
-/// Concatenates a chain batch's per-dataset events in declaration order.
-pub(crate) fn merge(batch: &mut ChainBatch) -> (Vec<Event>, Vec<EventMeta>) {
+/// Moves a chain batch's events out, grouped by dataset in declaration order.
+/// `meta` lists the events in the order [`SegmentBatch::events`] yields them,
+/// which is how a sink's [`thadam_core::Reject::index`] addresses them.
+pub(crate) fn split(batch: &mut ChainBatch) -> (Vec<DatasetEvents>, Vec<EventMeta>) {
     let n = batch.datasets.iter().map(|d| d.batch.len()).sum();
-    let mut events = Vec::with_capacity(n);
     let mut meta = Vec::with_capacity(n);
-    for d in &mut batch.datasets {
-        for e in d.batch.events.drain(..) {
-            meta.push(EventMeta {
+    let datasets = batch
+        .datasets
+        .iter_mut()
+        .map(|d| {
+            let events = std::mem::take(&mut d.batch.events);
+            meta.extend(events.iter().map(|e| EventMeta {
                 pos: e.wal_pos(),
                 ingest: e.times().ingest(),
                 dataset: d.dataset.clone(),
-            });
-            events.push(e);
-        }
+            }));
+            DatasetEvents::new(d.dataset.clone(), events)
+        })
+        .collect();
+    (datasets, meta)
+}
+
+/// Concatenates a chain batch's per-dataset events in declaration order, for
+/// batch sinks (whose contract carries no dataset).
+pub(crate) fn merge(batch: &mut ChainBatch) -> (Vec<Event>, Vec<EventMeta>) {
+    let (datasets, meta) = split(batch);
+    (datasets.into_iter().flat_map(|d| d.events).collect(), meta)
+}
+
+/// Drops every event at or before `skip`, keeping `meta` aligned.
+fn trim_through(datasets: &mut [DatasetEvents], meta: &mut Vec<EventMeta>, skip: u64) {
+    for d in datasets {
+        d.events.retain(|e| e.wal_pos().get() > skip);
     }
-    (events, meta)
+    meta.retain(|m| m.pos.get() > skip);
 }
 
 /// Sleeps for the next backoff delay; `false` if `stop` triggered first.
@@ -109,6 +128,9 @@ pub(crate) struct SegmentDriver {
     pub stopping: Shutdown,
     /// Ends other retries (forced shutdown only).
     pub force: Shutdown,
+    /// The sink is configured `start_from: latest`, so a cursor ahead of an
+    /// empty sink is expected until its first data arrives.
+    pub start_latest: bool,
     committed: u64,
     watermark: u64,
     seen_through: u64,
@@ -150,6 +172,7 @@ impl SegmentDriver {
             opts,
             stopping,
             force,
+            start_latest: false,
             committed: 0,
             watermark: 0,
             seen_through: 0,
@@ -219,7 +242,11 @@ impl SegmentDriver {
                 self.skip_through = m;
             }
         } else if m < c0 {
-            tracing::warn!(sink = %self.sink_id, recovered = m, cursor = c0, "sink recovered behind its cursor");
+            if m == 0 && self.start_latest {
+                tracing::info!(sink = %self.sink_id, cursor = c0, "sink has no data yet; it starts after its cursor (start_from: latest)");
+            } else {
+                tracing::warn!(sink = %self.sink_id, recovered = m, cursor = c0, "sink recovered behind its cursor");
+            }
         }
         self.handle.set_cursor(
             &self.sink_id,
@@ -346,7 +373,7 @@ impl SegmentDriver {
     async fn on_batch(&mut self, mut batch: ChainBatch) -> Result<bool, ThadamError> {
         let origin = batch.origin;
         let synced = batch.clock_synced;
-        let (mut events, mut meta) = merge(&mut batch);
+        let (mut datasets, mut meta) = split(&mut batch);
         let rejects = std::mem::take(&mut batch.rejects);
         add(&self.component.counters.batches, 1);
 
@@ -356,22 +383,17 @@ impl SegmentDriver {
             if origin.last().get() <= skip {
                 None
             } else {
-                let keep = events
-                    .iter()
-                    .position(|e| e.wal_pos().get() > skip)
-                    .unwrap_or(events.len());
-                events.drain(..keep);
-                meta.drain(..keep);
+                trim_through(&mut datasets, &mut meta, skip);
                 WalRange::new(origin.epoch(), WalPos::new(skip + 1), origin.last()).ok()
             }
         } else {
             Some(origin)
         };
         if let Some(range) = main {
-            let n = events.len() as u64;
+            let n = meta.len() as u64;
             match self
                 .sink
-                .append(EventBatch::new(events, range, synced))
+                .append(SegmentBatch::new(range, synced, datasets))
                 .await
             {
                 Ok(r) => {

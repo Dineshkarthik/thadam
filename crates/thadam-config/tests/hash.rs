@@ -188,3 +188,70 @@ fn canonical_form_omits_absent_values_so_new_keys_do_not_move_hashes() {
 fn canonical_form_is_snapshotted() {
     insta::assert_snapshot!(load(&minimal(), &MapEnv::new()).canonical_json());
 }
+
+fn with_sink_keys(keys: &str) -> String {
+    minimal().replace(
+        "    kind: parquet\n",
+        &format!("    kind: parquet\n    {keys}\n"),
+    )
+}
+
+#[test]
+fn sink_policy_defaults_leave_the_hash_unchanged() {
+    let base = hash(&minimal());
+    for keys in ["required: true", "start_from: earliest"] {
+        assert_eq!(hash(&with_sink_keys(keys)), base, "{keys}");
+    }
+    let spec = load(
+        &with_sink_keys("required: true\n    start_from: earliest"),
+        &MapEnv::new(),
+    );
+    let sink = serde_json::to_value(&spec.sinks[0]).unwrap();
+    let mut keys: Vec<_> = sink.as_object().unwrap().keys().cloned().collect();
+    keys.sort();
+    assert_eq!(keys, ["config", "id", "kind"]);
+}
+
+#[test]
+fn each_non_default_sink_policy_changes_the_hash() {
+    let base = hash(&minimal());
+    let variants = [
+        "required: false",
+        "start_from: latest",
+        "max_lag: { bytes: 2GiB }",
+        "max_lag: { age: 30m }",
+    ];
+    let hashes: Vec<String> = variants.iter().map(|k| hash(&with_sink_keys(k))).collect();
+    for (keys, h) in variants.iter().zip(&hashes) {
+        assert_ne!(*h, base, "{keys}");
+    }
+    let mut distinct = hashes.clone();
+    distinct.sort();
+    distinct.dedup();
+    assert_eq!(
+        distinct.len(),
+        variants.len(),
+        "each variant hashes differently"
+    );
+    assert_eq!(
+        hash(&with_sink_keys("max_lag: { bytes: 2GiB }")),
+        hash(&with_sink_keys("max_lag: { bytes: 2147483648 }")),
+        "equivalent size spellings hash alike"
+    );
+    assert_ne!(
+        hash(&with_sink_keys("max_lag: { bytes: 2GiB }")),
+        hash(&with_sink_keys("max_lag: { bytes: 3GiB }")),
+    );
+}
+
+#[test]
+fn sink_policies_survive_a_serialization_round_trip() {
+    let yaml = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/valid/sink_policies.yaml"),
+    )
+    .unwrap();
+    let spec = load(&yaml, &MapEnv::new());
+    let again = load(&serde_json::to_string(&spec).unwrap(), &MapEnv::new());
+    assert_eq!(again, spec);
+    assert_eq!(again.config_hash(), spec.config_hash());
+}

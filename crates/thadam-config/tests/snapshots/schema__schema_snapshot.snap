@@ -404,6 +404,51 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
       ],
       "type": "object"
     },
+    "MaxLagSpec": {
+      "description": "`{ bytes: <size> }` or `{ age: <duration> }`: the most a required sink may lag before it stops holding WAL data back.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "description": "A size such as `128MiB` or `2GiB`, or a plain number of bytes.",
+              "examples": [
+                "16MiB",
+                "2GiB",
+                1048576
+              ],
+              "minimum": 0,
+              "type": [
+                "string",
+                "integer"
+              ]
+            }
+          },
+          "required": [
+            "bytes"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "age": {
+              "description": "A duration with a unit, such as `50ms`, `5s`, `10m`, `1h` or `1d`.",
+              "examples": [
+                "50ms",
+                "5s",
+                "1h"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "age"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "ObservabilitySpec": {
       "additionalProperties": false,
       "description": "Logs and the admin API.",
@@ -666,6 +711,68 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
         }
       },
       "type": "object"
+    },
+    "SinkSpec": {
+      "additionalProperties": false,
+      "description": "A sink: a [`ConnectorSpec`]'s `id`, `kind`, and `config`, plus how it takes\npart in WAL retention.\n\n`config` stays a `serde_json::Value` (D22). Values that came from `${env:}`\nor `${file:}` are listed in [`SinkSpec::secret_paths`] and redacted by\n`Debug` and `Serialize`. The three policy keys are omitted from the\nserialized (and hashed) form when they hold their default, so configs\nwritten before they existed keep their hash.",
+      "properties": {
+        "config": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "Connector-specific configuration.",
+          "type": "object"
+        },
+        "id": {
+          "description": "A unique identifier; used in metric labels, cursor names, and file names.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "The registered sink kind, such as `parquet` or `object_store`.",
+          "type": "string"
+        },
+        "max_lag": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MaxLagSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How far a required sink may lag before it stops holding WAL data back\n(an explicit, counted loss for that sink). Needs `required: true`."
+        },
+        "required": {
+          "default": true,
+          "description": "Whether the WAL keeps data until this sink has consumed it (default\n`true`). A sink with `required: false` never holds retention back; if it\nfalls behind retention it sees a WAL gap.",
+          "type": "boolean"
+        },
+        "start_from": {
+          "$ref": "#/$defs/StartFromSpec",
+          "default": "earliest",
+          "description": "Where a sink with no committed WAL cursor starts: `earliest` (default)\nor `latest`."
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "StartFromSpec": {
+      "description": "Where a sink starts when it has no committed WAL cursor yet.",
+      "oneOf": [
+        {
+          "const": "earliest",
+          "description": "The oldest frame the WAL still holds.",
+          "type": "string"
+        },
+        {
+          "const": "latest",
+          "description": "The frame after the current end of the WAL; older data is skipped.",
+          "type": "string"
+        }
+      ]
     },
     "TimeDomainSpec": {
       "enum": [
@@ -1023,7 +1130,7 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
     "sinks": {
       "description": "Where data goes.",
       "items": {
-        "$ref": "#/$defs/ConnectorSpec"
+        "$ref": "#/$defs/SinkSpec"
       },
       "type": "array"
     },

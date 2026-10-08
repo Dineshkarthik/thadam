@@ -45,7 +45,10 @@ mod util;
 
 pub use clock::FakeClock;
 pub use data_dir::TempDataDir;
-pub use fixtures::{id_payload, payload_id, test_batch, test_event};
+pub use fixtures::{
+    TEST_DATASET, id_payload, payload_id, test_batch, test_event, test_segment_batch,
+    test_segment_batch_across,
+};
 pub use memory_batch_sink::{Fault, MemoryBatchSink, MemoryBatchSinkConfig, MemoryBatchSinkHandle};
 pub use memory_segment_sink::{Failpoint, FinalizedSegment, MemorySegmentSink, MemorySegmentStore};
 pub use memory_source::{

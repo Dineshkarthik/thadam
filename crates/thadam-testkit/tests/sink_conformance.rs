@@ -7,8 +7,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use thadam_core::{
-    BatchId, BatchSink, DeliveryClass, ErrorDomain, EventBatch, Reject, Retry, ThadamError,
-    SegmentSink, SinkBatch, SinkCapabilities, SinkContext, WalPos, WriteOutcome, codes,
+    BatchId, BatchSink, DatasetEvents, DeliveryClass, ErrorDomain, Reject, Retry, ThadamError,
+    SegmentBatch, SegmentSink, SinkBatch, SinkCapabilities, SinkContext, WalPos, WriteOutcome,
+    codes,
 };
 use thadam_testkit::conformance::batch_sink::{
     self, BatchSinkCase, BatchSinkFixture, BatchSinkProbe, InjectedFault, MemoryBatchSinkFixture,
@@ -162,7 +163,7 @@ impl SegmentSink for AmnesiacSink {
         self.0.recover(ctx).await?;
         Ok(None)
     }
-    async fn append(&mut self, batch: EventBatch) -> Result<Vec<Reject>, ThadamError> {
+    async fn append(&mut self, batch: SegmentBatch) -> Result<Vec<Reject>, ThadamError> {
         self.0.append(batch).await
     }
     async fn poll_commit(&mut self) -> Result<Option<WalPos>, ThadamError> {
@@ -219,7 +220,7 @@ impl SegmentSink for OverreachingSink {
     async fn recover(&mut self, ctx: &SinkContext) -> Result<Option<WalPos>, ThadamError> {
         self.0.recover(ctx).await
     }
-    async fn append(&mut self, batch: EventBatch) -> Result<Vec<Reject>, ThadamError> {
+    async fn append(&mut self, batch: SegmentBatch) -> Result<Vec<Reject>, ThadamError> {
         self.0.append(batch).await
     }
     async fn poll_commit(&mut self) -> Result<Option<WalPos>, ThadamError> {
@@ -271,6 +272,69 @@ async fn a_segment_sink_that_reports_a_watermark_ahead_of_its_data_is_caught() {
         5,
     )
     .await;
+}
+
+/// Folds every dataset into one, as a sink that ignores the grouping would.
+struct MergingSink(MemorySegmentSink);
+
+#[async_trait]
+impl SegmentSink for MergingSink {
+    async fn recover(&mut self, ctx: &SinkContext) -> Result<Option<WalPos>, ThadamError> {
+        self.0.recover(ctx).await
+    }
+    async fn append(&mut self, batch: SegmentBatch) -> Result<Vec<Reject>, ThadamError> {
+        let events = batch.datasets.into_iter().flat_map(|d| d.events).collect();
+        let merged = SegmentBatch::new(
+            batch.origin,
+            batch.clock_synced,
+            vec![DatasetEvents::new("merged", events)],
+        );
+        self.0.append(merged).await
+    }
+    async fn poll_commit(&mut self) -> Result<Option<WalPos>, ThadamError> {
+        self.0.poll_commit().await
+    }
+    async fn finalize_all(&mut self) -> Result<Option<WalPos>, ThadamError> {
+        self.0.finalize_all().await
+    }
+    fn cursor_committed(&mut self, pos: WalPos) {
+        self.0.cursor_committed(pos);
+    }
+}
+
+struct MergingFixture(MemorySegmentFixture);
+
+impl SegmentSinkFixture for MergingFixture {
+    fn open_sink(&self) -> Box<dyn SegmentSink> {
+        Box::new(MergingSink(MemorySegmentSink::new(
+            self.0.store().clone(),
+            2,
+        )))
+    }
+    fn failpoints(&self) -> Vec<&'static str> {
+        self.0.failpoints()
+    }
+    fn arm(&self, failpoint: &str) {
+        self.0.arm(failpoint);
+    }
+    fn disarm(&self) {
+        self.0.disarm();
+    }
+    fn finalized_ranges(&self) -> Vec<thadam_core::WalRange> {
+        self.0.finalized_ranges()
+    }
+    fn finalized_dataset_events(&self) -> Option<std::collections::BTreeMap<String, usize>> {
+        self.0.finalized_dataset_events()
+    }
+    fn reset(&self) {
+        self.0.reset();
+    }
+}
+
+#[tokio::test]
+#[should_panic(expected = "datasets were merged")]
+async fn a_segment_sink_that_merges_datasets_is_caught() {
+    segment_sink::datasets_are_kept_apart(&MergingFixture(MemorySegmentFixture::new(2))).await;
 }
 
 #[test]

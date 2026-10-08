@@ -16,8 +16,34 @@ use crate::predicate::{Condition, Literal, Predicate, Test};
 use crate::spans::Anchor;
 use crate::spec::{
     ConnectorSpec, DECLARED_FIELD_ID_RANGE, DatasetSpec, FieldSpec, IDENTITY_LEVEL_ID_RANGE,
-    TransformSpec, WalSpec,
+    MaxLagSpec, SinkSpec, TransformSpec, WalSpec,
 };
+
+/// What the connector checks read from a source or a sink.
+trait Connector {
+    fn kind(&self) -> &str;
+    fn config(&self) -> &serde_json::Value;
+}
+
+impl Connector for ConnectorSpec {
+    fn kind(&self) -> &str {
+        &self.kind
+    }
+
+    fn config(&self) -> &serde_json::Value {
+        &self.config
+    }
+}
+
+impl Connector for SinkSpec {
+    fn kind(&self) -> &str {
+        &self.kind
+    }
+
+    fn config(&self) -> &serde_json::Value {
+        &self.config
+    }
+}
 
 /// Which kind of column a Parquet field ID belongs to.
 #[derive(Clone, Copy)]
@@ -294,6 +320,7 @@ pub(crate) fn check(parsed: &Parsed, kinds: &KindPolicy, ctx: &mut Ctx<'_>) {
     c.quarantine();
     c.connectors("sources", &parsed.sources, kinds.source_kinds.as_deref());
     c.connectors("sinks", &parsed.sinks, kinds.sink_kinds.as_deref());
+    c.sink_policies();
     c.unique_ids("datasets", &parsed.datasets.ids);
     c.datasets();
     c.transforms();
@@ -416,10 +443,10 @@ impl Checker<'_, '_, '_> {
         }
     }
 
-    fn connectors(
+    fn connectors<T: Connector>(
         &mut self,
         section: &str,
-        items: &Section<ConnectorSpec>,
+        items: &Section<T>,
         registered: Option<&[String]>,
     ) {
         self.unique_ids(section, &items.ids);
@@ -434,34 +461,59 @@ impl Checker<'_, '_, '_> {
         }
         for (i, spec) in items.present() {
             let path = Vec::new().key(section).idx(i).key("kind");
-            if !kind_ok(&spec.kind) {
+            let kind = spec.kind();
+            if !kind_ok(kind) {
                 self.ctx.invalid(
                     &path,
                     Anchor::Value,
-                    format!(
-                        "`{}` is not a valid kind: use lowercase letters, digits, and `_`",
-                        spec.kind
-                    ),
+                    format!("`{kind}` is not a valid kind: use lowercase letters, digits, and `_`"),
                 );
             } else if let Some(registered) = registered
-                && !registered.contains(&spec.kind)
+                && !registered.iter().any(|r| r == kind)
             {
-                let hint = closest(&spec.kind, registered.iter().map(String::as_str))
+                let hint = closest(kind, registered.iter().map(String::as_str))
                     .map(|c| format!("did you mean `{c}`?"))
                     .unwrap_or_else(|| format!("registered kinds: {}", registered.join(", ")));
                 self.ctx.error(
                     codes::CONFIG_UNKNOWN_KIND,
                     &path,
                     Anchor::Value,
-                    format!("no connector is registered for kind `{}`", spec.kind),
+                    format!("no connector is registered for kind `{kind}`"),
                     Some(hint),
                 );
             }
-            if !spec.config.is_object() && !spec.config.is_null() {
+            if !spec.config().is_object() && !spec.config().is_null() {
                 self.ctx.invalid(
                     &Vec::new().key(section).idx(i).key("config"),
                     Anchor::Value,
                     "`config` must be a mapping",
+                );
+            }
+        }
+    }
+
+    fn sink_policies(&mut self) {
+        for (i, sink) in self.parsed.sinks.present() {
+            let lag_path = Vec::new().key("sinks").idx(i).key("max_lag");
+            let Some(lag) = sink.max_lag else { continue };
+            let (key, zero) = match lag {
+                MaxLagSpec::Bytes(b) => ("bytes", b.get() == 0),
+                MaxLagSpec::Age(a) => ("age", a.get().is_zero()),
+            };
+            if zero {
+                self.ctx.invalid_hint(
+                    &lag_path.key(key),
+                    Anchor::Value,
+                    format!("`max_lag.{key}` must be greater than zero"),
+                    "omit `max_lag` to set no limit",
+                );
+            }
+            if !sink.required {
+                self.ctx.invalid_hint(
+                    &lag_path,
+                    Anchor::Key,
+                    "`max_lag` has no effect on a sink with `required: false`: it never holds WAL data back, so there is nothing to limit",
+                    "remove `max_lag` or set `required: true`",
                 );
             }
         }

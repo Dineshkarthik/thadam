@@ -92,15 +92,25 @@
 //!
 //! # Contract gaps found while building this crate
 //!
-//! - `SegmentSink::append` takes an `EventBatch` with no dataset id, while a
-//!   chain emits one batch per dataset over the same WAL range. The segment
-//!   driver therefore appends one batch per chain read with the datasets'
-//!   events concatenated in declaration order. `thadam-segments` needs the
-//!   dataset per event or per batch; `thadam-core` should add it before PR14.
-//! - The configuration has no per-sink `required`, `max_lag`, or `start_from`
-//!   keys yet: every chain sink is a required WAL consumer starting at the
-//!   earliest retained frame. The optional `datasets` list in a sink's
-//!   `config` restricts its chain.
+//! - Closed in wave 3: `SegmentSink::append` takes a [`thadam_core::SegmentBatch`],
+//!   so the segment driver passes each chain read as one batch with events
+//!   grouped by dataset (declaration order, empty datasets included) over a
+//!   single WAL range. Sink rejects index the events in that order. The
+//!   quarantine instance receives its rows under
+//!   [`thadam_core::QUARANTINE_DATASET`].
+//! - Still open: `BatchSink::write` receives a [`thadam_core::SinkBatch`] with no
+//!   dataset id, so the batch driver concatenates the datasets' events.
+//!   `thadam-clickhouse` (one table per dataset) needs the same grouping before
+//!   PR20.
+//! - Closed: each sink takes `required` (default `true`), `max_lag`
+//!   (`{ bytes: <size> }` or `{ age: <duration> }`), and `start_from`
+//!   (`earliest`, the default, or `latest`). A `required: false` sink is an
+//!   optional WAL consumer that never pins retention, so a reader that falls
+//!   behind eviction sees a WAL gap as before; `max_lag` bounds how long a
+//!   required sink may pin it. `start_from` applies only to a sink with no
+//!   committed cursor, and `latest` commits that cursor at the current durable
+//!   end during startup so a restart cannot skip data. The optional `datasets`
+//!   list in a sink's `config` restricts its chain.
 //! - Without a registered quarantine sink, rejects are counted
 //!   ([`MetricEvent::RejectsDropped`]) and dropped.
 //!
@@ -156,5 +166,5 @@ pub use registry::Registry;
 pub use replay::{ReplayOutput, ReplayReport, ReplayRequest, replay};
 pub use status::{
     BudgetStatus, ComponentCounters, ComponentKind, ComponentState, ComponentStatus, CursorStatus,
-    ErrorInfo, Phase, PipelineHandle, StatusSnapshot, WalStatus,
+    ErrorInfo, MaxLagStatus, Phase, PipelineHandle, StatusSnapshot, WalStatus,
 };

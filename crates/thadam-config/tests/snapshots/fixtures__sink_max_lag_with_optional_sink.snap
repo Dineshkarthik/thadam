@@ -1,0 +1,8 @@
+---
+source: crates/thadam-config/tests/fixtures.rs
+expression: "checked.report.render(&format!(\"{name}.yaml\"))"
+---
+error[config.invalid]: `max_lag` has no effect on a sink with `required: false`: it never holds WAL data back, so there is nothing to limit
+  --> sink_max_lag_with_optional_sink.yaml:22:5 (sinks[0].max_lag)
+  = hint: remove `max_lag` or set `required: true`
+1 error, 0 warnings

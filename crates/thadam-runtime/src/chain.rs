@@ -197,6 +197,8 @@ pub(crate) struct ChainConfig {
     pub cursor: String,
     pub spec: ChainSpec,
     pub limits: ChainLimits,
+    /// Where the chain starts when the sink has no committed cursor.
+    pub start_from: StartFrom,
     pub primary: bool,
     pub has_state: bool,
     pub warm_frames: u64,
@@ -370,7 +372,7 @@ impl ChainTask {
         };
         self.warm_to(start).await?;
         let from = if start == 0 {
-            StartFrom::Earliest
+            self.cfg.start_from
         } else {
             StartFrom::At(WalPos::new(start + 1))
         };

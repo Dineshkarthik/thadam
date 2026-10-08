@@ -1,17 +1,17 @@
 //! `Pipeline`: build-time validation, the startup recovery sequence, the
 //! supervisor, and the shutdown order.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::sync::Arc;
 
-use thadam_config::PipelineSpec;
+use thadam_config::{PipelineSpec, SinkSpec};
 use thadam_core::{
     BatchSink, BuildContext, ErrorDomain, ThadamError, SegmentSink, Service, ServiceContext,
-    Shutdown, SinkContext, SinkId, Source, codes,
+    Shutdown, SinkContext, SinkId, Source, WalPos, codes,
 };
 use thadam_transform::Chain;
-use thadam_wal::{RecoveryReport, Wal};
+use thadam_wal::{CursorState, RecoveryReport, StartFrom, Wal};
 use serde::Serialize;
 use tokio::sync::oneshot;
 use tokio::task::{Id, JoinError, JoinSet};
@@ -29,7 +29,8 @@ use crate::registry::{Registry, SinkFactory};
 use crate::segment::{DriverOpts, SegmentDriver};
 use crate::source::SourceDriver;
 use crate::status::{
-    Component, ComponentKind, ErrorInfo, Phase, PipelineHandle, StatusSnapshot, add, lock,
+    Component, ComponentKind, ErrorInfo, Phase, PipelineHandle, SinkPolicy, StatusSnapshot, add,
+    lock,
 };
 
 /// What WAL recovery found at startup.
@@ -282,13 +283,20 @@ impl Pipeline {
         let layout = Layout { root };
 
         let mut seen = HashMap::new();
-        for (kind, list) in [("sources", &spec.sources), ("sinks", &spec.sinks)] {
-            for (i, c) in list.iter().enumerate() {
-                check_id(kind, i, &c.id, &mut errs);
-                if let Some(prev) = seen.insert(c.id.clone(), format!("{kind}[{i}]")) {
+        let id_lists = [
+            (
+                "sources",
+                spec.sources.iter().map(|c| &c.id).collect::<Vec<_>>(),
+            ),
+            ("sinks", spec.sinks.iter().map(|c| &c.id).collect()),
+        ];
+        for (kind, ids) in &id_lists {
+            for (i, id) in ids.iter().enumerate() {
+                check_id(kind, i, id, &mut errs);
+                if let Some(prev) = seen.insert((*id).clone(), format!("{kind}[{i}]")) {
                     errs.push(config_error(
                         &format!("{kind}[{i}].id"),
-                        format!("id `{}` is also used by {prev}", c.id),
+                        format!("id `{id}` is also used by {prev}"),
                     ));
                 }
             }
@@ -317,6 +325,7 @@ impl Pipeline {
 
         let limits = opts.chain_limits.clone();
         let mut planned = Vec::new();
+        let mut policies = BTreeMap::new();
         let mut first_chain = true;
         for (i, s) in spec.sinks.iter().enumerate() {
             let at = format!("sinks[{i}]");
@@ -361,6 +370,23 @@ impl Pipeline {
                         continue;
                     }
                 };
+                let (start_from, max_lag) = match plan::start_from(i, s)
+                    .and_then(|f| plan::max_lag(i, s).map(|l| (f, l)))
+                {
+                    Ok(p) => p,
+                    Err(e) => {
+                        errs.push(e);
+                        continue;
+                    }
+                };
+                policies.insert(
+                    s.id.clone(),
+                    SinkPolicy {
+                        required: s.required,
+                        max_lag: max_lag.map(Into::into),
+                        start_from: s.start_from.as_str(),
+                    },
+                );
                 let cs = match plan::chain_spec(
                     &spec,
                     &s.id,
@@ -383,6 +409,7 @@ impl Pipeline {
                                 cursor: cursor_name(&s.id),
                                 spec: cs,
                                 limits: limits.clone(),
+                                start_from,
                                 primary,
                                 has_state: plan::chain_has_state(&spec, &s.id, only.as_deref()),
                                 warm_frames: opts.warm_start_frames,
@@ -490,6 +517,7 @@ impl Pipeline {
             spec.pipeline.name.clone(),
             config_hash.clone(),
             opts.sync_flag.clone(),
+            policies,
         );
         Ok(Pipeline {
             spec,
@@ -553,8 +581,13 @@ impl Pipeline {
         // 2. WAL recovery on the blocking pool.
         let budget = Arc::new(plan::budget(&spec));
         *lock(&handle.0.budget) = Arc::clone(&budget);
-        let chain_ids: Vec<String> = sinks.iter().map(|s| s.id.clone()).collect();
-        let wal_opts = plan::wal_options(&spec, &chain_ids, opts.machine_id.clone())?;
+        let chain_sinks: Vec<(usize, &SinkSpec)> = spec
+            .sinks
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| sinks.iter().any(|slot| slot.id == s.id))
+            .collect();
+        let wal_opts = plan::wal_options(&spec, &chain_sinks, opts.machine_id.clone())?;
         let mut limits = opts.batch_limits;
         limits.max_bytes = limits.max_bytes.min(wal_opts.frame_max_bytes / 2).max(1);
         let (wal_dir, b, clock) = (layout.wal(), Arc::clone(&budget), Arc::clone(&opts.clock));
@@ -597,6 +630,12 @@ impl Pipeline {
             truncated = recovery.truncated_bytes, next = %recovery.next_seq,
             elapsed_ms = recovery.elapsed.as_secs_f64() * 1e3, "wal recovered"
         );
+        let latest: Vec<(String, String)> = sinks
+            .iter()
+            .filter(|s| s.chain_cfg.start_from == StartFrom::Latest)
+            .map(|s| (s.id.clone(), s.chain_cfg.cursor.clone()))
+            .collect();
+        bootstrap_latest_cursors(&wal, &latest).await?;
         let writer = wal.start_writer().map_err(|e| wal_error(&e))?;
 
         let stopping = Shutdown::new();
@@ -682,7 +721,7 @@ impl Pipeline {
             let cursor = cursor_name(&id);
             match conn {
                 SinkConn::Segment(sink) => {
-                    let d = SegmentDriver::new(
+                    let mut d = SegmentDriver::new(
                         id.clone(),
                         cursor,
                         Arc::clone(&sink_c),
@@ -703,6 +742,7 @@ impl Pipeline {
                         stopping.clone(),
                         force.clone(),
                     );
+                    d.start_latest = chain_cfg.start_from == StartFrom::Latest;
                     sup.spawn(Group::Lanes, Arc::clone(&sink_c), d.run());
                 }
                 SinkConn::Batch(sink) => {
@@ -895,6 +935,25 @@ impl Pipeline {
             wal_error: wal_close_error.as_ref().map(ErrorInfo::from),
         })
     }
+}
+
+/// Commits the cursor of every given `start_from: latest` sink that has none, at the
+/// current durable end, before anything reads or writes. A required consumer
+/// without a cursor pins the whole WAL, and a restart before its first natural
+/// commit must not evaluate `latest` against a later end and skip data. An
+/// empty WAL is committed at 0, which is the same position for `earliest`.
+async fn bootstrap_latest_cursors(wal: &Wal, sinks: &[(String, String)]) -> Result<(), ThadamError> {
+    for (sink, cursor) in sinks {
+        if wal.cursor(cursor).is_some() {
+            continue;
+        }
+        let end = wal.durable_end().unwrap_or(WalPos::ZERO);
+        wal.commit_cursor(cursor, CursorState::at(end))
+            .await
+            .map_err(|e| wal_error(&e))?;
+        tracing::info!(sink = %sink, cursor = %end, "new sink starts after the current end of the wal (start_from: latest)");
+    }
+    Ok(())
 }
 
 async fn run_service(

@@ -45,7 +45,7 @@ use bytes::Bytes;
 use common::{fast_opts, lock, spec};
 use thadam_core::{
     AckHandle, AckOutcome, AckTarget, AckToken, BatchLimits, BuildContext, Clock, ConnectionEpoch,
-    DiskBudget, EpochGate, ErrorDomain, EventBatch, RawBatch, RawMessage, Reject, ThadamError,
+    DiskBudget, EpochGate, ErrorDomain, RawBatch, RawMessage, Reject, ThadamError, SegmentBatch,
     SegmentSink, SegmentSinkFactory, Shutdown, SinkContext, Source, SourceBatch, SourceContext,
     SourceFactory, SourceId, SystemClock, Value, WalPos, WalRange, codes,
 };
@@ -347,7 +347,7 @@ impl SegmentSink for FileSegmentSink {
         Ok(self.last)
     }
 
-    async fn append(&mut self, batch: EventBatch) -> Result<Vec<Reject>, ThadamError> {
+    async fn append(&mut self, batch: SegmentBatch) -> Result<Vec<Reject>, ThadamError> {
         if self.last.is_some_and(|last| batch.origin.first() <= last) {
             return Err(ThadamError::permanent(
                 ErrorDomain::Sink,
@@ -356,9 +356,8 @@ impl SegmentSink for FileSegmentSink {
             ));
         }
         let ns = batch
-            .events
-            .iter()
-            .filter_map(|e| match e.payload().as_record()?.get("n")? {
+            .events()
+            .filter_map(|(_, e)| match e.payload().as_record()?.get("n")? {
                 Value::U64(n) => Some(*n),
                 _ => None,
             })
