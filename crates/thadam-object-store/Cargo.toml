@@ -32,8 +32,12 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 futures-util = "0.3"
+# ring provider, mirroring workspace tokio-rustls (ADR-0020): the Docker tests
+# install it explicitly so reqwest/rustls-no-provider never sees aws-lc.
+rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tracing-subscriber = { workspace = true }
 
 [lints]
 workspace = true

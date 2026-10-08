@@ -1,19 +1,41 @@
-//! Docker integration tests against MinIO.
+//! Docker integration tests against SeaweedFS (S3-compatible).
 //!
 //! These are `#[ignore]`d so `cargo nextest run` passes without Docker; run
 //! them with
 //!
 //! ```text
-//! cargo nextest run -p thadam-object-store --run-ignored only -E 'binary(docker_minio)'
+//! cargo nextest run -p thadam-object-store --run-ignored only -E 'binary(docker_s3)'
 //! ```
 //!
 //! Images: public Docker Hub only, pinned by tag (never a corporate mirror);
-//! re-pin with `THADAM_TEST_MINIO_IMAGE` when updating. Only `minio/minio` is
-//! needed: the bucket is created with a Signature V4 HTTP call, so no
-//! `minio/mc` helper container. `curl` and `docker` CLIs must be available.
+//! re-pin with `THADAM_TEST_S3_IMAGE` when updating. SeaweedFS provides an
+//! S3-compatible gateway via `weed server -s3 -filer`. The bucket is created
+//! with a Signature V4 HTTP call. `curl` and `docker` CLIs must be available.
+//!
+//! MinIO note: MinIO stopped publishing community images to Docker Hub in
+//! late 2025. SeaweedFS is the drop-in S3-compatible replacement.
+//!
+//! Capability note (verified against `chrislusf/seaweedfs:3.81`): the S3
+//! gateway ignores `If-None-Match: *` on PutObject — a second create for an
+//! existing key returns `200 OK` and silently overwrites (real S3 answers
+//! `412 Precondition Failed`). The shipper's startup probe therefore reports
+//! `conditional_create = false` and `conditional_put: auto` falls back to
+//! overwrite, which is only safe because finalized files are immutable and
+//! keys deterministic. The collision test below asserts the probed behavior
+//! per store capability; the always-fatal guarantee for stores that DO
+//! enforce conditional writes is covered by the in-memory crate tests
+//! (`conflict_with_different_content_is_a_fatal_collision`).
+//!
+//! Outage note: `docker stop` + `docker start` re-allocates ephemeral host
+//! ports (`-p 127.0.0.1::9000` landed on a different host port after every
+//! restart in testing). The S3 port is therefore pinned explicitly; the
+//! shipper's S3 client keeps the endpoint baked in, and a remapped port
+//! would leave it retrying a dead endpoint forever (the outage test's
+//! original 180 s "ready" timeout).
 //!
 //! Containers are labelled `thadam-object-store-test` and removed when a test
-//! ends, including on panic.
+//! ends, including on panic. Logs: run with `RUST_LOG=debug` (the harness
+//! installs a tracing subscriber).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::process::{Command, Output};
@@ -21,7 +43,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreExt};
 use thadam_core::{
     BudgetCategory, BuildContext, DiskBudget, ServiceContext, ServiceFactory, SharedObjects,
     Shutdown, SystemClock, WalEpoch, WalPos, WalRange, codes,
@@ -32,16 +54,18 @@ use tempfile::TempDir;
 
 use thadam_object_store::{ObjectStoreShipperFactory, ShipMetrics};
 
-/// The pinned MinIO image (public Docker Hub only; the 2025 public release
-/// line). Re-pin with `THADAM_TEST_MINIO_IMAGE` when updating.
-const MINIO_IMAGE: &str = "minio/minio:RELEASE.2025-10-15T17-29-55Z";
+/// The pinned SeaweedFS image (public Docker Hub only, S3-compatible).
+/// MinIO stopped publishing to Docker Hub in late 2025; SeaweedFS provides
+/// an S3-compatible gateway via `weed server -s3`. Re-pin with
+/// `THADAM_TEST_S3_IMAGE` when updating.
+const S3_IMAGE: &str = "chrislusf/seaweedfs:3.81";
 const LABEL: &str = "thadam-object-store-test";
 const ROOT_USER: &str = "thadam-test";
 const ROOT_SECRET: &str = "thadam-test-secret-16+bytes";
 const TIMEOUT: Duration = Duration::from_secs(180);
 
-fn minio_image() -> String {
-    std::env::var("THADAM_TEST_MINIO_IMAGE").unwrap_or_else(|_| MINIO_IMAGE.to_owned())
+fn s3_image() -> String {
+    std::env::var("THADAM_TEST_S3_IMAGE").unwrap_or_else(|_| S3_IMAGE.to_owned())
 }
 
 fn docker(args: &[&str]) -> Output {
@@ -55,91 +79,106 @@ fn err(out: &Output) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
 }
 
-/// A running MinIO container; removed on Drop.
-struct Minio {
+/// A free loopback port to pin the container's S3 mapping onto.
+fn free_port() -> u16 {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind :0");
+    listener.local_addr().expect("local addr").port()
+}
+
+/// A running SeaweedFS container; removed on Drop. The S3 port is pinned on
+/// the host so a `stop`/`start` cycle (the simulated outage) keeps the
+/// endpoint valid — Docker re-allocates ephemeral ports on restart, and the
+/// shipper's S3 client bakes the endpoint in at construction.
+struct Server {
     name: String,
     endpoint: String,
     bucket: String,
 }
 
-impl Minio {
-    async fn start(bucket: &str) -> Minio {
+impl Server {
+    async fn start(bucket: &str) -> Server {
         let bucket = bucket.to_owned();
         tokio::task::spawn_blocking(move || Self::start_blocking(&bucket))
             .await
             .expect("docker task")
     }
 
-    fn start_blocking(bucket: &str) -> Minio {
-        let name = format!(
-            "thadam-objstore-{}-{:x}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        );
-        let out = docker(&[
-            "run",
-            "-d",
-            "--rm",
-            "--label",
-            LABEL,
-            "-p",
-            "127.0.0.1::9000",
-            "-e",
-            &format!("MINIO_ROOT_USER={ROOT_USER}"),
-            "-e",
-            &format!("MINIO_ROOT_PASSWORD={ROOT_SECRET}"),
-            &minio_image(),
-            "server",
-            "/data",
-        ]);
-        assert!(out.status.success(), "docker run: {}", err(&out));
-
-        let port = {
-            let started = Instant::now();
-            loop {
-                let out = docker(&["port", &name, "9000/tcp"]);
-                if out.status.success() {
-                    let text = String::from_utf8_lossy(&out.stdout);
-                    if let Some((_, port)) = text.trim().rsplit_once(':') {
-                        break port.to_owned();
-                    }
+    fn start_blocking(bucket: &str) -> Server {
+        let mut last_err = String::new();
+        // Retry the run a few times: another test process can claim the port
+        // between `free_port` and `docker run`.
+        for _ in 0..8 {
+            let port = free_port();
+            let name = format!(
+                "thadam-objstore-{}-{:x}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0)
+            );
+            // SeaweedFS: weed server -s3 -s3.port=9000 -filer (small footprint)
+            let out = docker(&[
+                "run",
+                "-d",
+                "--name",
+                &name,
+                "--label",
+                LABEL,
+                "-p",
+                &format!("127.0.0.1:{port}:9000"),
+                &s3_image(),
+                "server",
+                "-s3",
+                "-s3.port=9000",
+                "-filer",
+                // Keep the container small: no 1GiB-per-volume preallocation
+                // (the default, x7 volumes, exhausts the Docker Desktop disk)
+                // and a small volume size limit; the tests write <= 17MiB.
+                "-master.volumePreallocate=false",
+                "-master.volumeSizeLimitMB=64",
+                "-volume.max=2",
+            ]);
+            if !out.status.success() {
+                last_err = err(&out);
+                let _ = docker(&["rm", "-f", "-v", &name]);
+                if last_err.contains("port is already allocated")
+                    || last_err.contains("address already in use")
+                {
+                    continue;
                 }
-                assert!(started.elapsed() < TIMEOUT, "waiting for the mapped port");
-                std::thread::sleep(Duration::from_millis(150));
+                panic!("docker run: {last_err}");
             }
-        };
-        let endpoint = format!("http://127.0.0.1:{port}");
-
-        let minio = Minio {
-            name,
-            endpoint,
-            bucket: bucket.to_owned(),
-        };
-        minio.wait_ready();
-        create_bucket(&minio.endpoint, bucket, ROOT_USER, ROOT_SECRET);
-        minio
+            let server = Server {
+                name,
+                endpoint: format!("http://127.0.0.1:{port}"),
+                bucket: bucket.to_owned(),
+            };
+            server.wait_ready();
+            create_bucket(&server.endpoint, bucket, ROOT_USER, ROOT_SECRET);
+            return server;
+        }
+        panic!("docker run after port retries: {last_err}");
     }
 
     fn wait_ready(&self) {
         let started = Instant::now();
         loop {
+            // SeaweedFS S3 gateway: GET / answers 200 once the S3 API is up
+            // (it starts several seconds after the container: master
+            // election, then filer connect).
             let ok = Command::new("curl")
-                .args([
-                    "-sf",
-                    "--max-time",
-                    "5",
-                    &format!("{}/minio/health/ready", self.endpoint),
-                ])
+                .args(["-sf", "--max-time", "5", &format!("{}/", self.endpoint)])
                 .output()
                 .map(|o| o.status.success())
                 .unwrap_or(false);
             if ok {
                 return;
             }
-            assert!(started.elapsed() < TIMEOUT, "minio did not become ready");
+            assert!(
+                started.elapsed() < TIMEOUT,
+                "seaweedfs did not become ready"
+            );
             std::thread::sleep(Duration::from_millis(200));
         }
     }
@@ -156,29 +195,57 @@ impl Minio {
     }
 }
 
-impl Drop for Minio {
+impl Drop for Server {
     fn drop(&mut self) {
-        let _ = docker(&["rm", "-f", &self.name]);
+        // -v: the image declares VOLUME /data; drop the anonymous volume too
+        let _ = docker(&["rm", "-f", "-v", &self.name]);
     }
 }
 
-/// An independent S3 client toward the test MinIO.
-fn s3_for_test(minio: &Minio) -> object_store::aws::AmazonS3 {
+/// An independent S3 client toward the test SeaweedFS.
+fn s3_for_server(server: &Server) -> object_store::aws::AmazonS3 {
     object_store::aws::AmazonS3Builder::new()
-        .with_url(format!("s3://{}", minio.bucket))
-        .with_endpoint(&minio.endpoint)
+        .with_url(format!("s3://{}", server.bucket))
+        .with_endpoint(&server.endpoint)
         .with_region("us-east-1")
         .with_allow_http(true)
         .with_access_key_id(ROOT_USER)
         .with_secret_access_key(ROOT_SECRET)
+        // SeaweedFS requires path-style access (not virtual-hosted)
+        .with_virtual_hosted_style_request(false)
         .build()
         .expect("builder")
 }
 
+/// Mirrors the shipper's startup probe: does the store reject a second
+/// create for an existing key (enforce `If-None-Match: *`)?
+async fn store_supports_conditional_create(store: &object_store::aws::AmazonS3) -> bool {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let key = format!(".thadam-shipper-probe/harness-{nanos:x}");
+    let path = object_store::path::Path::from(key.as_str());
+    store
+        .put_opts(&path, "probe".into(), object_store::PutMode::Create.into())
+        .await
+        .expect("probe put");
+    let conflict = store
+        .put_opts(
+            &path,
+            "probe-conflict".into(),
+            object_store::PutMode::Create.into(),
+        )
+        .await;
+    let supported = matches!(conflict, Err(object_store::Error::AlreadyExists { .. }));
+    store.delete(&path).await.expect("probe cleanup");
+    supported
+}
+
 /// Every object in the bucket (store-relative keys), sorted.
-async fn object_keys(minio: &Minio) -> Vec<String> {
+async fn object_keys(server: &Server) -> Vec<String> {
     use futures_util::StreamExt;
-    let store = s3_for_test(minio);
+    let store = s3_for_server(server);
     let mut out = Vec::new();
     let mut stream = store.list(None);
     while let Some(meta) = stream.next().await {
@@ -189,9 +256,9 @@ async fn object_keys(minio: &Minio) -> Vec<String> {
 }
 
 /// Object count, zero when the store is unreachable (the outage window).
-async fn object_count(minio: &Minio) -> usize {
+async fn object_count(server: &Server) -> usize {
     use futures_util::StreamExt;
-    let store = s3_for_test(minio);
+    let store = s3_for_server(server);
     let mut n = 0;
     let mut stream = store.list(None);
     while let Some(meta) = stream.next().await {
@@ -202,12 +269,12 @@ async fn object_count(minio: &Minio) -> usize {
     n
 }
 
-fn config_value(minio: &Minio) -> serde_json::Value {
+fn config_value(server: &Server) -> serde_json::Value {
     serde_json::json!({
         "from": "local",
         "pipeline": "edge-capture",
-        "url": format!("s3://{}", minio.bucket),
-        "endpoint": minio.endpoint,
+        "url": format!("s3://{}", server.bucket),
+        "endpoint": server.endpoint,
         "region": "us-east-1",
         "allow_http": true,
         "access_key_id": ROOT_USER,
@@ -216,35 +283,35 @@ fn config_value(minio: &Minio) -> serde_json::Value {
     })
 }
 
-/// A shipper over the test MinIO through the public entry points; `extra`
+/// A shipper over the test store through the public entry points; `extra`
 /// overrides config keys (for example `multipart_threshold`).
 fn build_shipper(
-    minio: &Minio,
+    server: &Server,
     metrics: Arc<dyn ShipMetrics>,
     extra: serde_json::Value,
 ) -> Box<dyn thadam_core::Service> {
-    let mut value = config_value(minio);
+    let mut value = config_value(server);
     if let Some(map) = extra.as_object() {
         for (k, v) in map {
             value[k] = v.clone();
         }
     }
     let config = thadam_object_store::parse_ship_config(&value).expect("config");
-    let shipper = thadam_object_store::Shipper::new("s3", config, Arc::new(s3_for_test(minio)))
+    let shipper = thadam_object_store::Shipper::new("s3", config, Arc::new(s3_for_server(server)))
         .with_metrics(metrics);
     Box::new(shipper)
 }
 
 /// The factory-built service (exercises the CLI registration path).
-fn build_service(minio: &Minio) -> Box<dyn thadam_core::Service> {
+fn build_service(server: &Server) -> Box<dyn thadam_core::Service> {
     let factory = ObjectStoreShipperFactory::new();
     let ctx = BuildContext::new(
         "s3",
         Arc::new(SystemClock::new()),
-        std::path::PathBuf::from("/tmp/thadam-minio-test-service"),
+        std::path::PathBuf::from("/tmp/thadam-s3-test-service"),
     );
     factory
-        .build(config_value(minio), &ctx)
+        .build(config_value(server), &ctx)
         .expect("build service")
 }
 
@@ -253,12 +320,14 @@ fn build_service(minio: &Minio) -> Box<dyn thadam_core::Service> {
 struct Recording {
     uploaded_ok: AtomicU64,
     retries: AtomicU64,
+    outcomes: Mutex<Vec<String>>,
     conflicts: Mutex<Vec<bool>>,
 }
 
 impl ShipMetrics for Recording {
-    fn uploaded(&self, _bytes: u64, _latency: Duration, _outcome: &str) {
+    fn uploaded(&self, _bytes: u64, _latency: Duration, outcome: &str) {
         self.uploaded_ok.fetch_add(1, Ordering::SeqCst);
+        self.outcomes.lock().unwrap().push(outcome.to_owned());
     }
     fn retry(&self, _segment: &SegmentId, _attempt: u32, _retry_age: Duration) {
         self.retries.fetch_add(1, Ordering::SeqCst);
@@ -365,7 +434,7 @@ fn start_service(
         "s3",
         shutdown.clone(),
         Arc::new(SystemClock::new()),
-        std::path::PathBuf::from("/tmp/thadam-minio-test-service-ctx"),
+        std::path::PathBuf::from("/tmp/thadam-s3-test-service-ctx"),
         Arc::new(DiskBudget::new()),
     )
     .with_shared(shared);
@@ -406,7 +475,8 @@ fn keys_for(record: &SegmentRecord, pipeline: &str) -> String {
     let rest = text
         .strip_prefix(&format!("ready/{}/", record.dataset))
         .expect("ready path");
-    format!("{pipeline}/{}/{rest}", record.dataset)
+    // Shipper adds thadam/v1/ prefix per ADR-0013
+    format!("thadam/v1/{pipeline}/{}/{rest}", record.dataset)
 }
 
 fn sha256_meta() -> object_store::Attribute {
@@ -423,15 +493,16 @@ fn hex_bytes(bytes: &[u8]) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "needs Docker (MinIO)"]
+#[ignore = "needs Docker (SeaweedFS)"]
 async fn uploads_oldest_first_with_metadata() {
-    let minio = Minio::start("thadam-ship-basic").await;
+    init_test_runtime();
+    let server = Server::start("thadam-ship-basic").await;
     let mut sink = Sink::open("telemetry").await;
     for (first, last) in [(0u64, 9u64), (10, 19), (20, 29)] {
         sink.seed(first, last, 64 * 1024).await;
     }
 
-    let handle = start_service(build_service(&minio), &sink.catalog);
+    let handle = start_service(build_service(&server), &sink.catalog);
     wait_until("all marked uploaded", || {
         sink.catalog.eligible_for_upload().is_empty()
     })
@@ -439,7 +510,7 @@ async fn uploads_oldest_first_with_metadata() {
     handle.shutdown.trigger();
     handle.task.await.expect("service").expect("run");
 
-    let keys = object_keys(&minio).await;
+    let keys = object_keys(&server).await;
     assert_eq!(
         keys,
         sink.records
@@ -449,7 +520,7 @@ async fn uploads_oldest_first_with_metadata() {
         "deterministic keys (no url prefix): {keys:?}"
     );
 
-    let store = s3_for_test(&minio);
+    let store = s3_for_server(&server);
     for (i, record) in sink.records.iter().enumerate() {
         let path = object_store::path::Path::from(keys[i].as_str());
         let get = store
@@ -472,31 +543,36 @@ async fn uploads_oldest_first_with_metadata() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "needs Docker (MinIO)"]
+#[ignore = "needs Docker (SeaweedFS)"]
 async fn destination_outage_then_recovery_drains_backlog() {
-    let minio = Minio::start("thadam-ship-outage").await;
+    init_test_runtime();
+    let server = Server::start("thadam-ship-outage").await;
     let mut sink = Sink::open("telemetry").await;
     sink.seed(0, 9, 64 * 1024).await;
 
     // Upload the first file, then take the store out mid-backlog.
     let metrics = Arc::new(Recording::default());
     let handle = start_service(
-        build_shipper(&minio, metrics.clone(), serde_json::json!({})),
+        build_shipper(&server, metrics.clone(), serde_json::json!({})),
         &sink.catalog,
     );
     wait_until_fn("first object landed", || async {
-        object_count(&minio).await > 0
+        object_count(&server).await > 0
     })
     .await;
 
+    // Stop BEFORE seeding the second segment: `docker stop` returns once the
+    // container is down, so every seg2 attempt is guaranteed to fail against
+    // the dead port. (Seeding first races the shipper: seg2 can be fully
+    // uploaded during the stop grace window and no retry ever fires.)
+    server.stop_container();
     sink.seed(10, 19, 64 * 1024).await;
-    minio.stop_container();
     wait_until("retry attempts accumulate", || {
         metrics.retries.load(Ordering::SeqCst) > 0
     })
     .await;
 
-    minio.start_container();
+    server.start_container();
     wait_until("backlog drained", || {
         sink.catalog.eligible_for_upload().is_empty()
     })
@@ -504,20 +580,35 @@ async fn destination_outage_then_recovery_drains_backlog() {
     handle.shutdown.trigger();
     handle.task.await.expect("service").expect("run");
 
-    assert_eq!(object_keys(&minio).await.len(), 2, "one object per segment");
+    assert_eq!(
+        object_keys(&server).await.len(),
+        2,
+        "one object per segment"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "needs Docker (MinIO)"]
+#[ignore = "needs Docker (SeaweedFS)"]
 async fn conditional_put_conflict_and_collision() {
-    let minio = Minio::start("thadam-ship-conflict").await;
+    init_test_runtime();
+    let server = Server::start("thadam-ship-conflict").await;
     let mut sink = Sink::open("telemetry").await;
     let record = sink.seed(0, 9, 4096).await;
     let key = keys_for(&record, "edge-capture");
     let path = object_store::path::Path::from(key.as_str());
-    let store = s3_for_test(&minio);
+    let store = s3_for_server(&server);
 
-    // Another writer owns the key with different content: Fatal collision.
+    // What does the store enforce? SeaweedFS 3.81 ignores If-None-Match
+    // (verified: a second create returns 200 and overwrites), so
+    // `conditional_put: auto` documentedly falls back to overwrite.
+    // Copy the segment bytes now: the service runs default
+    // delete_after_upload retention, which removes the local file.
+    let abs = sink.root().join(record.path.as_ref().unwrap());
+    let segment_body = std::fs::read(&abs).expect("local segment");
+
+    let conditional_create = store_supports_conditional_create(&store).await;
+
+    // Another writer owns the key with different content.
     store
         .put_opts(
             &path,
@@ -526,66 +617,111 @@ async fn conditional_put_conflict_and_collision() {
         )
         .await
         .expect("out-of-band put");
-    let handle = start_service(
-        build_shipper(
-            &minio,
-            Arc::new(Recording::default()),
-            serde_json::json!({}),
-        ),
-        &sink.catalog,
-    );
-    wait_until("fatal surfaces", || handle.task.is_finished()).await;
-    let error = handle
-        .task
-        .await
-        .expect("service")
-        .expect_err("collision expected");
-    assert_eq!(error.code, codes::SINK_OBJECT_KEY_COLLISION, "{error}");
-    assert!(!sink.catalog.eligible_for_upload().is_empty(), "not marked");
-
-    // Same bytes and sha metadata: verification-success path.
-    let abs = sink.root().join(record.path.as_ref().unwrap());
-    let body = std::fs::read(&abs).expect("local");
-    let mut attrs = object_store::Attributes::new();
-    attrs.insert(sha256_meta(), hex_bytes(&record.checksum).into());
-    store
-        .put_opts(
-            &path,
-            body.clone().into(),
-            object_store::PutOptions {
-                mode: object_store::PutMode::Overwrite,
-                attributes: attrs,
-                ..Default::default()
-            },
-        )
-        .await
-        .expect("equal-content put");
     let metrics = Arc::new(Recording::default());
     let handle = start_service(
-        build_shipper(&minio, metrics.clone(), serde_json::json!({})),
+        build_shipper(&server, metrics.clone(), serde_json::json!({})),
         &sink.catalog,
     );
-    wait_until("verified and marked", || {
+
+    if conditional_create {
+        // Stores that enforce If-None-Match: the collision is Fatal and the
+        // foreign object is never silently overwritten.
+        wait_until("fatal surfaces", || handle.task.is_finished()).await;
+        let error = handle
+            .task
+            .await
+            .expect("service")
+            .expect_err("collision expected");
+        assert_eq!(error.code, codes::SINK_OBJECT_KEY_COLLISION, "{error}");
+        assert!(!sink.catalog.eligible_for_upload().is_empty(), "not marked");
+        assert_eq!(*metrics.conflicts.lock().unwrap(), vec![false]);
+
+        // Same bytes and sha metadata: verification-success path.
+        let mut attrs = object_store::Attributes::new();
+        attrs.insert(sha256_meta(), hex_bytes(&record.checksum).into());
+        store
+            .put_opts(
+                &path,
+                segment_body.clone().into(),
+                object_store::PutOptions {
+                    mode: object_store::PutMode::Overwrite,
+                    attributes: attrs,
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("equal-content put");
+        let metrics = Arc::new(Recording::default());
+        let handle = start_service(
+            build_shipper(&server, metrics.clone(), serde_json::json!({})),
+            &sink.catalog,
+        );
+        wait_until("verified and marked", || {
+            sink.catalog.eligible_for_upload().is_empty()
+        })
+        .await;
+        handle.shutdown.trigger();
+        handle.task.await.expect("service").expect("run");
+        assert_eq!(*metrics.conflicts.lock().unwrap(), vec![true]);
+        assert_eq!(object_keys(&server).await, vec![key]);
+        return;
+    }
+
+    // Documented fallback (`resolve_put_mode` warns): the store ignores
+    // If-None-Match, so `auto` ships with overwrite puts. Collisions cannot
+    // be detected; the guarantee narrows to "deterministic keys over
+    // immutable files", and the final object must be exactly the segment's
+    // payload with its metadata.
+    wait_until("backlog drained (overwrite fallback)", || {
         sink.catalog.eligible_for_upload().is_empty()
     })
     .await;
     handle.shutdown.trigger();
     handle.task.await.expect("service").expect("run");
-    assert_eq!(*metrics.conflicts.lock().unwrap(), vec![true]);
-    assert_eq!(object_keys(&minio).await, vec![key]);
+
+    assert_eq!(
+        metrics.uploaded_ok.load(Ordering::SeqCst),
+        1,
+        "one upload finished"
+    );
+    assert_eq!(metrics.outcomes.lock().unwrap().as_slice(), ["put"]);
+    assert!(
+        metrics.conflicts.lock().unwrap().is_empty(),
+        "overwrite fallback runs no conflict verification"
+    );
+    assert_eq!(object_keys(&server).await, vec![key.clone()]);
+    let get = store
+        .get_opts(&path, Default::default())
+        .await
+        .expect("get after fallback");
+    assert_eq!(get.meta.size, record.bytes, "foreign object overwritten");
+    let sha = get
+        .attributes
+        .get(&sha256_meta())
+        .map(|v| v.to_string())
+        .expect("thadam-sha256 metadata after fallback put");
+    assert_eq!(sha, hex_bytes(&record.checksum));
+    use futures_util::StreamExt;
+    let mut body = Vec::new();
+    let mut stream = get.into_stream();
+    while let Some(chunk) = stream.next().await {
+        body.extend_from_slice(&chunk.expect("chunk"));
+    }
+    assert_eq!(body, segment_body);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "needs Docker (MinIO)"]
+#[ignore = "needs Docker (SeaweedFS)"]
 async fn multipart_upload_round_trip() {
-    let minio = Minio::start("thadam-ship-multipart").await;
+    init_test_runtime();
+    let server = Server::start("thadam-ship-multipart").await;
     let mut sink = Sink::open("telemetry").await;
     let size = 17 * 1024 * 1024 + 1024;
     let record = sink.seed(0, 9, size).await;
 
     let handle = start_service(
         build_shipper(
-            &minio,
+            &server,
             Arc::new(Recording::default()),
             serde_json::json!({ "multipart_threshold": "8MiB" }),
         ),
@@ -599,7 +735,7 @@ async fn multipart_upload_round_trip() {
     handle.task.await.expect("service").expect("run");
 
     let key = keys_for(&record, "edge-capture");
-    let store = s3_for_test(&minio);
+    let store = s3_for_server(&server);
     let get = store
         .get_opts(
             &object_store::path::Path::from(key.as_str()),
@@ -626,7 +762,20 @@ async fn multipart_upload_round_trip() {
     let mut hasher = Sha256::new();
     hasher.update(&body);
     assert_eq!(hex_bytes(&hasher.finalize()), hex_bytes(&record.checksum));
-    assert_eq!(object_keys(&minio).await, vec![key]);
+    assert_eq!(object_keys(&server).await, vec![key]);
+}
+
+/// Installs the ring rustls crypto provider (reqwest is built
+/// `rustls-no-provider`; ADR-0020 bans aws-lc) and, when `RUST_LOG` is set,
+/// a tracing subscriber so shipper logs are visible.
+fn init_test_runtime() {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .ok();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
 }
 
 /// HMAC-SHA256 (RFC 2104) over sha2; block size 64.
@@ -681,7 +830,7 @@ fn amz_times() -> (String, String) {
     )
 }
 
-/// Creates the bucket with a Signature V4 PUT (no mc container needed).
+/// Creates the bucket with a Signature V4 PUT (no helper container needed).
 fn create_bucket(endpoint: &str, bucket: &str, ak: &str, sk: &str) {
     let (amz_date, date) = amz_times();
     let host = endpoint

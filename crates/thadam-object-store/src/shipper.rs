@@ -696,3 +696,52 @@ fn seed_of(text: &str) -> u64 {
     }
     h | 1
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn caps(conditional_create: bool) -> StoreCapabilities {
+        StoreCapabilities {
+            conditional_create,
+            clock_skew: None,
+            returns_metadata: true,
+        }
+    }
+
+    #[test]
+    fn auto_uses_create_only_when_the_probe_proves_enforcement() {
+        assert!(matches!(
+            resolve_put_mode(ConditionalPut::Auto, caps(true)),
+            Ok(EffectivePut::Create)
+        ));
+        // SeaweedFS 3.81: a second If-None-Match create returns 200 and
+        // overwrites. Auto must fall back to overwrite there.
+        assert!(matches!(
+            resolve_put_mode(ConditionalPut::Auto, caps(false)),
+            Ok(EffectivePut::Overwrite)
+        ));
+    }
+
+    #[test]
+    fn create_refuses_a_store_that_ignores_conditions() {
+        assert!(matches!(
+            resolve_put_mode(ConditionalPut::Create, caps(true)),
+            Ok(EffectivePut::Create)
+        ));
+        assert!(matches!(
+            resolve_put_mode(ConditionalPut::Create, caps(false)),
+            Err(ShipError::UnsupportedConditional)
+        ));
+    }
+
+    #[test]
+    fn overwrite_ignores_the_probe_result() {
+        for supported in [true, false] {
+            assert!(matches!(
+                resolve_put_mode(ConditionalPut::Overwrite, caps(supported)),
+                Ok(EffectivePut::Overwrite)
+            ));
+        }
+    }
+}

@@ -68,11 +68,12 @@ pub(crate) async fn probe(
     let skew_nanos = (i128::from(object_nanos) - local_mid_nanos).unsigned_abs();
     let skew = Duration::from_nanos(u64::try_from(skew_nanos).unwrap_or(u64::MAX));
 
-    let conflict = store
-        .put_opts(&path, "probe-conflict".into(), PutMode::Create.into())
-        .await;
-    let conditional_create = matches!(conflict, Err(object_store::Error::AlreadyExists { .. }));
-
+    // The metadata check must run BEFORE the conflict put: on a store that
+    // ignores If-None-Match the second create overwrites the probe object
+    // and its attributes; reading metadata afterwards would report false
+    // for a store that does round-trip metadata. (SeaweedFS 3.81: raw PUT
+    // with If-None-Match: * on an existing key returns 200 and overwrites,
+    // attributes included.)
     let get_opts = GetOptions {
         range: Some(GetRange::Bounded(0..1)),
         ..Default::default()
@@ -83,6 +84,11 @@ pub(crate) async fn probe(
         ),
         Err(_) => false,
     };
+
+    let conflict = store
+        .put_opts(&path, "probe-conflict".into(), PutMode::Create.into())
+        .await;
+    let conditional_create = matches!(conflict, Err(object_store::Error::AlreadyExists { .. }));
 
     if let Err(e) = store.delete(&path).await {
         tracing::warn!(error = %e,

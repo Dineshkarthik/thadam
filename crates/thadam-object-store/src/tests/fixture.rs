@@ -311,6 +311,97 @@ fn transient() -> object_store::Error {
     }
 }
 
+/// An `InMemory` store that, like SeaweedFS 3.81, ignores `If-None-Match`:
+/// a create-mode put is executed as an overwrite. The shipper's startup
+/// probe must detect this and fall `conditional_put: auto` back to
+/// overwrite.
+pub(crate) struct LaxCreateStore {
+    inner: object_store::memory::InMemory,
+}
+
+impl LaxCreateStore {
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new(LaxCreateStore {
+            inner: object_store::memory::InMemory::new(),
+        })
+    }
+
+    pub(crate) fn store(self: &Arc<Self>) -> Arc<dyn ObjectStore> {
+        self.clone()
+    }
+}
+
+impl fmt::Display for LaxCreateStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("lax-create-memory")
+    }
+}
+
+impl fmt::Debug for LaxCreateStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("lax-create-memory")
+    }
+}
+
+#[async_trait::async_trait]
+impl ObjectStore for LaxCreateStore {
+    async fn put_opts(
+        &self,
+        location: &Path,
+        payload: PutPayload,
+        opts: PutOptions,
+    ) -> StoreResult<PutResult> {
+        let opts = PutOptions {
+            mode: object_store::PutMode::Overwrite,
+            ..opts
+        };
+        self.inner.put_opts(location, payload, opts).await
+    }
+
+    async fn put_multipart_opts(
+        &self,
+        location: &Path,
+        opts: PutMultipartOptions,
+    ) -> StoreResult<Box<dyn MultipartUpload>> {
+        self.inner.put_multipart_opts(location, opts).await
+    }
+
+    async fn get_opts(&self, location: &Path, options: GetOptions) -> StoreResult<GetResult> {
+        self.inner.get_opts(location, options).await
+    }
+
+    async fn get_ranges(&self, location: &Path, ranges: &[Range<u64>]) -> StoreResult<Vec<Bytes>> {
+        self.inner.get_ranges(location, ranges).await
+    }
+
+    fn delete_stream(
+        &self,
+        locations: BoxStream<'static, StoreResult<Path>>,
+    ) -> BoxStream<'static, StoreResult<Path>> {
+        self.inner.delete_stream(locations)
+    }
+
+    async fn copy_opts(&self, from: &Path, to: &Path, options: CopyOptions) -> StoreResult<()> {
+        self.inner.copy_opts(from, to, options).await
+    }
+
+    fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, StoreResult<ObjectMeta>> {
+        self.inner.list(prefix)
+    }
+
+    fn list_with_offset(
+        &self,
+        prefix: Option<&Path>,
+        offset: &Path,
+    ) -> BoxStream<'static, StoreResult<ObjectMeta>> {
+        self.inner.list_with_offset(prefix, offset)
+    }
+
+    async fn list_with_delimiter(&self, prefix: Option<&Path>) -> StoreResult<ListResult> {
+        self.inner.list_with_delimiter(prefix).await
+    }
+}
+
 #[async_trait::async_trait]
 impl ObjectStore for FlakyStore {
     async fn put_opts(

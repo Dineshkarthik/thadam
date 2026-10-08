@@ -5,3 +5,4 @@
 mod behavior;
 mod crash;
 mod fixture;
+mod probe;

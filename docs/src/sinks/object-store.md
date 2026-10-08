@@ -49,9 +49,19 @@ Notes:
 - **Object key:** `{prefix}/thadam/v1/{pipeline}/{dataset}/date=YYYY-MM-DD/hour=HH/{node_id}_{epoch:016x}_{first:020}_{last:020}.parquet` (or `unsynced/` when `clock_synced` was false for the rows). Hive-style, so DuckDB, Trino, Athena, and Spark query the prefix directly. The random **epoch** (created when the data directory is initialized) prevents collisions after a data-dir wipe.
 - **Object metadata:** every put carries `thadam-sha256`, `thadam-wal-range`, `thadam-dataset`, and `thadam-node` user metadata. Objects appear atomically, so readers never see partial objects; orphaned multipart uploads rely on the bucket lifecycle rule (Thadam never lists them).
 - **Upload:** at or below `multipart_threshold` a single put; above it, multipart with `part_size` chunks, at most `upload_concurrency x part_size` in memory, aborted cleanly on failure.
-- **Create-if-absent:** `auto` probes and falls back to overwrite where conditional put is not enforced (safe only because finalized files are immutable and keys deterministic); `create` refuses to start when unsupported; `overwrite` skips verification deliberately.
+- **Create-if-absent:** `auto` probes and falls back to overwrite where conditional put is not enforced (safe only because finalized files are immutable and keys deterministic); `create` refuses to start when unsupported; `overwrite` skips verification deliberately. Stores without conditional writes rely on deterministic immutable keys plus HEAD size + `thadam-sha256` verification; a collision there cannot be refused, it can only be detected after the fact — SeaweedFS is one such store: its 3.81 S3 gateway answers a create-mode PutObject over an existing key with `200 OK` (silently replacing the object) where real S3 answers `412 Precondition Failed`, so `auto` runs overwrite puts against it.
 - **Conflict:** an AlreadyExists response (or a pre-existing object found before a multipart upload) triggers verification by size and `thadam-sha256`. Equal is success — the expected path after a crash between upload and catalog update. Different is the **Fatal** [`sink.object_key_collision`](../operations/error-codes.md): epoch or node-id misconfiguration; restart after fixing the data directory or prefix.
 - **Clock skew:** a `RequestTimeTooSkewed` response is transient with a warning; devices without an RTC fail signed requests until the clock syncs.
+
+## Integration tests
+
+Docker-gated tests run the shipper against a real S3 API (SeaweedFS; MinIO stopped publishing community Docker Hub images in late 2025):
+
+```text
+cargo nextest run -p thadam-object-store --run-ignored only -E 'binary(docker_s3)'
+```
+
+The image is a public Docker Hub one pinned by tag, `chrislusf/seaweedfs:3.81` (never a mirror); re-pin with `THADAM_TEST_S3_IMAGE`. Per above, SeaweedFS does not enforce `If-None-Match`, so the collision test asserts the probed behavior per capability: the Fatal-`sink.object_key_collision` path when the store enforces conditional writes, the documented overwrite fallback (and that the final object is exactly the segment payload) when it does not. The always-fatal guarantee on stores with conditional writes is pinned by the crate's in-memory tests regardless. Set `RUST_LOG=debug` for shipper logs during the run.
 
 ## Local retention modes
 

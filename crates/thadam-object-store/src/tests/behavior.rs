@@ -9,8 +9,8 @@ use futures_util::StreamExt;
 use object_store::ObjectStore;
 
 use super::fixture::{
-    FlakyStore, RecordingMetrics, TestSink, catalog_segment, make_config, make_record,
-    open_catalog, run_service_until,
+    FlakyStore, LaxCreateStore, RecordingMetrics, TestSink, catalog_segment, make_config,
+    make_record, open_catalog, run_service_until,
 };
 use crate::config::{ConditionalPut, RetentionMode};
 use crate::shipper::Shipper;
@@ -398,23 +398,85 @@ async fn files_above_the_threshold_go_multipart_with_metadata() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn auto_falls_back_to_overwrite_when_the_store_ignores_conditions() {
-    let (_sink, catalog, _records) = fixture_one(&[(0, 9)]).await;
-    let store = FlakyStore::new();
+    // The SeaweedFS scenario in memory: `conditional_put: auto` against a
+    // store that ignores `If-None-Match` (a create-mode put overwrites).
+    // The probe must catch that, the shipper must fall back to overwrite —
+    // and, per the documented narrowing, a foreign object at the
+    // deterministic key is overwritten by the segment payload.
+    let (sink, catalog, records) = fixture_one(&[(0, 9)]).await;
+    let store = LaxCreateStore::new();
+    let key = format!(
+        "thadam/v1/demo/telemetry/date=2026-10-08/hour=13/{}",
+        records[0]
+            .path
+            .as_ref()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+    );
+    store
+        .store()
+        .put_opts(
+            &object_store::path::Path::from(key.as_str()),
+            vec![0xffu8; 700].into(),
+            object_store::PutMode::Overwrite.into(),
+        )
+        .await
+        .expect("foreign put");
+
     let metrics = RecordingMetrics::new();
     let mut config = make_config("demo", "", RetentionMode::KeepFor);
-    config.conditional_put = ConditionalPut::Overwrite;
+    config.conditional_put = ConditionalPut::Auto;
     let shipper = Shipper::new("s3", config, store.store()).with_metrics(metrics.clone());
 
     run_service_until(
         shipper,
         &catalog,
-        |_c, m| m.uploaded_count() >= 1,
+        |c, m| c.eligible_for_upload().is_empty() && m.uploaded_count() >= 1,
         &metrics,
         TIMEOUT,
     )
     .await
-    .expect("service");
-    assert_eq!(object_keys(&store.store()).await.len(), 1);
+    .expect("probe must not turn a conditionless store into a fatal");
+
+    assert_eq!(metrics.uploaded.lock().unwrap()[0].1, "put");
+    assert!(
+        metrics.conflicts.lock().unwrap().is_empty(),
+        "no conflict verification happens in overwrite fallback"
+    );
+    assert_eq!(object_keys(&store.store()).await.len(), 1, "no duplicate");
+    let abs = sink.root().join(records[0].path.as_ref().unwrap());
+    let local = std::fs::read(&abs).expect("local segment");
+    let after = store
+        .store()
+        .get_opts(
+            &object_store::path::Path::from(key.as_str()),
+            Default::default(),
+        )
+        .await
+        .expect("get");
+    let sha = after
+        .attributes
+        .get(&object_store::Attribute::Metadata(
+            std::borrow::Cow::Borrowed("thadam-sha256"),
+        ))
+        .map(|v| v.to_string())
+        .expect("sha metadata after fallback put");
+    assert_eq!(sha, sha_hex_of(&local));
+    let body: Vec<u8> = after
+        .into_stream()
+        .map(|b| b.map(|b| b.to_vec()))
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<Vec<u8>>, _>>()
+        .expect("bytes")
+        .concat();
+    assert_eq!(
+        body, local,
+        "the segment payload replaced the foreign object"
+    );
 }
 
 pub(crate) fn sha_hex_of(bytes: &[u8]) -> String {
