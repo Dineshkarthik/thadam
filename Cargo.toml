@@ -26,6 +26,7 @@ publish = false
 [workspace.dependencies]
 thadam-core = { path = "crates/thadam-core" }
 
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 arrow-array = "60"
 prometheus-client = "0.25"
 arrow-buffer = "60"
