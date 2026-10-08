@@ -17,6 +17,7 @@
 
 mod exit;
 mod registry;
+mod run;
 mod validate;
 
 use std::io::Write;
@@ -25,6 +26,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use thadam_config::{CONFIG_HASH_VERSION, CONFIG_VERSION, ProcessEnv};
+use thadam_runtime::LogFormat;
 
 use crate::exit::Exit;
 
@@ -43,6 +45,8 @@ enum Command {
     Version,
     /// Print the JSON Schema of the configuration file.
     Schema,
+    /// Run a pipeline configuration.
+    Run(RunArgs),
 }
 
 #[derive(Args)]
@@ -53,6 +57,58 @@ struct ValidateArgs {
     /// configuration can be checked on a machine that lacks the secrets.
     #[arg(long)]
     allow_unresolved: bool,
+}
+
+#[derive(Args)]
+struct RunArgs {
+    /// The pipeline configuration file.
+    path: PathBuf,
+    /// Run in repair mode, accepting a `thadam.json` mismatch (pipeline name or
+    /// WAL binding) and rewriting it. Never accepts a format version newer than
+    /// this binary knows.
+    #[arg(long)]
+    repair: bool,
+    /// The log output format: `json` or `pretty`.
+    #[arg(long, value_name = "FORMAT", default_value = "pretty")]
+    log_format: LogFormatArg,
+    /// The minimum log level (e.g., `info`, `debug`, `warn`).
+    #[arg(long, value_name = "LEVEL", default_value = "info")]
+    log_level: String,
+    /// The admin server bind address (e.g., `127.0.0.1:9464`).
+    #[arg(long, value_name = "ADDR")]
+    admin_bind: Option<String>,
+    /// Path to a file containing the admin server bearer token.
+    #[arg(long, value_name = "PATH")]
+    admin_token_file: Option<PathBuf>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum LogFormatArg {
+    Json,
+    Pretty,
+}
+
+impl LogFormatArg {
+    fn into_runtime_format(self) -> LogFormat {
+        match self {
+            LogFormatArg::Json => LogFormat::Json,
+            LogFormatArg::Pretty => LogFormat::Pretty,
+        }
+    }
+}
+
+impl std::str::FromStr for LogFormatArg {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "json" => Ok(LogFormatArg::Json),
+            "pretty" => Ok(LogFormatArg::Pretty),
+            _ => Err(format!(
+                "invalid log format `{s}`; expected `json` or `pretty`"
+            )),
+        }
+    }
 }
 
 fn version_text() -> String {
@@ -101,6 +157,15 @@ fn main() -> ExitCode {
                 Exit::RuntimeFailure
             }
         },
+        Command::Run(args) => run::run(
+            &args.path,
+            args.repair,
+            args.log_format.into_runtime_format(),
+            &args.log_level,
+            args.admin_bind.as_deref(),
+            args.admin_token_file.as_deref(),
+            &mut err,
+        ),
     };
     exit.into()
 }
