@@ -1,0 +1,41 @@
+# Introduction
+
+**Thadam is the open data plane for robotics.** It connects robotic and industrial data sources to modern data platforms with edge-native processing, durable buffering, and flexible sinks.
+
+Concretely, Thadam is a single Rust binary that runs next to your data producers — on an industrial PC, a robot's edge computer, a factory server, or a laptop — and takes responsibility for the whole journey of a telemetry message:
+
+1. **Capture.** Messages from sources such as MQTT brokers are appended to a local, durable write-ahead log (WAL) and flushed to disk *before* the source is acknowledged. Nothing that Thadam acknowledged is lost to a crash or a restart.
+2. **Process.** Each sink reads the log independently: messages are decoded, normalized into typed, declared datasets *while keeping device identity, time domains, and data quality as first-class columns*.
+3. **Deliver.** Processed datasets are written as Parquet segment files and shipped to S3-compatible object storage, with ClickHouse planned as the first analytical database sink. Delivery survives outages: data is replayed from the log when the downstream system comes back.
+
+Thadam is open source (Apache-2.0), Rust-first, and designed for the edge: unreliable networks, limited CPU and memory, intermittent power, and long periods of disconnection. Durability is a design input, not a bolt-on: the delivery guarantees Thadam makes (and the ones it explicitly refuses to make) are recorded in [ADR-0011](design/index.md) and every public claim is gated on benchmark or spike evidence.
+
+## This book
+
+This book is the user documentation for operators and integrators. It covers:
+
+- [Getting started](getting-started/installation.md): build Thadam and set up a broker.
+- [Concepts](concepts/architecture-overview.md): the event model, the capture-first WAL, per-sink chains, and the delivery guarantees.
+- [Configuration reference](configuration/index.md): every configuration key with types, defaults, and constraints.
+- [Sources](sources/mqtt.md) and [sinks](sinks/parquet.md): connector-specific options and operational notes.
+- [Operations](operations/data-directory.md): the data directory, crash recovery, retention, the admin API, metrics, logging, exit codes, and error codes.
+- [CLI reference](cli/index.md): every subcommand and flag.
+
+Design documents — `ARCHITECTURE.md`, `product.md`, the ADRs, and the spike reports — are linked from [Design and decisions](design/index.md) rather than copied, so this book stays about *using* Thadam.
+
+## What Thadam is not
+
+Thadam's scope is defined as much by what it refuses to be as by what it does. From the product scope ([product.md](https://github.com/Dineshkarthik/thadam/blob/main/product.md) sections 6 and 33), Thadam is deliberately **not**:
+
+- a robot operating system, a robot control or motion-planning stack, or safety-certified control software — Thadam moves data *about* robots, it does not drive them;
+- a full SCADA system, an HMI, or an asset-maintenance-management product;
+- a general-purpose workflow/BPM orchestrator, a data warehouse, a BI tool, or a full ML platform;
+- a large distributed stream-processing cluster — Thadam complements Kafka, Flink, and Spark rather than replacing them;
+- a video storage or video analytics platform (events may *reference* large media as object URIs, but media bytes do not travel in the telemetry path);
+- a managed cloud platform, a GUI, or proprietary vendor lock-in.
+
+For the current milestone (M1 / MVP v0.1) that boundary narrows further: no HTTP/gRPC/OPC UA/CAN/Modbus connectors yet, no Iceberg or Delta, no windowing or aggregation, no MQTT publishing, no hot configuration reload, no dynamic plugins, and no Python SDK. These are sequenced in the [roadmap](roadmap.md).
+
+## Project status
+
+Thadam is pre-alpha. The status banner in the repository [README](getting-started/installation.md#checking-your-build) summarizes what works, and the detailed per-component state is tracked in the design documents. Wherever a feature described here is not yet wired end to end, its page says **Planned** or **In progress** explicitly.

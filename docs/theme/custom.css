@@ -1,0 +1,81 @@
+/*
+ * Thadam brand accents for the mdBook site.
+ * Brand tokens (thadam-assets/brand/brand-guidelines.md):
+ *   Ink #151719, Paper #F5F4F0, Signal orange #F26A3D, Steel #8B9298.
+ */
+
+:root {
+  --thadam-ink: #151719;
+  --thadam-paper: #f5f4f0;
+  --thadam-signal: #f26a3d;
+  --thadam-signal-dark: #cd4f26;
+  --thadam-steel: #8b9298;
+}
+
+.light a,
+.rust a {
+  color: var(--thadam-signal-dark);
+}
+
+.light a:hover,
+.rust a:hover {
+  color: var(--thadam-signal);
+}
+
+.coal a,
+.navy a,
+.ayu a {
+  color: var(--thadam-signal);
+}
+
+.coal a:hover,
+.navy a:hover,
+.ayu a:hover {
+  color: #ff8a60;
+}
+
+.light h1,
+.light h2,
+.rust h1,
+.rust h2 {
+  border-bottom: 2px solid var(--thadam-signal);
+}
+
+.coal h1,
+.coal h2,
+.navy h1,
+.navy h2,
+.ayu h1,
+.ayu h2 {
+  border-bottom: 2px solid var(--thadam-signal);
+}
+
+.light h1,
+.light h2,
+.light h3,
+.rust h1,
+.rust h2,
+.rust h3 {
+  color: var(--thadam-ink);
+}
+
+table thead tr {
+  border-bottom: 2px solid var(--thadam-signal);
+}
+
+.light blockquote,
+.rust blockquote {
+  border-inline-start: 0.25em solid var(--thadam-signal);
+}
+
+.coal blockquote,
+.navy blockquote,
+.ayu blockquote {
+  border-inline-start: 0.25em solid var(--thadam-signal);
+}
+
+.light ::selection,
+.rust ::selection {
+  background: var(--thadam-signal);
+  color: var(--thadam-paper);
+}

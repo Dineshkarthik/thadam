@@ -1,0 +1,13 @@
+[book]
+title = "Thadam"
+description = "Thadam: the open data plane for robotics"
+authors = ["Thadam contributors"]
+src = "src"
+
+[output.html]
+default-theme = "light"
+git-repository-url = "https://github.com/Dineshkarthik/thadam"
+additional-css = ["theme/custom.css"]
+
+[output.html.print]
+enable = true
