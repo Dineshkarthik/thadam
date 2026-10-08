@@ -3,11 +3,15 @@
 //! These are placeholders the runtime extends (metric handles, tracing spans);
 //! they are `#[non_exhaustive]` so adding a field is not a breaking change.
 
+use std::any::Any;
+use std::collections::BTreeMap;
+use std::fmt;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::budget::DiskBudget;
 use crate::clock::Clock;
+use crate::dataset::DatasetDecl;
 use crate::identity::{SinkId, SourceId};
 use crate::shutdown::Shutdown;
 use crate::text::Sym;
@@ -49,6 +53,9 @@ pub struct SinkContext {
     pub data_dir: PathBuf,
     /// The shared disk budget.
     pub budget: Arc<DiskBudget>,
+    /// Objects other components in this pipeline published (the shared set;
+    /// empty unless the runtime threaded one through).
+    pub shared: SharedObjects,
 }
 
 impl SinkContext {
@@ -66,7 +73,15 @@ impl SinkContext {
             clock,
             data_dir,
             budget,
+            shared: SharedObjects::default(),
         }
+    }
+
+    /// Sets the pipeline's shared objects.
+    #[must_use]
+    pub fn with_shared(mut self, shared: SharedObjects) -> Self {
+        self.shared = shared;
+        self
     }
 }
 
@@ -84,6 +99,9 @@ pub struct ServiceContext {
     pub data_dir: PathBuf,
     /// The shared disk budget.
     pub budget: Arc<DiskBudget>,
+    /// Objects other components in this pipeline published (the shared set;
+    /// empty unless the runtime threaded one through).
+    pub shared: SharedObjects,
 }
 
 impl ServiceContext {
@@ -101,7 +119,15 @@ impl ServiceContext {
             clock,
             data_dir,
             budget,
+            shared: SharedObjects::default(),
         }
+    }
+
+    /// Sets the pipeline's shared objects.
+    #[must_use]
+    pub fn with_shared(mut self, shared: SharedObjects) -> Self {
+        self.shared = shared;
+        self
     }
 }
 
@@ -115,15 +141,133 @@ pub struct BuildContext {
     pub clock: Arc<dyn Clock>,
     /// The component's directory.
     pub data_dir: PathBuf,
+    /// The pipeline-declared datasets this component consumes, in
+    /// configuration order. The runtime fills this for sinks built with a
+    /// `datasets:` selector (restricted to that selector) and for each
+    /// sink's quarantine instance; it is empty for sources and services.
+    /// Declaring schemas locally duplicates this, so segment sinks must take
+    /// their dataset schemas from here.
+    pub datasets: Arc<[DatasetDecl]>,
 }
 
 impl BuildContext {
-    /// A context for building `component_id`.
+    /// A context for building `component_id`, consuming no datasets.
     pub fn new(component_id: impl Into<Sym>, clock: Arc<dyn Clock>, data_dir: PathBuf) -> Self {
         BuildContext {
             component_id: component_id.into(),
             clock,
             data_dir,
+            datasets: Arc::from([]),
         }
+    }
+
+    /// Sets the declared datasets the component consumes.
+    #[must_use]
+    pub fn with_datasets(mut self, datasets: Arc<[DatasetDecl]>) -> Self {
+        self.datasets = datasets;
+        self
+    }
+}
+
+/// Objects a component publishes for other components in the same pipeline,
+/// looked up by component id.
+///
+/// The motivating use is a shipper service finding a named segment sink's
+/// catalog: `thadam-core` cannot name the catalog type (dependency rules), so
+/// values are type-erased and [`SharedObjects::get`] downcasts. Publishing is
+/// last-write-wins, which is what a re-recovered sink wants. Cloning shares
+/// the map; poisoning is recovered like in the rest of the runtime.
+#[derive(Clone, Default)]
+pub struct SharedObjects {
+    map: Arc<RwLock<BTreeMap<String, Arc<dyn Any + Send + Sync>>>>,
+}
+
+impl SharedObjects {
+    /// Publishes `object` under `component`, replacing any earlier object.
+    pub fn publish<T: Send + Sync + 'static>(&self, component: &str, object: Arc<T>) {
+        let mut map = self.map.write().unwrap_or_else(|e| e.into_inner());
+        map.insert(component.to_owned(), object);
+    }
+
+    /// The object published under `component`, downcast to `T`; `None` when
+    /// the component published nothing or published a different type.
+    pub fn get<T: Send + Sync + 'static>(&self, component: &str) -> Option<Arc<T>> {
+        let map = self.map.read().unwrap_or_else(|e| e.into_inner());
+        map.get(component)?.clone().downcast().ok()
+    }
+}
+
+/// The publishing components only; published objects stay opaque.
+impl fmt::Debug for SharedObjects {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let map = self.map.read().unwrap_or_else(|e| e.into_inner());
+        f.debug_struct("SharedObjects")
+            .field("components", &map.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shared_objects_publish_get_replace() {
+        let shared = SharedObjects::default();
+        shared.publish("local", Arc::new(String::from("catalog-a")));
+        assert_eq!(
+            shared.get::<String>("local").map(|s| s.as_str().to_owned()),
+            Some(String::from("catalog-a"))
+        );
+        // Clones share the map.
+        assert_eq!(
+            shared
+                .clone()
+                .get::<String>("local")
+                .map(|s| s.as_str().to_owned()),
+            Some(String::from("catalog-a"))
+        );
+        // A wrong type downcast misses; an unknown component misses.
+        assert!(shared.get::<u64>("local").is_none());
+        assert!(shared.get::<String>("other").is_none());
+        // Last write wins.
+        shared.publish("local", Arc::new(String::from("catalog-b")));
+        assert_eq!(
+            shared.get::<String>("local").map(|s| s.as_str().to_owned()),
+            Some(String::from("catalog-b"))
+        );
+        // Debug lists components, not values.
+        assert!(format!("{shared:?}").contains("local"));
+    }
+
+    #[test]
+    fn contexts_default_to_isolated_shared_maps() {
+        let a = SinkContext::new(
+            SinkId::new("a"),
+            Shutdown::new(),
+            Arc::new(crate::SystemClock::new()),
+            PathBuf::from("/tmp/a"),
+            Arc::new(DiskBudget::new()),
+        );
+        let b = SinkContext::new(
+            SinkId::new("b"),
+            Shutdown::new(),
+            Arc::new(crate::SystemClock::new()),
+            PathBuf::from("/tmp/b"),
+            Arc::new(DiskBudget::new()),
+        );
+        a.shared.publish("a", Arc::new(1u8));
+        assert!(b.shared.get::<u8>("a").is_none());
+        let shared = SharedObjects::default();
+        let ctx = ServiceContext::new(
+            "svc",
+            Shutdown::new(),
+            Arc::new(crate::SystemClock::new()),
+            PathBuf::from("/tmp/s"),
+            Arc::new(DiskBudget::new()),
+        )
+        .with_shared(shared.clone());
+        shared.publish("local", Arc::new(7u8));
+        assert_eq!(ctx.shared.get::<u8>("local"), Some(Arc::new(7u8)));
     }
 }

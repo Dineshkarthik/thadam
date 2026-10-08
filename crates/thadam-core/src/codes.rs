@@ -111,6 +111,9 @@ codes! {
         SINK_IO = "sink.io",
         /// A segment sink was given a batch not after its previous one.
         SINK_NON_MONOTONIC_APPEND = "sink.non_monotonic_append",
+        /// Two different segments mapped to one object key (epoch or node-id
+        /// misconfiguration; the shipper refuses to overwrite).
+        SINK_OBJECT_KEY_COLLISION = "sink.object_key_collision",
         /// The sink task panicked.
         SINK_PANIC = "sink.panic",
     }

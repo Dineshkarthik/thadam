@@ -69,21 +69,24 @@ fn bench_events(shape: &ShapeRef, wal_pos: u64, n: usize) -> Vec<Event> {
 
 fn test_config(dir: &std::path::Path, codec: &str) -> ParquetSinkConfig {
     let json = serde_json::json!({
-        "schemas": {
-            DATASET: {
-                "fields": [
-                    {"name": "a", "type": "i64", "id": 1000},
-                    {"name": "b", "type": "f64", "id": 1001},
-                    {"name": "c", "type": "str", "id": 1002},
-                    {"name": "d", "type": "bool", "id": 1003},
-                ]
-            }
-        },
         "compression": codec,
         "rotation": {"max_bytes": null, "max_rows": null, "max_age": null},
         "node_id": "bench"
     });
-    match thadam_segments::parse_sink_config(&json, dir.to_path_buf(), "bench") {
+    let decls = [thadam_core::DatasetDecl::new(
+        DATASET,
+        vec![
+            FieldDef::new("a", FieldType::I64).with_field_id(1000),
+            FieldDef::new("b", FieldType::F64).with_field_id(1001),
+            FieldDef::new("c", FieldType::Str).with_field_id(1002),
+            FieldDef::new("d", FieldType::Bool).with_field_id(1003),
+        ],
+        vec![],
+        false,
+    )];
+    match thadam_segments::parse_sink_config(&json, dir.to_path_buf(), "bench")
+        .and_then(|options| options.with_datasets(&decls))
+    {
         Ok(cfg) => cfg,
         Err(es) => panic!("bench config parses: {es:?}"),
     }

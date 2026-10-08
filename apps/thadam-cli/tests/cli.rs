@@ -83,7 +83,7 @@ fn validate_fails_with_exit_2_when_secrets_are_unresolved() {
     let stderr = text(&out.stderr);
     assert!(stderr.contains("error[config.missing]"), "{stderr}");
     assert!(stderr.contains("sinks[1].config.access_key_id"), "{stderr}");
-    assert!(stderr.contains("pipeline.yaml:167:22"), "{stderr}");
+    assert!(stderr.contains("pipeline.yaml:170:22"), "{stderr}");
     assert!(
         text(&out.stdout).is_empty(),
         "nothing on stdout for an invalid config"

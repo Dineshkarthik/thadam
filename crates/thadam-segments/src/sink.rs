@@ -644,6 +644,10 @@ impl SegmentSink for ParquetSegmentSink {
             .await
             .map_err(|e| ThadamError::from(SegmentError::Join(e.to_string())))?
             .map_err(ThadamError::from)?;
+        // The shipper service finds the catalog here through its `from` id
+        // (last-write-wins, so a re-recovery replaces the stale handle).
+        ctx.shared
+            .publish(ctx.sink_id.as_str(), Arc::new(catalog.clone()));
         self.state = State::Live(Live {
             catalog,
             open: BTreeMap::new(),
@@ -855,15 +859,8 @@ impl SegmentSinkFactory for ParquetSegmentSinkFactory {
         ctx: &thadam_core::BuildContext,
     ) -> Result<Box<dyn SegmentSink>, ThadamError> {
         let parsed = config::parse_sink_config(&cfg, ctx.data_dir.clone(), &ctx.component_id)
-            .map_err(|mut es| {
-                es.drain(..).next().unwrap_or_else(|| {
-                    ThadamError::permanent(
-                        ErrorDomain::Config,
-                        codes::CONFIG_INVALID,
-                        "invalid parquet sink config",
-                    )
-                })
-            })?;
+            .and_then(|options| options.with_datasets(&ctx.datasets))
+            .map_err(config::first_error)?;
         let sink = ParquetSegmentSink::new(parsed)?;
         Ok(Box::new(sink))
     }

@@ -1,20 +1,21 @@
 //! Typed configuration for the two factories, parsed from `serde_json::Value`
 //! (D22), each with a JSON Schema for `thadam validate`.
 //!
-//! The Parquet sink's dataset schemas are embedded in the sink's own `config:`
-//! block under `schemas:` (a map from dataset id to its declared fields and
-//! identity levels) because [`thadam_core::BuildContext`] does not carry the
-//! pipeline specification. Field and level ids are the explicit Parquet field
-//! IDs of ADR-0013; the chain selector `datasets:` (the list of ids the
-//! runtime reads) stays separate.
+//! Dataset schemas are declared once, at pipeline level. The runtime attaches
+//! them to the sink's [`thadam_core::BuildContext`] (restricted to the sink's
+//! `datasets:` selector) and this crate turns them into
+//! [`thadam_arrow::DatasetSchema`]s in [`ParquetSinkOptions::with_datasets`];
+//! a `schemas:` block in the sink's own `config:` is refused and points back
+//! at the pipeline-level `datasets:` section. Field and level ids are the
+//! explicit Parquet field IDs of ADR-0013.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use thadam_arrow::{ArrowOptions, DatasetSchema, TsUnit, UnsignedPolicy};
-use thadam_core::{ErrorDomain, FieldDef, FieldType, ThadamError, Shape, ShapeRef, codes};
+use thadam_core::{DatasetDecl, ErrorDomain, ThadamError, codes};
 use serde::Deserialize;
 
 use crate::error::SegmentError;
@@ -25,6 +26,17 @@ fn config_error(path: &str, message: impl Into<String>) -> ThadamError {
         .with_context("path", path.to_owned())
 }
 
+/// The first error of a list, for the single-error factory `build` boundary.
+pub(crate) fn first_error(mut errors: Vec<ThadamError>) -> ThadamError {
+    errors.drain(..).next().unwrap_or_else(|| {
+        ThadamError::permanent(
+            ErrorDomain::Config,
+            codes::CONFIG_INVALID,
+            "invalid parquet sink config",
+        )
+    })
+}
+
 /// A parsed, validated Parquet segment-sink configuration.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -33,10 +45,9 @@ pub struct ParquetSinkConfig {
     pub dir: PathBuf,
     /// Node identifier written into file names; must be a safe path component.
     pub node_id: String,
-    /// The dataset schemas, keyed by dataset id, in configuration order.
+    /// The dataset schemas, keyed by dataset id, built from the declared
+    /// datasets the runtime passed in the build context.
     pub datasets: BTreeMap<String, Arc<DatasetSchema>>,
-    /// Whether the dataset explodes samples: one entry per dataset id.
-    pub exploded: BTreeMap<String, bool>,
     /// The compression codec in effect (`auto` already resolved).
     pub compression: Compression,
     /// Flush a row group when its anticipated size reaches this many bytes.
@@ -59,6 +70,136 @@ pub struct ParquetSinkConfig {
     /// `thadam.enrichment_hash` footer value (empty when there is no
     /// enrichment file).
     pub enrichment_hash: String,
+}
+
+/// A parsed `kind: parquet` `config:` block before the declared datasets are
+/// attached; produced by [`parse_sink_config`], completed by
+/// [`ParquetSinkOptions::with_datasets`].
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct ParquetSinkOptions {
+    /// Directory the sink states under.
+    pub dir: PathBuf,
+    /// Node identifier written into file names.
+    pub node_id: String,
+    /// The dataset ids named by `config.datasets`; empty selects every
+    /// dataset the runtime offers. The runtime reads the same key for the
+    /// chain, so this list can only validate what it already restricted.
+    pub selector: Vec<String>,
+    /// The compression codec in effect (`auto` already resolved).
+    pub compression: Compression,
+    /// Flush a row group when its anticipated size reaches this many bytes.
+    pub row_group_bytes: usize,
+    /// Rotation thresholds.
+    pub rotation: RotationConfig,
+    /// Maximum simultaneously open segment files, per sink.
+    pub max_open_files: usize,
+    /// Optional segment budget limit for this sink.
+    pub max_disk: Option<u64>,
+    /// Timestamp unit for new files.
+    pub timestamp_unit: TsUnit,
+    /// Unsigned-integer storage policy.
+    pub unsigned: UnsignedPolicy,
+    /// Whether `finalize_all` writes pending segments at shutdown.
+    pub finalize_on_shutdown: bool,
+    /// `thadam.config_hash` footer value.
+    pub config_hash: String,
+    /// `thadam.enrichment_hash` footer value.
+    pub enrichment_hash: String,
+}
+
+impl ParquetSinkOptions {
+    /// Builds a [`thadam_arrow::DatasetSchema`] per declared dataset and
+    /// returns the finished sink configuration. Every problem found is
+    /// reported, in declaration order: an empty context (schemas no longer
+    /// come from the sink config, so there is nothing to build from),
+    /// selector entries that name no declared dataset, duplicate ids, ids
+    /// unsafe for paths, and schema build failures such as a missing field
+    /// ID.
+    pub fn with_datasets(
+        self,
+        datasets: &[DatasetDecl],
+    ) -> Result<ParquetSinkConfig, Vec<ThadamError>> {
+        let mut errors = Vec::new();
+        if datasets.is_empty() {
+            errors.push(config_error(
+                "datasets",
+                "the build context holds no datasets: declare every dataset once in the pipeline-level `datasets:` section and list the ones this sink consumes in its `config.datasets`",
+            ));
+        }
+        let mut seen: HashSet<&str> = HashSet::new();
+        let mut selected: Vec<&DatasetDecl> = Vec::new();
+        for d in datasets {
+            if !seen.insert(&d.id) {
+                errors.push(config_error(
+                    "datasets",
+                    format!("dataset {:?} is declared more than once", &*d.id),
+                ));
+                continue;
+            }
+            if self.selector.is_empty() || self.selector.iter().any(|s| s == &*d.id) {
+                selected.push(d);
+            }
+        }
+        for id in &self.selector {
+            if !datasets.iter().any(|d| &*d.id == id) {
+                errors.push(config_error(
+                    "datasets",
+                    format!(
+                        "this sink selects dataset {id:?}, which is not declared: add it to the pipeline-level `datasets:` section"
+                    ),
+                ));
+            }
+        }
+
+        let options = ArrowOptions {
+            ts_unit: self.timestamp_unit,
+            lineage_columns: true,
+            unsigned: self.unsigned,
+        };
+        let mut schemas: BTreeMap<String, Arc<DatasetSchema>> = BTreeMap::new();
+        for d in selected {
+            let name = d.id.to_string();
+            if !dataset_component_ok(&name) {
+                errors.push(config_error(
+                    format!("datasets.{name}").as_str(),
+                    "dataset ids must be single path components",
+                ));
+                continue;
+            }
+            let mut builder = DatasetSchema::builder(&*d.id)
+                .exploded(d.exploded)
+                .options(options);
+            for level in &d.levels {
+                builder = builder.level(&*level.name, level.id);
+            }
+            builder = builder.fields(d.fields.iter().cloned());
+            match builder.build() {
+                Ok(schema) => {
+                    schemas.insert(name, Arc::new(schema));
+                }
+                Err(e) => errors.push(SegmentError::schema(name, e).into()),
+            }
+        }
+        if !errors.is_empty() {
+            return Err(errors);
+        }
+        Ok(ParquetSinkConfig {
+            dir: self.dir,
+            node_id: self.node_id,
+            datasets: schemas,
+            compression: self.compression,
+            row_group_bytes: self.row_group_bytes,
+            rotation: self.rotation,
+            max_open_files: self.max_open_files,
+            max_disk: self.max_disk,
+            timestamp_unit: self.timestamp_unit,
+            unsigned: self.unsigned,
+            finalize_on_shutdown: self.finalize_on_shutdown,
+            config_hash: self.config_hash,
+            enrichment_hash: self.enrichment_hash,
+        })
+    }
 }
 
 /// Rotation thresholds: first of `max_bytes`, `max_rows`, or `max_age`.
@@ -125,7 +266,8 @@ impl Compression {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawSinkConfig {
-    schemas: BTreeMap<String, RawDataset>,
+    #[serde(default)]
+    datasets: Vec<String>,
     #[serde(default)]
     compression: Option<RawCompression>,
     #[serde(default = "default_row_group_bytes")]
@@ -148,52 +290,6 @@ struct RawSinkConfig {
     config_hash: String,
     #[serde(default)]
     enrichment_hash: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawDataset {
-    #[serde(default)]
-    explode: bool,
-    #[serde(default)]
-    identity: Vec<RawLevel>,
-    fields: Vec<RawField>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawLevel {
-    name: String,
-    id: u32,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawField {
-    name: String,
-    #[serde(rename = "type")]
-    ty: RawFieldType,
-    id: Option<u32>,
-    #[serde(default)]
-    required: bool,
-    #[serde(default)]
-    unit: Option<String>,
-}
-
-/// Field types as JSON: a scalar name, `{"list": <type>}`, or
-/// `{"record": {"fields": [...]}}`.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum RawFieldType {
-    Scalar(String),
-    List { list: Box<RawFieldType> },
-    Record { record: RawRecord },
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawRecord {
-    fields: Vec<RawField>,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -265,108 +361,23 @@ enum RawUnsigned {
     Signed,
 }
 
-fn parse_field_type(
-    path: &str,
-    raw: &RawFieldType,
-    errors: &mut Vec<ThadamError>,
-) -> Option<FieldType> {
-    match raw {
-        RawFieldType::Scalar(name) => Some(match name.as_str() {
-            "bool" => FieldType::Bool,
-            "i8" => FieldType::I8,
-            "i16" => FieldType::I16,
-            "i32" => FieldType::I32,
-            "i64" => FieldType::I64,
-            "u8" => FieldType::U8,
-            "u16" => FieldType::U16,
-            "u32" => FieldType::U32,
-            "u64" => FieldType::U64,
-            "f32" => FieldType::F32,
-            "f64" => FieldType::F64,
-            "str" => FieldType::Str,
-            "bytes" => FieldType::Bytes,
-            "ts" => FieldType::Ts,
-            other => {
-                errors.push(config_error(path, format!("unknown field type {other:?}")));
-                return None;
-            }
-        }),
-        RawFieldType::List { list } => {
-            parse_field_type(path, list, errors).map(|inner| FieldType::List(Box::new(inner)))
-        }
-        RawFieldType::Record { record } => {
-            if record.fields.is_empty() {
-                errors.push(config_error(path, "a record type needs at least one field"));
-                return None;
-            }
-            let mut defs = Vec::with_capacity(record.fields.len());
-            for f in &record.fields {
-                let ty = parse_field_type(&format!("{path}.{}", f.name), &f.ty, errors)?;
-                let mut def = FieldDef::new(f.name.as_str(), ty);
-                if f.required {
-                    def = def.required();
-                }
-                if let Some(unit) = &f.unit {
-                    def = def.with_unit(unit.as_str());
-                }
-                defs.push(def);
-            }
-            match Shape::new(defs) {
-                Ok(shape) => Some(FieldType::Record(ShapeRef::new(shape))),
-                Err(e) => {
-                    errors.push(config_error(path, format!("invalid record: {e}")));
-                    None
-                }
-            }
-        }
-    }
-}
-
-fn build_dataset_schema(
-    name: &str,
-    raw: &RawDataset,
-    options: ArrowOptions,
-) -> Result<DatasetSchema, Vec<ThadamError>> {
-    let mut errors = Vec::new();
-    let mut builder = DatasetSchema::builder(name)
-        .exploded(raw.explode)
-        .options(options);
-    for level in &raw.identity {
-        builder = builder.level(level.name.as_str(), level.id);
-    }
-    for f in &raw.fields {
-        let path = format!("schemas.{name}.fields.{}", f.name);
-        let Some(ty) = parse_field_type(&path, &f.ty, &mut errors) else {
-            continue;
-        };
-        let mut def = FieldDef::new(f.name.as_str(), ty);
-        if let Some(id) = f.id {
-            def = def.with_field_id(id);
-        }
-        if f.required {
-            def = def.required();
-        }
-        if let Some(unit) = &f.unit {
-            def = def.with_unit(unit.as_str());
-        }
-        builder = builder.field(def);
-    }
-    if !errors.is_empty() {
-        return Err(errors);
-    }
-    builder
-        .build()
-        .map_err(|e| vec![SegmentError::schema(name.to_owned(), e).into()])
-}
-
-/// Parses and validates the `config:` block of a `kind: parquet` sink.
-/// `dir` and the `node_id` default come from the build context. Every problem
-/// found is reported, in configuration order.
+/// Parses and validates the `config:` block of a `kind: parquet` sink into
+/// [`ParquetSinkOptions`]; `dir` and the `node_id` default come from the
+/// build context. A `schemas:` block is refused: datasets are declared once
+/// at pipeline level, and the runtime attaches them through the build
+/// context, which [`ParquetSinkOptions::with_datasets`] turns into the
+/// sink's schemas. Every problem found is reported, in configuration order.
 pub fn parse_sink_config(
     value: &serde_json::Value,
     dir: PathBuf,
     default_node_id: &str,
-) -> Result<ParquetSinkConfig, Vec<ThadamError>> {
+) -> Result<ParquetSinkOptions, Vec<ThadamError>> {
+    if value.get("schemas").is_some() {
+        return Err(vec![config_error(
+            "config.schemas",
+            "dataset schemas are declared once, in the pipeline-level `datasets:` section: move each entry of `schemas:` there (field `id`s on `datasets[].fields`, level `id`s on `datasets[].identity`, `explode` beside them) and list the ids this sink consumes in its `config.datasets`",
+        )]);
+    }
     let raw: RawSinkConfig = match serde_json::from_value(value.clone()) {
         Ok(raw) => raw,
         Err(e) => return Err(vec![config_error("config", e.to_string())]),
@@ -378,7 +389,7 @@ fn parse_sink_raw(
     raw: RawSinkConfig,
     dir: PathBuf,
     default_node_id: &str,
-) -> Result<ParquetSinkConfig, Vec<ThadamError>> {
+) -> Result<ParquetSinkOptions, Vec<ThadamError>> {
     let mut errors = Vec::new();
     let node_id = raw.node_id.unwrap_or_else(|| default_node_id.to_owned());
     if !node_component_ok(&node_id) {
@@ -413,53 +424,13 @@ fn parse_sink_raw(
             "must be null or at least 1 second",
         ));
     }
-
-    let options = ArrowOptions {
-        ts_unit: match raw.timestamp_unit {
-            RawTsUnit::Micros => TsUnit::Micros,
-            RawTsUnit::Nanos => TsUnit::Nanos,
-        },
-        lineage_columns: true,
-        unsigned: match raw.unsigned {
-            RawUnsigned::Native => UnsignedPolicy::Native,
-            RawUnsigned::Signed => UnsignedPolicy::Signed,
-        },
-    };
-    let timestamp_unit = options.ts_unit;
-    let unsigned = options.unsigned;
-
-    let mut datasets: BTreeMap<String, Arc<DatasetSchema>> = BTreeMap::new();
-    let mut exploded: BTreeMap<String, bool> = BTreeMap::new();
-    if raw.schemas.is_empty() {
-        errors.push(config_error(
-            "schemas",
-            "at least one dataset schema is required",
-        ));
-    }
-    for (name, ds) in &raw.schemas {
-        if !dataset_component_ok(name) {
-            errors.push(config_error(
-                format!("schemas.{name}").as_str(),
-                "dataset names must be single path components",
-            ));
-            continue;
-        }
-        match build_dataset_schema(name, ds, options) {
-            Ok(schema) => {
-                exploded.insert(name.clone(), ds.explode);
-                datasets.insert(name.clone(), Arc::new(schema));
-            }
-            Err(mut es) => errors.append(&mut es),
-        }
-    }
     if !errors.is_empty() {
         return Err(errors);
     }
-    Ok(ParquetSinkConfig {
+    Ok(ParquetSinkOptions {
         dir,
         node_id,
-        datasets,
-        exploded,
+        selector: raw.datasets,
         compression: raw
             .compression
             .map_or_else(Compression::auto, RawCompression::resolve),
@@ -471,8 +442,14 @@ fn parse_sink_raw(
         },
         max_open_files: raw.max_open_files as usize,
         max_disk: raw.max_disk,
-        timestamp_unit,
-        unsigned,
+        timestamp_unit: match raw.timestamp_unit {
+            RawTsUnit::Micros => TsUnit::Micros,
+            RawTsUnit::Nanos => TsUnit::Nanos,
+        },
+        unsigned: match raw.unsigned {
+            RawUnsigned::Native => UnsignedPolicy::Native,
+            RawUnsigned::Signed => UnsignedPolicy::Signed,
+        },
         finalize_on_shutdown: raw.finalize_on_shutdown,
         config_hash: raw.config_hash,
         enrichment_hash: raw.enrichment_hash,
@@ -481,73 +458,18 @@ fn parse_sink_raw(
 
 /// The JSON Schema for a `kind: parquet` sink's `config:` block.
 pub fn sink_config_schema() -> serde_json::Value {
-    let field_type = serde_json::json!({
-        "oneOf": [
-            {"type": "string", "enum": ["bool","i8","i16","i32","i64","u8","u16","u32","u64","f32","f64","str","bytes","ts"]},
-            {"type": "object", "required": ["list"], "properties": {"list": {"$ref": "#/$defs/fieldType"}}, "additionalProperties": false},
-            {"type": "object", "required": ["record"], "properties": {"record": {"type": "object", "required": ["fields"], "properties": {"fields": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/recordField"}}}, "additionalProperties": false}}, "additionalProperties": false}
-        ]
-    });
     serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "Parquet segment sink",
-        "description": "Writes one Parquet segment per dataset with rotation, the commit-then-ship finalize sequence (D18), and a segment catalog.",
+        "description": "Writes one Parquet segment per dataset with rotation, the commit-then-ship finalize sequence (D18), and a segment catalog. Dataset schemas are the pipeline-level `datasets:` declarations (field and identity-level IDs live there); this `config:` block selects which of them the sink consumes and tunes the writer.",
         "type": "object",
         "additionalProperties": false,
-        "required": ["schemas"],
-        "$defs": {
-            "fieldType": field_type,
-            "field": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["name", "type"],
-                "properties": {
-                    "name": {"type": "string", "minLength": 1},
-                    "type": {"$ref": "#/$defs/fieldType"},
-                    "id": {"type": "integer", "minimum": 1000, "maximum": 4194303,
-                        "description": "Explicit Parquet field ID (ADR-0013); never reused."},
-                    "required": {"type": "boolean", "default": false},
-                    "unit": {"type": "string", "description": "UCUM unit"}
-                }
-            },
-            "recordField": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["name", "type"],
-                "properties": {
-                    "name": {"type": "string", "minLength": 1},
-                    "type": {"$ref": "#/$defs/fieldType"},
-                    "required": {"type": "boolean", "default": false},
-                    "unit": {"type": "string"}
-                }
-            }
-        },
         "properties": {
-            "schemas": {
-                "type": "object",
-                "minProperties": 1,
-                "description": "Dataset schemas, keyed by dataset id. The runtime selects which of these flow to this sink through the separate `datasets:` id list.",
-                "additionalProperties": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["fields"],
-                    "properties": {
-                        "explode": {"type": "boolean", "default": false, "description": "Exploded datasets carry sample_idx."},
-                        "identity": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "additionalProperties": false,
-                                "required": ["name", "id"],
-                                "properties": {
-                                    "name": {"type": "string", "minLength": 1},
-                                    "id": {"type": "integer", "minimum": 100, "maximum": 199}
-                                }
-                            }
-                        },
-                        "fields": {"type": "array", "items": {"$ref": "#/$defs/field"}}
-                    }
-                }
+            "datasets": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "uniqueItems": true,
+                "description": "Ids from the pipeline-level `datasets:` section this sink consumes. The runtime reads the same list to route frames, so the sink's declared schemas always match its chain. Empty or absent consumes every declared dataset."
             },
             "compression": {"type": "string", "enum": ["auto","zstd","snappy","lz4","none"], "default": "auto",
                 "description": "auto is zstd(1) on x86_64 and snappy elsewhere."},
@@ -688,34 +610,50 @@ pub fn parse_quarantine_config(
 
 #[cfg(test)]
 mod tests {
+    use thadam_core::{FieldDef, FieldType, LevelDecl, Shape, ShapeRef};
+
     use super::*;
 
     fn base_json() -> serde_json::Value {
         serde_json::json!({
-            "schemas": {
-                "telemetry": {
-                    "identity": [{"name": "robot", "id": 100}],
-                    "explode": false,
-                    "fields": [
-                        {"name": "soc_pct", "type": "f32", "id": 1000, "unit": "1"},
-                        {"name": "temps", "type": {"list": "f32"}, "id": 1001},
-                        {"name": "pose", "type": {"record": {"fields": [
-                            {"name": "x", "type": "f64", "required": true},
-                            {"name": "y", "type": "f64"}
-                        ]}}, "id": 1002}
-                    ]
-                }
-            },
             "rotation": {"max_rows": 100, "max_age": null},
             "node_id": "edge01",
             "config_hash": "abc123"
         })
     }
 
+    fn telemetry_decl() -> DatasetDecl {
+        let pose = Shape::new(vec![
+            FieldDef::new("x", FieldType::F64).required(),
+            FieldDef::new("y", FieldType::F64),
+        ])
+        .unwrap_or_else(|e| panic!("pose shape: {e}"));
+        DatasetDecl::new(
+            "telemetry",
+            vec![
+                FieldDef::new("soc_pct", FieldType::F32)
+                    .with_field_id(1000)
+                    .with_unit("1"),
+                FieldDef::new("temps", FieldType::List(Box::new(FieldType::F32)))
+                    .with_field_id(1001),
+                FieldDef::new("pose", FieldType::Record(ShapeRef::new(pose))).with_field_id(1002),
+            ],
+            vec![LevelDecl::new("robot", 100)],
+            false,
+        )
+    }
+
+    fn build(
+        value: &serde_json::Value,
+        decls: &[DatasetDecl],
+    ) -> Result<ParquetSinkConfig, Vec<ThadamError>> {
+        parse_sink_config(value, PathBuf::from("/data"), "sink")
+            .and_then(|options| options.with_datasets(decls))
+    }
+
     #[test]
-    fn parses_valid_config() {
-        let cfg = parse_sink_config(&base_json(), PathBuf::from("/data"), "sink")
-            .unwrap_or_else(|es| panic!("{es:?}"));
+    fn parses_valid_config_and_builds_schemas_from_decls() {
+        let cfg = build(&base_json(), &[telemetry_decl()]).unwrap_or_else(|es| panic!("{es:?}"));
         assert_eq!(cfg.node_id, "edge01");
         assert_eq!(cfg.max_open_files, 4);
         assert_eq!(cfg.row_group_bytes, 8 << 20);
@@ -727,40 +665,108 @@ mod tests {
         let schema = &cfg.datasets["telemetry"];
         assert_eq!(schema.name(), "telemetry");
         assert_eq!(&*schema.levels()[0].name, "robot");
-        assert!(!cfg.exploded["telemetry"]);
+        assert!(!schema.is_exploded());
     }
 
     #[test]
-    fn collects_multiple_errors() {
+    fn selector_restricts_and_must_match_declared_datasets() {
+        let imu = DatasetDecl::new(
+            "imu",
+            vec![FieldDef::new("ax", FieldType::F32).with_field_id(1000)],
+            vec![],
+            true,
+        );
+        let mut v = base_json();
+        v["datasets"] = serde_json::json!(["imu"]);
+        let cfg = build(&v, &[telemetry_decl(), imu.clone()]).unwrap_or_else(|es| panic!("{es:?}"));
+        assert!(cfg.datasets.contains_key("imu"));
+        assert!(!cfg.datasets.contains_key("telemetry"));
+        assert!(cfg.datasets["imu"].is_exploded());
+
+        v["datasets"] = serde_json::json!(["other"]);
+        let errs = build(&v, &[telemetry_decl()]).unwrap_err();
+        let messages: Vec<_> = errs.iter().map(|e| e.message.clone()).collect();
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("\"other\"") && m.contains("pipeline-level `datasets:`")),
+            "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn collects_multiple_errors_across_phases() {
         let bad = serde_json::json!({
-            "schemas": {
-                "bad/name": {"fields": []},
-                "telemetry": {"fields": [{"name": "a", "type": "f16"}]},
-                "telemetry2": {"fields": [{"name": "b", "type": "f32"}]}
-            },
             "max_open_files": 0,
             "rotation": {"max_rows": 0}
         });
         let errs = parse_sink_config(&bad, PathBuf::from("/data"), "sink").unwrap_err();
         let messages: Vec<_> = errs.iter().map(|e| e.message.clone()).collect();
         assert!(
+            messages.iter().all(|m| m.contains("at least 1")),
+            "{messages:?}"
+        );
+        assert_eq!(messages.len(), 2, "{messages:?}");
+
+        let missing_id = DatasetDecl::new(
+            "telemetry",
+            vec![FieldDef::new("a", FieldType::F32)],
+            vec![],
+            false,
+        );
+        let bad_name = DatasetDecl::new(
+            "bad/name",
+            vec![FieldDef::new("b", FieldType::F32).with_field_id(1000)],
+            vec![],
+            false,
+        );
+        let errs = build(&base_json(), &[missing_id, bad_name]).unwrap_err();
+        let messages: Vec<_> = errs.iter().map(|e| e.message.clone()).collect();
+        assert!(
             messages.iter().any(|m| m.contains("path component")),
             "{messages:?}"
         );
         assert!(
-            messages.iter().any(|m| m.contains("unknown field type")),
+            messages.iter().any(|m| m.contains("no field id")),
             "{messages:?}"
         );
-        assert!(
-            messages.iter().any(|m| m.contains("at least 1")),
-            "{messages:?}"
-        );
-        // Missing field IDs are caught by the schema builder (explicit IDs).
+    }
+
+    #[test]
+    fn refuses_a_schemas_block_pointing_at_pipeline_datasets() {
+        let mut v = base_json();
+        v["schemas"] = serde_json::json!({
+            "telemetry": {"fields": [{"name": "a", "type": "f32", "id": 1000}]}
+        });
+        let errs = parse_sink_config(&v, PathBuf::from("/data"), "sink").unwrap_err();
+        let messages: Vec<_> = errs.iter().map(|e| e.message.clone()).collect();
         assert!(
             messages
                 .iter()
-                .any(|m| m.contains("field id") || m.contains("id")),
+                .any(|m| m.contains("pipeline-level `datasets:`")),
             "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn requires_datasets_in_the_build_context() {
+        let options = parse_sink_config(&base_json(), PathBuf::from("/data"), "sink")
+            .unwrap_or_else(|es| panic!("{es:?}"));
+        let errs = options.with_datasets(&[]).unwrap_err();
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("pipeline-level `datasets:`")),
+            "{errs:?}"
+        );
+
+        let dupes = [telemetry_decl(), telemetry_decl()];
+        let options = parse_sink_config(&base_json(), PathBuf::from("/data"), "sink")
+            .unwrap_or_else(|es| panic!("{es:?}"));
+        let errs = options.with_datasets(&dupes).unwrap_err();
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("declared more than once")),
+            "{errs:?}"
         );
     }
 

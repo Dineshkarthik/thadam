@@ -2,13 +2,16 @@
 //! chain specs.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use thadam_config::{
     DatasetSpec, DecodeFormat, FsyncSpec, MaxLagSpec, OnFull as ConfigOnFull, PipelineSpec,
     SinkSpec, StartFromSpec, TransformSpec,
 };
-use thadam_core::{BudgetCategory, DiskBudget, ErrorDomain, ThadamError, codes};
+use thadam_core::{
+    BudgetCategory, DatasetDecl, DiskBudget, ErrorDomain, LevelDecl, ThadamError, codes,
+};
 use thadam_transform::ChainSpec;
 use thadam_wal::{ConsumerSpec, Fsync, MaxLag, OnFull, StartFrom, WalOptions};
 use serde_json::{Map, Value, json};
@@ -154,6 +157,28 @@ fn selected<'a>(spec: &'a PipelineSpec, only: Option<&[String]>) -> Vec<&'a Data
     spec.datasets
         .iter()
         .filter(|d| only.is_none_or(|ids| ids.contains(&d.id)))
+        .collect()
+}
+
+/// The declared datasets a sink consumes, as `thadam-core` types for the
+/// sink's [`thadam_core::BuildContext`]: `spec.datasets` restricted to the
+/// `datasets:` selector, each carrying its field IDs, identity level IDs,
+/// and exploded flag. Infallible because callers validate `only` with
+/// [`sink_datasets`] first.
+pub(crate) fn dataset_decls(spec: &PipelineSpec, only: Option<&[String]>) -> Arc<[DatasetDecl]> {
+    selected(spec, only)
+        .into_iter()
+        .map(|d| {
+            DatasetDecl::new(
+                d.id.as_str(),
+                d.field_defs(),
+                d.level_ids()
+                    .into_iter()
+                    .map(|(name, id)| LevelDecl::new(name, id))
+                    .collect(),
+                d.explode.is_some(),
+            )
+        })
         .collect()
 }
 

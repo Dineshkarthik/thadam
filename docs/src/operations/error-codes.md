@@ -82,6 +82,7 @@ Every error Thadam surfaces — in logs, `/status`, quarantine rows, diagnostics
 | `sink.recover_failed` | Recovery after a crash failed. |
 | `sink.io` | A local I/O operation failed. |
 | `sink.non_monotonic_append` | A segment sink was given a batch not after its previous one. |
+| `sink.object_key_collision` | A create-if-absent conflict found an object with different content (epoch or node-id misconfiguration); the shipper refuses to overwrite. Fatal. |
 | `sink.panic` | The sink task panicked. |
 
 ### `auth` — authentication and authorization

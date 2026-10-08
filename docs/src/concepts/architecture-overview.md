@@ -66,7 +66,7 @@ The workspace is split by dependency weight and change rate, with the dependency
 | `thadam-transform` | Synchronous, pure chains: router, decoders, shapes, steps, chain compiler |
 | `thadam-runtime` | Drivers, supervisor, shutdown, replay, observability, admin API |
 | `thadam-arrow` | Event → Arrow RecordBatch, dataset schema mapping, Parquet field IDs |
-| `thadam-segments` | Parquet/NDJSON segment sink, segment catalog, quarantine writer *(in progress)* |
+| `thadam-segments` | Parquet segment sink, segment catalog, quarantine writer |
 | `thadam-object-store` | S3-compatible shipper over the segment catalog *(in progress)* |
 | `thadam-mqtt` | MQTT source |
 | `thadam-testkit` | Memory connectors, conformance suites, fake clock, crash harness (dev only) |

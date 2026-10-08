@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-07
-- **Updated:** 2026-10-07 (PR13 implementation decisions recorded in `thadam-arrow`: field-ID policy (O5 closed), `_wal_record_idx` (O4 closed), unsigned default, list element name, `sample_idx` width, schema fingerprint)
+- **Updated:** 2026-10-07 (PR13 implementation decisions recorded in `thadam-arrow`: field-ID policy (O5 closed), `_wal_record_idx` (O4 closed), unsigned default, list element name, `sample_idx` width, schema fingerprint); 2026-10-08 (PR14: how declared schemas reach the sink, Parquet field-ID round trip)
 - **Deciders:** Project owner
 
 **Acceptance.** Accepted by project owner on 2026-10-07 (`docs/design/owner-decisions.md`, section "ADR acceptances"). The unticked items in "Evidence and validation required" (benchmarks W4 and B6 with their `[OPEN]` criteria, the reader compatibility matrix, O4 and O5 and the unsigned-integer default) are implementation-time verification in PR13 and PR14, not blockers. PR13 (`thadam-arrow`, commit `4fa3802`) has since closed O4, O5, and the unsigned-integer default; see "PR13 implementation decisions".
@@ -141,6 +141,15 @@ These close the items this ADR left open for PR13. The facts come from the `thad
 **Other encoding details.** `sample_idx` is `UInt16`. The list element field is named `element`. `ArrowOptions` also carries `ts_unit` (microseconds by default, nanoseconds opt-in) and `lineage_columns` (on by default).
 
 **Schema fingerprint.** `thadam.schema_fp` carries a 16-byte fingerprint, written in hex in the schema metadata (`thadam.dataset` carries the dataset name). It is SHA-256 over a canonical, versioned encoding of the output columns, truncated to 128 bits. The encoding is defined in `thadam-arrow` and does not use Arrow's `Debug` or `Display`, so an Arrow upgrade cannot change a fingerprint that is already in files. It is domain-separated (`thadam-arrow/schema/v1`) and covers each column's name, nullability, data type tag, and sorted field metadata (which includes the field ID and unit), recursively for lists and structs, so a change to any of these changes the fingerprint; the unsigned policy and timestamp unit are part of it through the column types. Type tags are fixed once released.
+
+### PR14 implementation notes (`thadam-segments` and the runtime wiring)
+
+These record how the declared schemas reach the sink, settled while landing PR14.
+
+- **Single declaration point.** A dataset's schema is declared once, in the pipeline-level `datasets:` section: field names, types, and required IDs (`datasets[].fields[].id`), identity levels with their IDs (`datasets[].identity[].id`), and `explode`. The Parquet sink's own `config:` block does **not** repeat schemas; a `schemas:` key there is a configuration error that points back to `datasets:`. The sink's `config.datasets` list is only a selector naming the declared datasets it consumes.
+- **How the sink gets its schemas.** The runtime compiles each selected `DatasetSpec` into `thadam-core` types (`DatasetDecl`: id, `FieldDef`s with field IDs, identity level names with IDs, exploded flag — no configuration types cross the boundary) and attaches them to the sink factory's `BuildContext` (`BuildContext::datasets`), restricted to the sink's selector. The same selector drives the chain's dataset routing, so a sink's schemas cannot disagree with the frames it receives. `thadam-segments` builds one `thadam_arrow::DatasetSchema` per `DatasetDecl` at sink construction; the quarantine sink's build context carries the same attachment for symmetry, though its fixed schema ignores it. Replay into a separate directory builds its sink with the same context.
+- **Why not the sink config.** D22 crosses the factory boundary as `serde_json::Value`, scoped to the connector's own block, so duplicating the pipeline's datasets into every Parquet sink was the only way to get at them from inside the crate; the draft `schemas:` map did exactly that and could drift from the real declarations. The build-context attachment removes the duplication without letting configuration types leak into `thadam-core` or Arrow types into the runtime.
+- **Field-ID round trip, done for the write path.** A runtime-level end-to-end test runs a pipeline whose datasets are declared only at pipeline level into the real Parquet sink and reads the file footers back: the declared fields carry their configured IDs, the identity level columns theirs, and the envelope columns the fixed format-v1 IDs (`_wal_pos` 11 and friends). The Iceberg acceptance half of the original round-trip item **[V]** is still open.
 
 ### Superseded by this ADR (ARCHITECTURE.md section 19)
 

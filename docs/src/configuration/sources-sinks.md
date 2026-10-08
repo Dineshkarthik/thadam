@@ -31,11 +31,9 @@ sinks:
 | Kind | Role | Status |
 |---|---|---|
 | `mqtt` | source | Implemented ([MQTT source](../sources/mqtt.md)) |
-| `parquet` | segment sink | **In progress**: registered, but the factory is a placeholder; `thadam run` fails to build a pipeline that uses it ([planned behavior](../sinks/parquet.md)) |
-| `object_store` | batch sink / shipper | **In progress**, same caveat ([planned behavior](../sinks/object-store.md)) |
+| `parquet` | segment sink | Implemented ([Parquet segments sink](../sinks/parquet.md)) |
+| `object_store` | shipper service | Implemented ([object storage sink](../sinks/object-store.md)); configured under `sinks:` and runs as a service shipping the named segment sink |
 | ClickHouse | batch sink | **Planned (P1)**; not registered with this binary ([design](../sinks/clickhouse.md)) |
-
-Because the sink factories are placeholders today, any configuration with a sink validates but the pipeline build fails at `thadam run` — the error names the kind. This is the expected mid-build-out state ([project status](../introduction.md#project-status)).
 
 ## Sink WAL-consumer policies {#sink-policies}
 

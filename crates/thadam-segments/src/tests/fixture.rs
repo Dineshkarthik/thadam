@@ -44,7 +44,6 @@ pub(crate) fn config_for(
     ParquetSinkConfig {
         dir: dir.to_path_buf(),
         node_id: "edge01".to_owned(),
-        exploded: schemas.keys().map(|k| (k.clone(), false)).collect(),
         datasets: schemas,
         compression: Compression::None,
         row_group_bytes: 1 << 16,

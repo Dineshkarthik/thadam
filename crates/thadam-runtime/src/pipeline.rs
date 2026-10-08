@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use thadam_config::{PipelineSpec, SinkSpec};
 use thadam_core::{
-    BatchSink, BuildContext, ErrorDomain, ThadamError, SegmentSink, Service, ServiceContext,
-    Shutdown, SinkContext, SinkId, Source, WalPos, codes,
+    BatchSink, BuildContext, DatasetDecl, ErrorDomain, ThadamError, SegmentSink, Service,
+    ServiceContext, SharedObjects, Shutdown, SinkContext, SinkId, Source, WalPos, codes,
 };
 use thadam_transform::Chain;
 use thadam_wal::{CursorState, RecoveryReport, StartFrom, Wal};
@@ -171,6 +171,9 @@ enum Planned<'r> {
 struct ChainPlan {
     chain: Chain,
     cfg: ChainConfig,
+    /// The declared datasets the sink's chain processes, for its
+    /// [`BuildContext`] (and its quarantine instance's).
+    decl_datasets: Arc<[DatasetDecl]>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -417,6 +420,7 @@ impl Pipeline {
                                 poison_retries: opts.poison_retries,
                                 failpoints: opts.failpoints.clone(),
                             },
+                            decl_datasets: plan::dataset_decls(&spec, only.as_deref()),
                         })
                     }
                     Err(es) => {
@@ -461,12 +465,12 @@ impl Pipeline {
         let mut sinks = Vec::new();
         let mut services = Vec::new();
         for (s, p) in planned {
-            let ctx = BuildContext::new(s.id.as_str(), Arc::clone(&clock), layout.sink(&s.id));
-            let quarantine = |errs: &mut Vec<ThadamError>| {
+            let quarantine = |decls: &Arc<[DatasetDecl]>, errs: &mut Vec<ThadamError>| {
                 let q = registry.quarantine_factory()?;
                 let id = format!("quarantine.{}", s.id);
                 let qctx =
-                    BuildContext::new(id.as_str(), Arc::clone(&clock), layout.quarantine(&s.id));
+                    BuildContext::new(id.as_str(), Arc::clone(&clock), layout.quarantine(&s.id))
+                        .with_datasets(Arc::clone(decls));
                 match q.build(quarantine_cfg.clone(), &qctx) {
                     Ok(q) => Some(q),
                     Err(e) => {
@@ -476,26 +480,36 @@ impl Pipeline {
                 }
             };
             match p {
-                Planned::Segment(f, cp) => match f.build(s.config.clone(), &ctx) {
-                    Ok(sink) => sinks.push(SinkSlot {
-                        id: s.id.clone(),
-                        conn: SinkConn::Segment(sink),
-                        chain: cp.chain,
-                        chain_cfg: cp.cfg,
-                        quarantine: quarantine(&mut errs),
-                    }),
-                    Err(e) => errs.push(e.with_context("component", s.id.clone())),
-                },
-                Planned::Batch(f, cp) => match f.build(s.config.clone(), &ctx) {
-                    Ok(sink) => sinks.push(SinkSlot {
-                        id: s.id.clone(),
-                        conn: SinkConn::Batch(sink),
-                        chain: cp.chain,
-                        chain_cfg: cp.cfg,
-                        quarantine: quarantine(&mut errs),
-                    }),
-                    Err(e) => errs.push(e.with_context("component", s.id.clone())),
-                },
+                Planned::Segment(f, cp) => {
+                    let ctx =
+                        BuildContext::new(s.id.as_str(), Arc::clone(&clock), layout.sink(&s.id))
+                            .with_datasets(Arc::clone(&cp.decl_datasets));
+                    match f.build(s.config.clone(), &ctx) {
+                        Ok(sink) => sinks.push(SinkSlot {
+                            id: s.id.clone(),
+                            conn: SinkConn::Segment(sink),
+                            chain: cp.chain,
+                            chain_cfg: cp.cfg,
+                            quarantine: quarantine(&cp.decl_datasets, &mut errs),
+                        }),
+                        Err(e) => errs.push(e.with_context("component", s.id.clone())),
+                    }
+                }
+                Planned::Batch(f, cp) => {
+                    let ctx =
+                        BuildContext::new(s.id.as_str(), Arc::clone(&clock), layout.sink(&s.id))
+                            .with_datasets(Arc::clone(&cp.decl_datasets));
+                    match f.build(s.config.clone(), &ctx) {
+                        Ok(sink) => sinks.push(SinkSlot {
+                            id: s.id.clone(),
+                            conn: SinkConn::Batch(sink),
+                            chain: cp.chain,
+                            chain_cfg: cp.cfg,
+                            quarantine: quarantine(&cp.decl_datasets, &mut errs),
+                        }),
+                        Err(e) => errs.push(e.with_context("component", s.id.clone())),
+                    }
+                }
                 Planned::Service(f) => {
                     let ctx =
                         BuildContext::new(s.id.as_str(), Arc::clone(&clock), layout.service(&s.id));
@@ -644,6 +658,9 @@ impl Pipeline {
         let services_stop = Shutdown::new();
         let maint_stop = Shutdown::new();
         let wal_failed = Shutdown::new();
+        // Objects components hand one another during a run; segment sinks
+        // publish their catalog here and services (the shipper) look it up.
+        let shared = SharedObjects::default();
         let force = handle.0.force.clone();
         let metrics = Arc::clone(&opts.metrics);
         let clock = Arc::clone(&opts.clock);
@@ -707,7 +724,8 @@ impl Pipeline {
                 Arc::clone(&clock),
                 layout.sink(&id),
                 Arc::clone(&budget),
-            );
+            )
+            .with_shared(shared.clone());
             let quarantine = quarantine.map(|q| {
                 let qctx = SinkContext::new(
                     SinkId::new(format!("quarantine.{id}")),
@@ -715,7 +733,8 @@ impl Pipeline {
                     Arc::clone(&clock),
                     layout.quarantine(&id),
                     Arc::clone(&budget),
-                );
+                )
+                .with_shared(shared.clone());
                 Quarantine::new(q, qctx, id.clone(), Arc::clone(&sink_c))
             });
             let cursor = cursor_name(&id);
@@ -816,7 +835,8 @@ impl Pipeline {
                         Arc::clone(&clock),
                         layout.service(&s.id),
                         Arc::clone(&budget),
-                    );
+                    )
+                    .with_shared(shared.clone());
                     sup.spawn(
                         Group::Services,
                         Arc::clone(&c),

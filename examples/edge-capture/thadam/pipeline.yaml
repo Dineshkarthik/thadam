@@ -36,6 +36,8 @@ wal:
 
 quarantine: { format: parquet, max_disk: 256MiB }
 
+# Dataset schemas (field `id`s, identity level `id`s, `explode`) are declared
+# once, here; sinks select datasets by id in their `config.datasets` list.
 datasets:
   - id: telemetry
     match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/telemetry" }
@@ -154,12 +156,13 @@ sinks:
       rotation: { max_bytes: 64MiB, max_age: 60s }   # demo; production default 5m
       max_open_files: 6
       max_disk: 4GiB
-      timestamp_unit: us
+      timestamp_unit: micros              # micros default; nanos opt-in
       finalize_on_shutdown: true
   - id: s3
     kind: object_store
     config:
       from: local
+      pipeline: edge-capture              # written into object keys: fleet/thadam/v1/edge-capture/...
       url: s3://thadam-demo/fleet
       endpoint: http://toxiproxy:29000
       region: us-east-1

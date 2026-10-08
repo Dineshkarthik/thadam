@@ -41,7 +41,14 @@ crc32c = "0.6.8"
 csv = "1.4"
 humantime = "2.4"
 lru = "0.18"
+# S3-compatible shipping (thadam-object-store). The `aws` feature is NOT used:
+# it requests rustls with the aws-lc provider. `aws-base` compiles the S3
+# provider by itself, `reqwest` supplies the transport, and `ring` the crypto
+# provider (ADR-0020). reqwest's `rustls-no-provider` with the single
+# compiled-in ring provider keeps `aws-lc-sys` and `openssl-sys` out.
+object_store = { version = "0.14", default-features = false, features = ["aws-base", "reqwest", "ring"] }
 parquet = { version = "60", default-features = false, features = ["arrow", "snap", "zstd", "lz4"] }
+reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls-no-provider"] }
 prost = { version = "0.14.4", default-features = false, features = ["derive", "std"] }
 # No TLS feature on purpose: every one of them pulls rustls-webpki ^0.102.8, which
 # cannot reach the patched 0.103.x (RUSTSEC-2026-0049/-0098/-0099/-0104). TLS is

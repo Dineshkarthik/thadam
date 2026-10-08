@@ -11,7 +11,8 @@ use thadam_runtime::Registry;
 /// - MQTT source factory ([`thadam_mqtt::MqttSourceFactory`])
 /// - Parquet segment sink factory ([`thadam_segments::ParquetSegmentSinkFactory`])
 /// - Quarantine segment sink factory ([`thadam_segments::QuarantineSinkFactory`])
-/// - Object store batch sink factory (stub until `thadam-object-store`)
+/// - Object-store shipper service factory
+///   ([`thadam_object_store::ObjectStoreShipperFactory`])
 ///
 /// The registry can be reused by multiple commands (e.g., `validate`, `run`).
 pub fn build_registry() -> Registry {
@@ -23,46 +24,13 @@ pub fn build_registry() -> Registry {
     registry.segment_sink(Box::new(thadam_segments::ParquetSegmentSinkFactory::new()));
     registry.quarantine_sink(Box::new(thadam_segments::QuarantineSinkFactory::new()));
 
-    // Register sink factories (stubs for now - these crates are placeholders)
-    // TODO: Add actual factory implementation when thadam-object-store is implemented
-    registry.batch_sink(Box::new(ObjectStoreSinkFactory));
+    // The shipper is configured as a sinks: entry (`kind: object_store`) and
+    // runs as a service consuming the named segment sink's catalog.
+    registry.service(Box::new(
+        thadam_object_store::ObjectStoreShipperFactory::new(),
+    ));
 
     registry
-}
-
-/// Stub Object Store batch sink factory.
-///
-/// This is a placeholder until thadam-object-store is implemented.
-struct ObjectStoreSinkFactory;
-
-impl thadam_core::BatchSinkFactory for ObjectStoreSinkFactory {
-    fn kind(&self) -> &'static str {
-        "object_store"
-    }
-
-    fn config_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "title": "Object store batch sink",
-            "description": "Placeholder - not yet implemented"
-        })
-    }
-
-    fn validate(&self, _cfg: &serde_json::Value) -> Result<(), Vec<thadam_core::ThadamError>> {
-        Ok(())
-    }
-
-    fn build(
-        &self,
-        _cfg: serde_json::Value,
-        _ctx: &thadam_core::BuildContext,
-    ) -> Result<Box<dyn thadam_core::BatchSink>, thadam_core::ThadamError> {
-        Err(thadam_core::ThadamError::permanent(
-            thadam_core::ErrorDomain::Connector,
-            thadam_core::codes::CONNECTOR_CONNECT_FAILED,
-            "Object store sink not yet implemented",
-        ))
-    }
 }
 
 #[cfg(test)]

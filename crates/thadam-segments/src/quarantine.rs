@@ -387,15 +387,7 @@ impl SegmentSinkFactory for QuarantineSinkFactory {
         ctx: &thadam_core::BuildContext,
     ) -> Result<Box<dyn SegmentSink>, ThadamError> {
         let parsed: QuarantineConfig =
-            config::parse_quarantine_config(&cfg).map_err(|mut es| {
-                es.drain(..).next().unwrap_or_else(|| {
-                    ThadamError::permanent(
-                        ErrorDomain::Config,
-                        codes::CONFIG_INVALID,
-                        "invalid quarantine config",
-                    )
-                })
-            })?;
+            config::parse_quarantine_config(&cfg).map_err(config::first_error)?;
         let sink = build_quarantine_sink(parsed, ctx.data_dir.clone(), &ctx.component_id)?;
         Ok(Box::new(sink))
     }

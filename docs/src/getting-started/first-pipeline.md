@@ -125,7 +125,7 @@ Stop Thadam with Ctrl-C (SIGINT) or SIGTERM: it drains the source queue into the
 
 ### Current limitation
 
-At the time of writing the `parquet` and `object_store` sink implementations are still landing ([project status](../introduction.md#project-status)) and the registered factories are placeholders, so `thadam run` validates the configuration, opens the data directory, and then fails the pipeline build with a connector error ("Parquet sink not yet implemented") and exit code 1. Steps 1–3 work fully today; step 4 becomes end-to-end once the segment sink lands. This page documents the supported flow from that point on so the deployment shape is ready; the README status banner and [readiness](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md) track the change.
+The `parquet` sink is fully working, so the pipeline above runs end to end: messages land in Parquet segments under the data directory. What is still landing is the `object_store` shipper ([project status](../introduction.md#project-status)): its registered factory is a placeholder, so a configuration containing an `object_store` sink validates but fails the pipeline build with a connector error ("Object store sink not yet implemented") and exit code 1. Local segments work today; shipping them off the node becomes end-to-end once the shipper lands. The README status banner and [readiness](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md) track the change.
 
 ## 5. A larger example
 

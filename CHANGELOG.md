@@ -22,6 +22,8 @@ Thadam is early in its first milestone (M1 / MVP v0.1). No releases exist yet; t
 - **CLI (`thadam`)**: `validate` (with `--allow-unresolved`), `schema`, `version`, `run` (graceful signal handling, admin override flags, `--repair`), `status` against the admin API.
 - **Admin API and observability**: `/healthz`, `/readyz`, `/metrics` (OpenMetrics), `/status` (components, cursors, WAL, budgets); Prometheus metrics; structured lossy logging.
 - **Documentation**: README with branding and status banner, this changelog, contributing and security policies, issue/PR templates, and the mdBook user documentation under `docs/`.
+- **`thadam-segments`**: the Parquet segment sink with rotation, the commit-then-ship finalize sequence (D18), the segment catalog (append-only, CRC-checked, footer rebuild on recovery), coverage markers for empty datasets, quarantine sink, and the shared-disk-budget eviction order.
+- **`thadam-object-store`**: the object-store shipper as a `kind: object_store` service — oldest-first uploads from the segment catalog with bounded concurrency, deterministic keys (ADR-0013), create-if-absent with HEAD size + `thadam-sha256` verification on conflict (Fatal `sink.object_key_collision` on mismatch), multipart above a threshold, startup capability probe (conditional put, clock skew, metadata), unbounded jittered retry, local retention modes, failpoints `ship::after_put_before_mark` and `ship::mid_multipart`, and Docker tests against MinIO.
 - **Demo configuration**: `examples/edge-capture/thadam/pipeline.yaml` with six datasets, transforms, quarantine, and an S3-compatible target.
 
 ### Fixed
@@ -34,7 +36,6 @@ Thadam is early in its first milestone (M1 / MVP v0.1). No releases exist yet; t
 
 ### In progress (not yet usable)
 
-- **Parquet segment sink and object-store shipper** (`thadam-segments`, `thadam-object-store`): the `parquet` and `object_store` kinds are registered as placeholder factories, so `thadam run` cannot yet build a pipeline containing a sink. Lands with PR14–PR16.
 - **Replay and inspect** (`thadam replay`, `thadam inspect`), demo automation, chaos suites, and published benchmark results (PR17–PR18).
 
 ### Not started

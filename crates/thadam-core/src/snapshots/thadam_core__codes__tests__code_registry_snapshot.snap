@@ -42,6 +42,7 @@ sink: sink.rejected
 sink: sink.recover_failed
 sink: sink.io
 sink: sink.non_monotonic_append
+sink: sink.object_key_collision
 sink: sink.panic
 auth: auth.failed
 auth: auth.expired

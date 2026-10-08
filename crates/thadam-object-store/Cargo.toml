@@ -6,5 +6,34 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Exposes `thadam_object_store::failpoints` for fault injection in crash tests
+# (`ship::after_put_before_mark`, `ship::mid_multipart`). The crate's own unit
+# tests always have them.
+failpoints = []
+
+[dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true }
+bytesize = { workspace = true }
+object_store = { workspace = true }
+reqwest = { workspace = true }
+# Not used directly: its `ring` feature turns the shared rustls build on to the
+# ring crypto provider, which is what reqwest/rustls-no-provider picks up.
+tokio-rustls = { workspace = true }
+thadam-core = { workspace = true }
+thadam-segments = { path = "../thadam-segments" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["fs", "rt", "sync", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+futures-util = "0.3"
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+
 [lints]
 workspace = true

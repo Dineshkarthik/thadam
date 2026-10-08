@@ -60,6 +60,7 @@ mod budget;
 mod clock;
 pub mod codes;
 mod connector;
+mod dataset;
 mod error;
 mod event;
 mod identity;
@@ -80,10 +81,11 @@ pub use clock::{Clock, SyncFlag, SystemClock};
 pub use connector::{
     AckHandle, AckMode, AckOutcome, AckStatus, AckTarget, AckToken, BatchLimits, BatchSink,
     BatchSinkFactory, BuildContext, ConnectionEpoch, DeliveryClass, EpochGate, SegmentSink,
-    SegmentSinkFactory, Service, ServiceContext, ServiceFactory, SinkBatch, SinkCapabilities,
-    SinkContext, Source, SourceBatch, SourceCapabilities, SourceContext, SourceFactory,
-    WriteOutcome,
+    SegmentSinkFactory, Service, ServiceContext, ServiceFactory, SharedObjects, SinkBatch,
+    SinkCapabilities, SinkContext, Source, SourceBatch, SourceCapabilities, SourceContext,
+    SourceFactory, WriteOutcome,
 };
+pub use dataset::{DatasetDecl, LevelDecl};
 pub use error::{Classify, ErrorContext, ErrorDomain, Reject, Retry, ThadamError, Severity};
 pub use event::{Event, EventBuildError, EventBuilder, EventId, ObjectRef, Payload, RawPayload};
 pub use identity::{

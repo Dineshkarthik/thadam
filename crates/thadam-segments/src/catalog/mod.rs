@@ -113,6 +113,16 @@ impl LocalRetention {
             keep_until_disk_pressure: false,
         }
     }
+
+    /// Keep uploaded files until the segment budget is under pressure; then
+    /// the oldest uploads are evicted first.
+    pub fn keep_until_disk_pressure() -> Self {
+        LocalRetention {
+            delete_after_upload: false,
+            keep_for: None,
+            keep_until_disk_pressure: true,
+        }
+    }
 }
 
 /// What [`SegmentCatalog::release_local`] did.

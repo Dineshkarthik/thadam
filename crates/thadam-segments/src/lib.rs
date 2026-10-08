@@ -66,8 +66,8 @@ pub use catalog::{
     CatalogVersion, LocalRetention, ReleaseReport, SegmentCatalog, SegmentId, SegmentRecord,
 };
 pub use config::{
-    Compression, ParquetSinkConfig, QuarantineConfig, RotationConfig, parse_quarantine_config,
-    parse_sink_config, quarantine_config_schema, sink_config_schema,
+    Compression, ParquetSinkConfig, ParquetSinkOptions, QuarantineConfig, RotationConfig,
+    parse_quarantine_config, parse_sink_config, quarantine_config_schema, sink_config_schema,
 };
 pub use error::SegmentError;
 pub use quarantine::QuarantineSinkFactory;

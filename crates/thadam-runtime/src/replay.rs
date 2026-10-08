@@ -207,7 +207,8 @@ pub async fn replay(
         ReplayOutput::Sink(s) => (s, None),
         ReplayOutput::SeparateDir => {
             let dir = layout.replay(&req.replay_id, &req.sink);
-            let ctx = BuildContext::new(out_id.as_str(), Arc::clone(&opts.clock), dir.clone());
+            let ctx = BuildContext::new(out_id.as_str(), Arc::clone(&opts.clock), dir.clone())
+                .with_datasets(plan::dataset_decls(spec, only.as_deref()));
             let built = match factory {
                 Some(SinkFactory::Segment(f)) => f.build(sink_spec.config.clone(), &ctx)?,
                 _ => {

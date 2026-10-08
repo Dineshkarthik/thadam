@@ -69,6 +69,36 @@ pub struct SegmentRecord {
 }
 
 impl SegmentRecord {
+    /// A record with every field set. Cross-crate consumers (the shipper's
+    /// tests, later drivers) cannot build a `#[non_exhaustive]` type with a
+    /// struct literal.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: SegmentId,
+        dataset: impl Into<String>,
+        path: Option<PathBuf>,
+        range: WalRange,
+        rows: u64,
+        bytes: u64,
+        min_event_time: Option<Timestamp>,
+        max_event_time: Option<Timestamp>,
+        checksum: [u8; 32],
+        clock_synced: bool,
+    ) -> Self {
+        SegmentRecord {
+            id,
+            dataset: dataset.into(),
+            path,
+            range,
+            rows,
+            bytes,
+            min_event_time,
+            max_event_time,
+            checksum,
+            clock_synced,
+        }
+    }
+
     /// Whether the segment has a real file (coverage markers do not).
     pub fn has_file(&self) -> bool {
         self.path.is_some()

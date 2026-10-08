@@ -25,6 +25,8 @@ tracing-appender = { workspace = true }
 [dev-dependencies]
 async-trait = { workspace = true }
 http-body-util = "0.1"
+parquet = { workspace = true }
+thadam-segments = { path = "../thadam-segments" }
 thadam-testkit = { path = "../thadam-testkit" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync", "time", "test-util"] }
