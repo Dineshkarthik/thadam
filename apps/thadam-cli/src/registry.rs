@@ -9,8 +9,9 @@ use thadam_runtime::Registry;
 ///
 /// This function creates a new registry and registers:
 /// - MQTT source factory ([`thadam_mqtt::MqttSourceFactory`])
-/// - Parquet segment sink factory
-/// - Object store batch sink factory
+/// - Parquet segment sink factory ([`thadam_segments::ParquetSegmentSinkFactory`])
+/// - Quarantine segment sink factory ([`thadam_segments::QuarantineSinkFactory`])
+/// - Object store batch sink factory (stub until `thadam-object-store`)
 ///
 /// The registry can be reused by multiple commands (e.g., `validate`, `run`).
 pub fn build_registry() -> Registry {
@@ -19,48 +20,14 @@ pub fn build_registry() -> Registry {
     // Register MQTT source factory
     registry.source(Box::new(thadam_mqtt::MqttSourceFactory::new()));
 
+    registry.segment_sink(Box::new(thadam_segments::ParquetSegmentSinkFactory::new()));
+    registry.quarantine_sink(Box::new(thadam_segments::QuarantineSinkFactory::new()));
+
     // Register sink factories (stubs for now - these crates are placeholders)
-    // TODO: Add actual factory implementations when thadam-segments and
-    // thadam-object-store are implemented
-    registry.segment_sink(Box::new(ParquetSinkFactory));
+    // TODO: Add actual factory implementation when thadam-object-store is implemented
     registry.batch_sink(Box::new(ObjectStoreSinkFactory));
 
     registry
-}
-
-/// Stub Parquet segment sink factory.
-///
-/// This is a placeholder until thadam-segments is implemented.
-struct ParquetSinkFactory;
-
-impl thadam_core::SegmentSinkFactory for ParquetSinkFactory {
-    fn kind(&self) -> &'static str {
-        "parquet"
-    }
-
-    fn config_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "title": "Parquet segment sink",
-            "description": "Placeholder - not yet implemented"
-        })
-    }
-
-    fn validate(&self, _cfg: &serde_json::Value) -> Result<(), Vec<thadam_core::ThadamError>> {
-        Ok(())
-    }
-
-    fn build(
-        &self,
-        _cfg: serde_json::Value,
-        _ctx: &thadam_core::BuildContext,
-    ) -> Result<Box<dyn thadam_core::SegmentSink>, thadam_core::ThadamError> {
-        Err(thadam_core::ThadamError::permanent(
-            thadam_core::ErrorDomain::Connector,
-            thadam_core::codes::CONNECTOR_CONNECT_FAILED,
-            "Parquet sink not yet implemented",
-        ))
-    }
 }
 
 /// Stub Object Store batch sink factory.

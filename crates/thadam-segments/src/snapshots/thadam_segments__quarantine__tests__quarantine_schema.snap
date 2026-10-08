@@ -1,0 +1,18 @@
+---
+source: crates/thadam-segments/src/quarantine.rs
+assertion_line: 435
+expression: "rendered.join(\"\\n\")"
+---
+_wal_epoch UInt64 nullable=false id=10
+_wal_pos UInt64 nullable=false id=11
+_record_index UInt32 nullable=true id=13
+_ingest_time Timestamp(Microsecond, Some("UTC")) nullable=false id=2
+source_id Utf8 nullable=true id=1000
+topic Utf8 nullable=true id=1001
+sink_id Utf8 nullable=false id=1002
+dataset Utf8 nullable=true id=1003
+error_domain Utf8 nullable=false id=1004
+error_code Utf8 nullable=false id=1005
+reason Utf8 nullable=false id=1006
+raw Binary nullable=true id=1007
+raw_truncated Boolean nullable=false id=1008

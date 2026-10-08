@@ -6,5 +6,39 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Exposes `thadam_segments::failpoints` for fault injection in crash tests,
+# like `thadam_wal::failpoints`. The crate's own unit tests always have it.
+failpoints = []
+
+[dependencies]
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-schema = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+crc32c = { workspace = true }
+parquet = { workspace = true }
+thadam-arrow = { path = "../thadam-arrow" }
+thadam-core = { workspace = true }
+rustix = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true, features = ["cargo_bench_support"] }
+insta = { workspace = true }
+thadam-testkit = { path = "../thadam-testkit" }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
+
+[[bench]]
+name = "write_throughput"
+harness = false
+
 [lints]
 workspace = true
