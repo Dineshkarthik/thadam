@@ -142,6 +142,7 @@ mod exit;
 pub mod failpoints;
 mod lane;
 mod metrics;
+mod observability;
 mod options;
 mod pipeline;
 mod plan;
@@ -159,6 +160,7 @@ pub use datadir::{
 pub use exit::ExitStatus;
 pub use failpoints::Failpoints;
 pub use metrics::{MetricEvent, MetricsSink, NoopMetrics};
+pub use observability::PrometheusMetrics;
 pub use options::{BackoffPolicy, ClockSyncProbe, RuntimeOptions};
 pub use pipeline::{Pipeline, RecoverySummary, RunReport};
 pub use quarantine::{QUARANTINE_RAW_MAX, quarantine_shape};

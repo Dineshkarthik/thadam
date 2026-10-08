@@ -27,6 +27,7 @@ publish = false
 thadam-core = { path = "crates/thadam-core" }
 
 arrow-array = "60"
+prometheus-client = "0.25"
 arrow-buffer = "60"
 arrow-ipc = "60"
 arrow-schema = "60"
