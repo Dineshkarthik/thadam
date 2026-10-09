@@ -10,6 +10,7 @@ members = [
     "crates/thadam-segments",
     "crates/thadam-object-store",
     "crates/thadam-mqtt",
+    "crates/thadam-http",
     "crates/thadam-testkit",
     "apps/thadam-cli",
 ]

@@ -29,6 +29,7 @@
 
 # Sources
 
+- [HTTP](sources/http.md)
 - [MQTT](sources/mqtt.md)
 
 # Sinks

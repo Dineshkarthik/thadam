@@ -1,0 +1,31 @@
+[package]
+name = "thadam-http"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+axum = { workspace = true }
+bytes = { workspace = true }
+reqwest = { workspace = true }
+thadam-core = { workspace = true }
+rustls-native-certs = { workspace = true }
+rustls-pki-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
+tokio-rustls = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rcgen = { workspace = true }
+thadam-testkit = { path = "../thadam-testkit" }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full", "test-util"] }
+
+[lints]
+workspace = true

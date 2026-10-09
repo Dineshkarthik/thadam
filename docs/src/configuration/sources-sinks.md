@@ -31,6 +31,7 @@ sinks:
 | Kind | Role | Status |
 |---|---|---|
 | `mqtt` | source | Implemented ([MQTT source](../sources/mqtt.md)) |
+| `http` | source | Implemented ([HTTP source](../sources/http.md)) |
 | `parquet` | segment sink | Implemented ([Parquet segments sink](../sinks/parquet.md)) |
 | `object_store` | shipper service | Implemented ([object storage sink](../sinks/object-store.md)); configured under `sinks:` and runs as a service shipping the named segment sink |
 | ClickHouse | batch sink | **Planned (P1)**; not registered with this binary ([design](../sinks/clickhouse.md)) |

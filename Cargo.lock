@@ -2140,6 +2140,7 @@ dependencies = [
  "clap",
  "thadam-config",
  "thadam-core",
+ "thadam-http",
  "thadam-mqtt",
  "thadam-object-store",
  "thadam-runtime",
@@ -2185,6 +2186,28 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "thadam-http"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "bytes",
+ "rcgen",
+ "reqwest",
+ "thadam-core",
+ "thadam-testkit",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
 ]
 
 [[package]]
