@@ -1,8 +1,8 @@
 //! The `thadam-simulator` binary: a seeded MQTT fleet for the Thadam
 //! edge-capture demo.
 //!
-//! Exit codes mirror `thadam`: 0 ok, 1 runtime failure, 2 usage or
-//! configuration error.
+//! Exit codes mirror `thadam`: 0 ok, 1 runtime failure or a failed `verify`,
+//! 2 usage or configuration error.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -12,6 +12,7 @@ use thadam_simulator::SimError;
 use thadam_simulator::config::FleetConfig;
 use thadam_simulator::oracle::OracleStats;
 use thadam_simulator::runner::{self, RunParams, parse_broker_url};
+use thadam_simulator::verify;
 
 #[derive(Parser)]
 #[command(
@@ -33,6 +34,9 @@ enum Command {
     Run(RunArgs),
     /// Aggregate an oracle file: row counts per stream and expected outcome.
     OracleStats(StatsArgs),
+    /// Check delivered Parquet against an oracle (read only). Exits 1 when
+    /// any check fails.
+    Verify(VerifyArgs),
 }
 
 #[derive(Args)]
@@ -87,6 +91,24 @@ struct StatsArgs {
     /// The oracle NDJSON file.
     path: PathBuf,
     /// Print JSON instead of a table.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+struct VerifyArgs {
+    /// The oracle NDJSON file written by `run`.
+    #[arg(long, value_name = "PATH")]
+    oracle: PathBuf,
+    /// The sink directory whose `ready/` tree is verified (one subdirectory
+    /// per dataset).
+    #[arg(long, value_name = "DIR")]
+    ready: PathBuf,
+    /// A quarantine directory; its Parquet rows are counted against the
+    /// oracle's malformed messages.
+    #[arg(long, value_name = "DIR")]
+    quarantine: Option<PathBuf>,
+    /// Print a JSON report instead of a table.
     #[arg(long)]
     json: bool,
 }
@@ -223,14 +245,33 @@ fn oracle_stats(args: &StatsArgs) -> Result<(), SimError> {
     Ok(())
 }
 
+fn verify_delivery(args: &VerifyArgs) -> Result<bool, SimError> {
+    let report = verify::verify(
+        &args.oracle,
+        &args.ready.join("ready"),
+        args.quarantine.as_deref(),
+    )?;
+    if args.json {
+        let text = serde_json::to_string_pretty(&report.to_json())
+            .map_err(|e| SimError::Config(format!("render report: {e}")))?;
+        println!("{text}");
+    } else {
+        print!("{}", report.render());
+        println!("verify: {}", if report.passed() { "PASS" } else { "FAIL" });
+    }
+    Ok(report.passed())
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match &cli.command {
-        Command::Run(args) => run_fleet(args),
-        Command::OracleStats(args) => oracle_stats(args),
+        Command::Run(args) => run_fleet(args).map(|()| true),
+        Command::OracleStats(args) => oracle_stats(args).map(|()| true),
+        Command::Verify(args) => verify_delivery(args),
     };
     match result {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::FAILURE,
         Err(e) if e.is_config() => {
             eprintln!("thadam-simulator: {e}");
             ExitCode::from(2)

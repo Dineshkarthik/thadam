@@ -2,10 +2,11 @@
 //!
 //! Boots Mosquitto in a container (with the demo's `mosquitto.conf`), runs
 //! the simulator for ~10 s with raised chaos rates, runs `thadam run` on the
-//! demo's level-1 config against it, drains, and then checks that the
-//! Parquet row counts per dataset equal the oracle's acknowledged `deliver`
-//! samples — and that the quarantine row count equals the oracle's
-//! acknowledged `malformed` samples.
+//! demo's level-1 config against it, drains, and then runs the simulator's
+//! `verify` check: the delivered Parquet must contain exactly the oracle's
+//! acknowledged `deliver` samples, the quarantine row count must equal the
+//! acknowledged `malformed` messages, and no filtered or repeated sample may
+//! appear.
 //!
 //! These are `#[ignore]`d so `cargo nextest run` passes without Docker; run
 //! them with
@@ -29,9 +30,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use parquet::file::reader::{FileReader, SerializedFileReader};
 use thadam_simulator::oracle::{Expected, OracleRow, read_all};
-use thadam_simulator::types::Stream;
+use thadam_simulator::verify;
 
 /// The pinned broker image (public Docker Hub, same line as the demo).
 const MQTT_IMAGE: &str = "eclipse-mosquitto:2";
@@ -200,39 +200,6 @@ fn sigterm(child: &Child) {
     assert!(status.success(), "kill -TERM {pid}");
 }
 
-/// Every `.parquet` file under `dir`, recursively.
-fn parquet_files(dir: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.extension().is_some_and(|e| e == "parquet") {
-                out.push(path);
-            }
-        }
-    }
-    out.sort();
-    out
-}
-
-/// Total rows across a set of Parquet files (footer metadata only).
-fn parquet_rows(files: &[PathBuf]) -> i64 {
-    let mut rows = 0i64;
-    for file in files {
-        let opened = std::fs::File::open(file).unwrap_or_else(|e| panic!("open {file:?}: {e}"));
-        let reader = SerializedFileReader::new(opened)
-            .unwrap_or_else(|e| panic!("parquet read {file:?}: {e}"));
-        rows += reader.metadata().file_metadata().num_rows();
-    }
-    rows
-}
-
 fn tail(path: &Path, lines: usize) -> String {
     let mut buf = String::new();
     if let Ok(mut f) = std::fs::File::open(path) {
@@ -382,37 +349,17 @@ fn end_to_end_delivery_matches_the_oracle() {
         "chaos coverage: malformed={malformed_messages} duplicates={duplicates} filtered={debug_filtered}"
     );
 
-    let mut failures = Vec::new();
-    for stream in Stream::ALL {
-        let name = stream.as_str();
-        let files = parquet_files(&data_dir.join("sinks/local/ready").join(name));
-        let actual = parquet_rows(&files) as u64;
-        let expected_rows = deliver.get(name).copied().unwrap_or(0);
-        let note = format!(
-            "dataset {name}: parquet rows {actual} != oracle deliver {expected_rows} ({} files)",
-            files.len()
-        );
-        if files.is_empty() {
-            failures.push(format!("dataset {name}: no parquet files at all"));
-        } else if actual != expected_rows {
-            failures.push(note);
-        }
-    }
-
-    let quarantine_files = parquet_files(&data_dir.join("quarantine/local/ready/_quarantine"));
-    let quarantined = parquet_rows(&quarantine_files) as u64;
-    if quarantined != malformed_messages {
-        failures.push(format!(
-            "quarantine rows {quarantined} != oracle malformed messages {malformed_messages} ({} files)",
-            quarantine_files.len()
-        ));
-    }
-
+    let report = verify::verify(
+        &oracle_path,
+        &data_dir.join("sinks/local/ready"),
+        Some(&data_dir.join("quarantine/local/ready")),
+    )
+    .expect("verify");
     assert!(
-        failures.is_empty(),
-        "mismatches:\n  {}\n\noracle: {}\nthadam log tail:\n{}\nsim log tail:\n{}",
-        failures.join("\n  "),
-        dir.path().join("oracle.ndjson").display(),
+        report.passed(),
+        "verify failed (oracle: {})\n{}\nthadam log tail:\n{}\nsim log tail:\n{}",
+        oracle_path.display(),
+        report.render(),
         tail(&thadam_log, 60),
         tail(&sim_log, 20)
     );

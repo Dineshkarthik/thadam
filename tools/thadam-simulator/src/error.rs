@@ -25,6 +25,12 @@ pub enum SimError {
         source: std::io::Error,
     },
 
+    /// A verification that could not run: oracle or Parquet I/O, or a Parquet
+    /// file missing the identity columns. Findings are not errors; they live
+    /// in the report and drive the exit code.
+    #[error("verify: {0}")]
+    Verify(String),
+
     /// Generic I/O (logs, config files).
     #[error(transparent)]
     Io(#[from] std::io::Error),

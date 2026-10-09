@@ -56,7 +56,7 @@ def arrow_re: "^(arrow|arrow-.+|parquet)$";
     "thadam-testkit": []
   } as $allowed_dependents
 
-| ["thadam-arrow", "thadam-segments", "thadam-clickhouse"] as $arrow_users
+| ["thadam-arrow", "thadam-segments", "thadam-clickhouse", "thadam-simulator"] as $arrow_users
 
 | [
     ($forbidden_transitive | to_entries[] | .key as $c | .value as $re

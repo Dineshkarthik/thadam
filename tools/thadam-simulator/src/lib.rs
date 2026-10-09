@@ -30,6 +30,7 @@ pub mod rng;
 pub mod runner;
 pub mod stats;
 pub mod types;
+pub mod verify;
 
 pub use error::SimError;
 
