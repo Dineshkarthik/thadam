@@ -1,11 +1,12 @@
 # ROS 2
 
-Thadam's ROS 2 support is staged (ADR-0007). **Stage 1, the transport-independent decoder crate `thadam-ros2-msg`, is what exists today**: it parses ROS 2 `.msg` definitions and decodes CDR payloads into Thadam records, so every later source decodes the same way. There is no ROS 2 source connector yet.
+Thadam's ROS 2 support is staged (ADR-0007). Stage 1 (`thadam-ros2-msg`, the transport-independent `.msg` parser and CDR decoder) and the Stage 2 file source (`thadam-mcap`, replaying MCAP and rosbag2-MCAP recordings) exist today.
 
 | Stage | Status |
 |---|---|
 | Stage 1: `thadam-ros2-msg` (.msg parser + CDR decoder) | **Done** |
-| Stage 2: MCAP / rosbag2 file source, `thadam export --mcap`, `examples/ros2-mcap-to-parquet` | Planned |
+| Stage 2: MCAP / rosbag2 file source (`thadam-mcap`) | **Done** |
+| Stage 2, rest: `thadam export --mcap`, `examples/ros2-mcap-to-parquet` | Planned |
 | Stage 3: live-transport spike (Zenoh-native, sidecar, `r2r`) | Planned |
 | Stage 4: live ROS 2 source | Planned |
 
@@ -65,3 +66,68 @@ let record = msg.decode(&payload)?;                          // Record or Thadam
 ```
 
 The parsed definition, including constants, is available as `registry.spec(type_name)`. See the crate rustdoc for the full surface. Performance on the reference machine (Apple Silicon): `sensor_msgs/JointState` (6 joints) decodes at roughly 2.4 M messages/s (~420 ns each), `sensor_msgs/Imu` at roughly 3.5 M messages/s (~290 ns each) — see `cargo bench -p thadam-ros2-msg`.
+
+## MCAP file source
+
+The `mcap` source replays one or more [MCAP](https://mcap.dev) files — including rosbag2's MCAP storage format — as one finite stream, merged in log-time order. Built as the `thadam-mcap` crate on the pure-Rust `mcap` crate (with the zstd and lz4 chunk decompressors), satisfying ADR-0007 stage 2. It is a *file* source: there is no broker, no session, and nothing to acknowledge.
+
+```yaml
+sources:
+  - id: rosbag
+    kind: mcap
+    config:
+      paths: [/bags/run-12, /bags/run-13.mcap]
+      topics: [/joint_states, /tf/]
+      start: 2026-10-01T12:00:00Z
+      end: 1_759_363_200_000_000_000
+      pace: realtime
+      decode: ros2
+```
+
+### Configuration
+
+Unknown keys are rejected. `paths` is the only required key.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `paths` | list | — | **Required, non-empty.** MCAP files, or directories scanned one level deep for `*.mcap`. Duplicates are removed, the list is sorted, and all files are merged into one stream. |
+| `topics` | list | all | Topic allow-list: exact names, or prefixes when the entry ends with `/` (`/tf/` matches `/tf/static` but `/tf` is not a prefix). |
+| `start` / `end` | log time | unbounded | Inclusive bounds on the MCAP log time: an RFC 3339 string or integer nanoseconds since the Unix epoch. `start` must not be after `end`. |
+| `pace` | `max`, `realtime`, or a positive number | `max` | Replay pace. `max` reads as fast as possible; `realtime` preserves the original inter-message gaps; a number is a time factor (`2.0` halves gaps, `0.5` doubles them). A single gap never sleeps longer than a day. |
+| `decode` | `raw` or `ros2` | `raw` | See below. Payloads stay raw in both modes. |
+
+`paths` may name files being copied into place: a missing file is a transient `connector.connect_failed` error, so the run retries; a directory with no `*.mcap` in it fails validation as `config.invalid`. A truncated or corrupt file (bad magic, a cut record, a failed chunk CRC, unsupported compression) is a permanent, classified `connector.protocol` error, never a panic — and a file that ends before its `DataEnd` record is treated as truncated, so partial replays never pass silently as complete ones.
+
+### `decode: raw` versus `decode: ros2`
+
+The source never turns payload bytes into records — that is the transform chain's job, matching ADR-0007's separation of transport and schema. `decoded` records can be produced by a (future) transform step calling `thadam_mcap::decode_ros2(schema_name, schema_text, payload)`, which runs the same `thadam-ros2-msg` pipeline described above. The difference:
+
+- `raw` passes every channel through untouched.
+- `ros2` pre-flights each channel whose schema encoding is `ros2msg`: the schema is registered and compiled when the channel is first seen, so a schema that does not compile fails `open` (a `schema.*` error naming the file) instead of surprising the pipeline mid-run. Messages on such channels additionally carry `mcap.ros2.fields` (see below).
+
+### Ordering, timing, and replay determinism
+
+Files are merged by MCAP log time; ties break by sorted file path, then write order. Within one file the stream follows file (write) order — recorders write log-time-ordered streams. **With `pace: max`, each message's ingest time is set to its MCAP log time**, so replaying the same inputs lands byte-identical in the WAL: replays are deterministic. With a paced replay the ingest time is the wall clock at emission, like a live capture. Pacing follows emitted messages: a filtered-out message does not contribute to gaps, and out-of-order log times never sleep negative. `BatchLimits.linger` bounds how long one paced pull waits to fill its batch, exactly as for the network sources.
+
+### Messages, attributes, and acknowledgements
+
+Each MCAP message becomes one raw message with these attributes:
+
+| Attribute | Value |
+|---|---|
+| `topic` | The channel's topic (the normalized attribute read by `match.topic` filters and `{topic.N}` identity templates). |
+| `mcap.topic` | The channel's topic, namespaced. |
+| `mcap.schema_name` | The schema name (for example `sensor_msgs/msg/JointState`), or `""` for schemaless channels. |
+| `mcap.schema_encoding` | For example `ros2msg` or `jsonschema`, or `""`. |
+| `mcap.message_encoding` | For example `cdr` or `json`. |
+| `mcap.channel_id` | The channel id, decimal. |
+| `mcap.sequence` | The recorder's sequence number, decimal. |
+| `mcap.log_time` | The MCAP log time, nanoseconds, decimal. |
+| `mcap.publish_time` | The MCAP publish time, nanoseconds, decimal. |
+| `mcap.ros2.fields` | With `decode: ros2` only, and only on channels with a `ros2msg` schema: the comma-separated flattened field names of the compiled shape (for example `header.stamp.sec,header.stamp.nanosec,header.stamp,header.frame_id,name,position,velocity,effort`). |
+
+The source is finite: it ends with `None` once the inputs are drained. Acks are no-ops (`ack_mode: none`) and stay ordered trivially, because files are re-readable: replay is idempotent from the input, so after a crash or restart the source simply reads the files again from the start and nothing is skipped or acknowledged early.
+
+### Performance note
+
+Files stream from disk one chunk at a time (peak memory is one chunk record plus its decompressed form; the reader is safe Rust throughout — no mmap). Chunk reads and decompression run synchronously inside batch pulls; per-chunk cost is small next to a WAL commit.

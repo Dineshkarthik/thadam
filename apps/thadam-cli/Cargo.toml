@@ -17,6 +17,7 @@ thadam-runtime = { path = "../../crates/thadam-runtime" }
 thadam-mqtt = { path = "../../crates/thadam-mqtt" }
 thadam-http = { path = "../../crates/thadam-http" }
 thadam-grpc = { path = "../../crates/thadam-grpc" }
+thadam-mcap = { path = "../../crates/thadam-mcap" }
 thadam-segments = { path = "../../crates/thadam-segments" }
 thadam-wal = { path = "../../crates/thadam-wal" }
 thadam-object-store = { path = "../../crates/thadam-object-store" }

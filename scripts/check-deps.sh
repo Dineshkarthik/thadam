@@ -55,6 +55,7 @@ def arrow_re: "^(arrow|arrow-.+|parquet)$";
     "thadam-segments": ["thadam-cli", "thadam-object-store", "thadam-python"],
     "thadam-object-store": ["thadam-cli", "thadam-python"],
     "thadam-clickhouse": ["thadam-cli"],
+    "thadam-mcap": ["thadam-cli"],
     "thadam-testkit": []
   } as $allowed_dependents
 

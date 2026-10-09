@@ -13,6 +13,7 @@ members = [
     "crates/thadam-ros2-msg",
     "crates/thadam-http",
     "crates/thadam-grpc",
+    "crates/thadam-mcap",
     "crates/thadam-testkit",
     "apps/thadam-cli",
     "tools/thadam-simulator",
@@ -33,6 +34,7 @@ default-members = [
     "crates/thadam-ros2-msg",
     "crates/thadam-http",
     "crates/thadam-grpc",
+    "crates/thadam-mcap",
     "crates/thadam-testkit",
     "apps/thadam-cli",
     "tools/thadam-simulator",
@@ -71,6 +73,10 @@ crc32c = "0.6.8"
 csv = "1.4"
 humantime = "2.4"
 lru = "0.18"
+# MCAP / rosbag2 file source (thadam-mcap, ADR-0007 stage 2): MIT, Foxglove,
+# pure Rust. Default features keep the zstd and lz4 chunk decompressors,
+# which rosbag2 recordings need.
+mcap = "0.25"
 # S3-compatible shipping (thadam-object-store). The `aws` feature is NOT used:
 # it requests rustls with the aws-lc provider. `aws-base` compiles the S3
 # provider by itself, `reqwest` supplies the transport, and `ring` the crypto
