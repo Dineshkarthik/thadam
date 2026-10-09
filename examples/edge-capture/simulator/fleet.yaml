@@ -1,0 +1,56 @@
+# Thadam edge-capture demo fleet (plan section 3): 2 sites x 3 robots,
+# seed 42. Values here equal the simulator's built-in defaults; they are
+# spelled out so the demo's behavior is visible and tunable. CLI flags
+# (--seed, --scale, --malformed-rate, ...) override them at launch.
+
+seed: 42
+topic_prefix: thadam-demo/v1
+scale: 1                      # robots-per-site multiplier (benchmarks raise this)
+sites: [site-a, site-b]
+robots_per_site: 3            # site-a/robot-01..03, site-b/robot-04..06
+
+rates:
+  telemetry_hz: 10            # 1 sample per message
+  joints_hz: 100              # 100 Hz samples...
+  joints_batch: 10            # ...10 samples per message (10 msg/s)
+  imu_hz: 200
+  imu_batch: 20               # 10 msg/s
+  pose_hz: 50
+  pose_batch: 5               # 10 msg/s
+  events_per_second: 0.5      # ~Poisson background events (alarms, debug)
+  debug_event_share: 0.4      # share of background events the pipeline filters
+
+behavior:
+  idle_seconds: [2, 8]        # dwell between cycles
+  cycle_seconds: [5, 20]
+  pause_seconds: [1, 5]
+  fault_seconds: [2, 6]
+  estop_seconds: [5, 15]
+  fault_probability: 0.02     # per cycle
+  pause_probability: 0.03     # per cycle
+  estop_probability: 0.005    # per cycle
+
+state:
+  heartbeat_seconds: 60                   # simulator republishes current state
+  on_change_heartbeat_seconds: 300        # matches the pipeline transform (oracle expectation)
+  programs: [pick-and-place, palletize, line-inspect]
+
+# Every chaos decision is seeded and recorded in the oracle
+# (/oracle/oracle.ndjson inside the container).
+chaos:
+  malformed_rate: 0.001           # truncated JSON -> Thadam quarantine
+  duplicate_publish_rate: 0.005   # identical republish 0..3 s later -> dedup drop
+  duplicate_delay_seconds: [0, 3]
+  out_of_range_rate: 0.0005       # motor temp 400 C -> validate flag (still delivered)
+  clock_skew:
+    robot: robot-04               # runs +90 s fast -> CLOCK_SKEW flag
+    offset_seconds: 90
+  missing_ts:
+    robot: robot-05               # omits ts_us on 1% of telemetry -> null event time
+    stream: telemetry
+    rate: 0.01
+  out_of_order:
+    robot: robot-03               # delays 1% of pose by 500 ms
+    stream: pose
+    rate: 0.01
+    delay_ms: 500

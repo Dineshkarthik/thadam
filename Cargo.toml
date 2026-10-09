@@ -13,6 +13,7 @@ members = [
     "crates/thadam-http",
     "crates/thadam-testkit",
     "apps/thadam-cli",
+    "tools/thadam-simulator",
 ]
 # Spikes are standalone projects with their own [workspace] table.
 exclude = ["spikes"]
@@ -28,6 +29,11 @@ publish = false
 thadam-core = { path = "crates/thadam-core" }
 
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
+hyper = { version = "1", default-features = false, features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["http1", "server", "tokio"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+rustls-pemfile = { version = "2", default-features = false, features = ["std"] }
+url = "2.5"
 arrow-array = "60"
 prometheus-client = "0.25"
 arrow-buffer = "60"
@@ -51,6 +57,10 @@ object_store = { version = "0.14", default-features = false, features = ["aws-ba
 parquet = { version = "60", default-features = false, features = ["arrow", "snap", "zstd", "lz4"] }
 reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls-no-provider"] }
 prost = { version = "0.14.4", default-features = false, features = ["derive", "std"] }
+# Simulator (tools/thadam-simulator): 0.9 pairs with the rand_chacha 0.9 already
+# in the lock file (proptest); rand 0.10 is not adopted yet.
+rand = "0.9"
+rand_chacha = "0.9"
 # No TLS feature on purpose: every one of them pulls rustls-webpki ^0.102.8, which
 # cannot reach the patched 0.103.x (RUSTSEC-2026-0049/-0098/-0099/-0104). TLS is
 # terminated in thadam-mqtt with tokio-rustls + ring (crates/thadam-mqtt/src/tls.rs).

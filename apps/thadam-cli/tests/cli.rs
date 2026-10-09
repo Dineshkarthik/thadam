@@ -83,7 +83,16 @@ fn validate_fails_with_exit_2_when_secrets_are_unresolved() {
     let stderr = text(&out.stderr);
     assert!(stderr.contains("error[config.missing]"), "{stderr}");
     assert!(stderr.contains("sinks[1].config.access_key_id"), "{stderr}");
-    assert!(stderr.contains("pipeline.yaml:170:22"), "{stderr}");
+    let source = std::fs::read_to_string(example()).expect("read example");
+    let line = source
+        .lines()
+        .position(|l| l.trim_start().starts_with("access_key_id:"))
+        .map(|i| i + 1)
+        .expect("example declares access_key_id");
+    assert!(
+        stderr.contains(&format!("pipeline.yaml:{line}:")),
+        "expected a diagnostic at line {line}: {stderr}"
+    );
     assert!(
         text(&out.stdout).is_empty(),
         "nothing on stdout for an invalid config"

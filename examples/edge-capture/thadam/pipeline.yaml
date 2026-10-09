@@ -19,12 +19,12 @@ sources:
     config:
       url: mqtt://toxiproxy:21883
       client_id: thadam-edge-01            # stable: persistent session
-      clean_start: false
-      session_expiry: 1d
+      clean_start: false                  # persistent session; the v5 session_expiry key is
+                                          # omitted (this connection is MQTT 3.1.1)
       keep_alive: 15s
       topics: [{ filter: "thadam-demo/v1/+/+/+", qos: 1 }]
       ack_mode: on_commit
-      max_message_bytes: 1MiB
+      max_message_bytes: 1048576          # 1 MiB (connector schema is integer bytes)
       expected_broker_window: 20          # Mosquitto's default
 
 wal:
@@ -34,10 +34,16 @@ wal:
   on_full: block                          # explicit; see scenario F7 for drop_oldest
   retain_for: 1h                          # replay window, bounded by max_disk
 
-quarantine: { format: parquet, max_disk: 256MiB }
+quarantine: { format: parquet, max_disk: 268435456 }   # 256 MiB (connector schema: integer bytes)
 
 # Dataset schemas (field `id`s, identity level `id`s, `explode`) are declared
 # once, here; sinks select datasets by id in their `config.datasets` list.
+# PR15 note: `state` and `events` carry a 50k dedup window too — the demo
+# simulator's duplicate-publish chaos applies to every stream, and message-level
+# dedup must see all six for the oracle's `duplicate_of` expectation to hold.
+# Connector config blocks (sources/sinks) take sizes in integer bytes and
+# durations in integer seconds; the human forms (1MiB, 60s) validate but the
+# connector runtime parse is integer-typed (PR15 end-to-end discovery).
 datasets:
   - id: telemetry
     match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/telemetry" }
@@ -113,6 +119,7 @@ datasets:
     decode: json
     identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
     event_id: { key: [site, robot, seq] }
+    dedup: { window: 10m, max_keys: 50k }            # low-volume stream; covers chaos duplicates
     time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
     fields:
       - { id: 1000, name: seq,      type: u64, from: /seq, required: true }
@@ -125,6 +132,7 @@ datasets:
     decode: json
     identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
     event_id: { key: [site, robot, seq] }
+    dedup: { window: 10m, max_keys: 50k }            # low-volume stream; covers chaos duplicates
     time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
     fields:
       - { id: 1000, name: seq,        type: u64, from: /seq, required: true }
@@ -152,10 +160,10 @@ sinks:
     config:
       datasets: [telemetry, joints, imu, pose, state, events]
       compression: auto                     # zstd(1) on x86_64, snappy on aarch64 (pending bench B6)
-      row_group_bytes: 8MiB
-      rotation: { max_bytes: 64MiB, max_age: 60s }   # demo; production default 5m
+      row_group_bytes: 8388608                # 8 MiB (connector schema: integer bytes)
+      rotation: { max_bytes: 67108864, max_age: 60 }   # 64 MiB or 60 s; production default 5m
       max_open_files: 6
-      max_disk: 4GiB
+      max_disk: 4294967296                    # 4 GiB
       timestamp_unit: micros              # micros default; nanos opt-in
       finalize_on_shutdown: true
   - id: s3
@@ -170,8 +178,8 @@ sinks:
       access_key_id: "${file:/run/secrets/minio_uploader_key}"
       secret_access_key: "${file:/run/secrets/minio_uploader_secret}"
       upload_concurrency: 2
-      multipart_threshold: 32MiB
-      part_size: 8MiB
+      multipart_threshold: 33554432   # 32 MiB
+      part_size: 8388608              # 8 MiB
       conditional_put: auto                 # probe at startup; falls back to overwrite (safe: immutable files)
       retry: { initial: 1s, max: 60s, jitter: true }   # infinite, visible via metrics
       local_retention: { mode: delete_after_upload, keep_for: 30m }

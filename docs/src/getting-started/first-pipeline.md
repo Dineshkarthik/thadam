@@ -123,13 +123,23 @@ docker exec thadam-mosquitto mosquitto_pub -t robots/robot42/telemetry -q 1 \
 
 Stop Thadam with Ctrl-C (SIGINT) or SIGTERM: it drains the source queue into the WAL, finalizes open files, commits cursors, and exits 0. A second signal forces an immediate exit; the WAL recover the rest on the next start.
 
-### Current limitation
+### What lands next
 
-The `parquet` sink is fully working, so the pipeline above runs end to end: messages land in Parquet segments under the data directory. What is still landing is the `object_store` shipper ([project status](../introduction.md#project-status)): its registered factory is a placeholder, so a configuration containing an `object_store` sink validates but fails the pipeline build with a connector error ("Object store sink not yet implemented") and exit code 1. Local segments work today; shipping them off the node becomes end-to-end once the shipper lands. The README status banner and [readiness](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md) track the change.
+The pipeline above runs end to end today, and local Parquet segments plus the `object_store` shipper are both wired: a configuration with an S3-compatible sink builds, runs, and uploads finalized segments (see [object storage](../sinks/object-store.md)). The pieces still ahead are replay (`thadam replay`, PR17), and the chaos suites, oracle verifier, and published benchmarks (PR18). The README status banner and [readiness](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md) track them.
 
-## 5. A larger example
+## 5. A larger example: the `edge-capture` demo
 
-The repository ships a fuller demo configuration with a simulated fleet, six datasets (telemetry, joints, IMU, pose, state, events), quality transforms, quarantine, and an S3-compatible target behind a proxy: [`examples/edge-capture/thadam/pipeline.yaml`](https://github.com/Dineshkarthik/thadam/blob/main/examples/edge-capture/thadam/pipeline.yaml). It checks out of the box on a machine without the demo secrets:
+The repository ships a full self-checking demo in [`examples/edge-capture/`](https://github.com/Dineshkarthik/thadam/tree/main/examples/edge-capture): a seeded simulator publishes a six-robot fleet (telemetry, joints, IMU, pose, state, events) over Mosquitto, and records every sample in an append-only oracle so delivered rows can be checked against the truth. Thadam runs natively; Mosquitto, Toxiproxy, an optional SeaweedFS S3 level, and an optional Prometheus/Grafana profile come from one compose file:
+
+```bash
+cd examples/edge-capture
+make up          # broker + toxiproxy + simulator
+make run-native  # thadam on thadam/pipeline.local.yaml (local Parquet)
+make query       # DuckDB over the segments
+make up-s3 && make run-native CONFIG=thadam/pipeline.s3.local.yaml   # level 2: + S3
+```
+
+The walkthrough, topology, oracle schema, and chaos notes are in the [demo README](https://github.com/Dineshkarthik/thadam/tree/main/examples/edge-capture). The reference configuration it derives from is [`examples/edge-capture/thadam/pipeline.yaml`](https://github.com/Dineshkarthik/thadam/blob/main/examples/edge-capture/thadam/pipeline.yaml), which checks out of the box on a machine without the demo secrets:
 
 ```bash
 thadam validate --allow-unresolved examples/edge-capture/thadam/pipeline.yaml

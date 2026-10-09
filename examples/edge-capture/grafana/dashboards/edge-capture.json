@@ -1,0 +1,189 @@
+{
+  "title": "Thadam edge-capture",
+  "uid": "thadam-edge-capture",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "timezone": "utc",
+  "graphTooltip": 1,
+  "tags": ["demo", "thadam"],
+  "editable": true,
+  "panels": [
+    { "id": 1, "type": "row", "title": "Intake vs written", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+    {
+      "id": 2, "type": "timeseries", "title": "Messages in vs chain events",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(thadam_source_messages_total[1m]))", "legendFormat": "in msg/s" },
+        { "refId": "B", "expr": "sum by (outcome) (rate(thadam_chain_events_total[1m]))", "legendFormat": "{{outcome}}" }
+      ]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Source connected",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "targets": [ { "refId": "A", "expr": "max(thadam_source_connected)" } ],
+      "fieldConfig": { "defaults": { "mappings": [ { "type": "value", "options": { "0": { "text": "down", "color": "red" }, "1": { "text": "up", "color": "green" } } } ] }, "overrides": [] }
+    },
+    {
+      "id": 4, "type": "stat", "title": "Oldest unacked age",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "max(thadam_ack_oldest_age_seconds)" } ]
+    },
+    {
+      "id": 5, "type": "stat", "title": "Source drops (5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "targets": [ { "refId": "A", "expr": "sum(increase(thadam_source_dropped_total[5m]))" } ]
+    },
+    {
+      "id": 6, "type": "stat", "title": "Clock synced",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 5 },
+      "targets": [ { "refId": "A", "expr": "max(thadam_clock_synced)" } ],
+      "fieldConfig": { "defaults": { "mappings": [ { "type": "value", "options": { "0": { "text": "no", "color": "orange" }, "1": { "text": "yes", "color": "green" } } } ] }, "overrides": [] }
+    },
+    { "id": 7, "type": "row", "title": "WAL and durability", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 } },
+    {
+      "id": 8, "type": "timeseries", "title": "WAL commit seconds p50/p99",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 10, "x": 0, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.5, sum by (le) (rate(thadam_wal_commit_seconds_bucket[1m])))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.99, sum by (le) (rate(thadam_wal_commit_seconds_bucket[1m])))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "WAL disk vs budget",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 10, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "max(thadam_wal_disk_bytes)", "legendFormat": "disk" },
+        { "refId": "B", "expr": "max(thadam_wal_budget_bytes)", "legendFormat": "budget" }
+      ]
+    },
+    {
+      "id": 10, "type": "stat", "title": "WAL evicted bytes",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 3, "x": 18, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "sum(thadam_wal_evicted_bytes_total)" } ]
+    },
+    {
+      "id": 11, "type": "stat", "title": "Recovery seconds",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 3, "x": 21, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "max(thadam_recovery_seconds)" } ]
+    },
+    { "id": 12, "type": "row", "title": "Segments and lag", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 } },
+    {
+      "id": 13, "type": "timeseries", "title": "Segment files by state",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 9, "x": 0, "y": 19 },
+      "fieldConfig": { "defaults": { "custom": { "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "sum by (state) (thadam_segment_files)", "legendFormat": "{{state}}" } ]
+    },
+    {
+      "id": 14, "type": "timeseries", "title": "Sink lag",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 9, "x": 9, "y": 19 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "max by (sink) (thadam_sink_lag_bytes)", "legendFormat": "{{sink}} bytes" }
+      ]
+    },
+    {
+      "id": 15, "type": "stat", "title": "Segment finalize p99",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 19 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "histogram_quantile(0.99, sum by (le) (rate(thadam_segment_finalize_seconds_bucket[5m])))" } ]
+    },
+    {
+      "id": 16, "type": "stat", "title": "Sink lag (oldest)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 23 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "max(thadam_sink_lag_seconds)" } ]
+    },
+    { "id": 17, "type": "row", "title": "Shipping (S3)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 } },
+    {
+      "id": 18, "type": "timeseries", "title": "Upload bytes/s",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "sum(rate(thadam_ship_bytes_total[1m]))", "legendFormat": "bytes/s" } ]
+    },
+    {
+      "id": 19, "type": "timeseries", "title": "Uploads by outcome (5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 6, "x": 8, "y": 28 },
+      "targets": [ { "refId": "A", "expr": "sum by (outcome) (increase(thadam_ship_uploads_total[5m]))", "legendFormat": "{{outcome}}" } ]
+    },
+    {
+      "id": 20, "type": "stat", "title": "Oldest retry age",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 5, "x": 14, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "max(thadam_ship_retry_age_seconds)" } ]
+    },
+    {
+      "id": 21, "type": "timeseries", "title": "Upload seconds p50/p99",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 5, "x": 19, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.5, sum by (le) (rate(thadam_ship_upload_seconds_bucket[1m])))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.99, sum by (le) (rate(thadam_ship_upload_seconds_bucket[1m])))", "legendFormat": "p99" }
+      ]
+    },
+    { "id": 22, "type": "row", "title": "Quality, dedup, quarantine", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 } },
+    {
+      "id": 23, "type": "timeseries", "title": "Chain outcomes by dataset",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 11, "x": 0, "y": 37 },
+      "targets": [ { "refId": "A", "expr": "sum by (dataset, outcome) (rate(thadam_chain_events_total[1m]))", "legendFormat": "{{dataset}}/{{outcome}}" } ]
+    },
+    {
+      "id": 24, "type": "stat", "title": "Rejects (5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 11, "y": 37 },
+      "targets": [ { "refId": "A", "expr": "sum(increase(thadam_rejects_total[5m]))" } ]
+    },
+    {
+      "id": 25, "type": "timeseries", "title": "Quality flags (5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 9, "x": 15, "y": 37 },
+      "targets": [ { "refId": "A", "expr": "sum by (flag) (increase(thadam_quality_flags_total[5m]))", "legendFormat": "{{flag}}" } ]
+    },
+    { "id": 26, "type": "row", "title": "Process", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 45 } },
+    {
+      "id": 27, "type": "timeseries", "title": "RSS",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 46 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "max(process_resident_memory_bytes)", "legendFormat": "rss" } ]
+    },
+    {
+      "id": 28, "type": "timeseries", "title": "CPU (cores)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 46 },
+      "fieldConfig": { "defaults": { "decimals": 2 }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "sum(rate(process_cpu_seconds_total[1m]))", "legendFormat": "cores" } ]
+    },
+    {
+      "id": 29, "type": "stat", "title": "Components running",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 46 },
+      "targets": [ { "refId": "A", "expr": "count(thadam_component_state{state=\"running\"})" } ]
+    }
+  ]
+}

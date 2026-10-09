@@ -1,4 +1,6 @@
 target/
 .DS_Store
-examples/**/secrets/
+examples/**/secrets/*
+!examples/**/secrets/.gitkeep
 docs/book/
+examples/**/data/

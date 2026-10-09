@@ -701,7 +701,9 @@ mod estimate {
         assert_eq!(by_label("wal.max_pending"), mib(8));
         assert_eq!(by_label("local` open files"), 6 * 2 * mib(8));
         assert_eq!(by_label("s3` uploads"), 2 * mib(8));
-        assert_eq!(by_label("dedup"), 4 * 500_000 * 48);
+        // PR15: `state` and `events` carry 50k dedup windows as well
+        // (chaos duplicates apply fleet-wide), so 4 x 500k + 2 x 50k keys.
+        assert_eq!(by_label("dedup"), (4 * 500_000 + 2 * 50_000) * 48);
     }
 
     #[test]

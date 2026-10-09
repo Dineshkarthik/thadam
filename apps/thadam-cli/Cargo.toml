@@ -19,6 +19,7 @@ thadam-http = { path = "../../crates/thadam-http" }
 thadam-segments = { path = "../../crates/thadam-segments" }
 thadam-object-store = { path = "../../crates/thadam-object-store" }
 thadam-core = { workspace = true }
+rustls = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "signal", "macros", "fs"] }
 tracing = { workspace = true }

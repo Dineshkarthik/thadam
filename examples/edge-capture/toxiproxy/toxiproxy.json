@@ -1,0 +1,14 @@
+[
+  {
+    "name": "mqtt",
+    "listen": "0.0.0.0:21883",
+    "upstream": "mosquitto:1883",
+    "enabled": true
+  },
+  {
+    "name": "s3",
+    "listen": "0.0.0.0:29000",
+    "upstream": "seaweedfs:9000",
+    "enabled": true
+  }
+]

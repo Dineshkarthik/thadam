@@ -2145,6 +2145,7 @@ dependencies = [
  "thadam-object-store",
  "thadam-runtime",
  "thadam-segments",
+ "rustls",
  "serde_json",
  "tokio",
  "tracing",
@@ -2308,6 +2309,27 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "thadam-simulator"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "humantime",
+ "parquet",
+ "rand 0.9.5",
+ "rand_chacha",
+ "rumqttc",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

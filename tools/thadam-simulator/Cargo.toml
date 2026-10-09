@@ -1,0 +1,40 @@
+[package]
+name = "thadam-simulator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Seeded MQTT fleet simulator for the Thadam edge-capture demo, with a truth-oracle record of every sample it publishes"
+
+[lib]
+name = "thadam_simulator"
+path = "src/lib.rs"
+
+[[bin]]
+name = "thadam-simulator"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+humantime = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+# Same pin and feature rules as crates/thadam-mqtt: no TLS features (they pull a
+# vulnerable rustls-webpki; ADR-0006/ADR-0020). Plain mqtt:// only.
+rumqttc = { workspace = true }
+serde = { workspace = true }
+serde-saphyr = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["fs", "macros", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+parquet = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

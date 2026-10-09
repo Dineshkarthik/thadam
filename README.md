@@ -30,10 +30,12 @@ Thadam is under active development. The architecture and the delivery guarantees
 - The transform chain (`thadam-transform`): router, JSON decode, identity, event IDs, deduplication, `explode`, units, time extraction, and the config-level steps `validate`, `on_change`, and `filter`.
 - The MQTT source (`thadam-mqtt`, [ADR-0006](docs/design/adr/0006-mqtt-client.md)): persistent sessions, acknowledge-after-commit, ordered acks, TLS and mTLS, session-loss detection.
 - The runtime (`thadam-runtime`) with supervisor, shutdown and crash recovery, the admin HTTP API (`/healthz`, `/readyz`, `/metrics`, `/status`), and Prometheus metrics; `thadam run` and `thadam status` exist at the CLI level.
+- The Parquet segment sink (`thadam-segments`) and the object-store shipper (`thadam-object-store`) — locally durable segments, then oldest-first deterministic-key uploads with startup capability probing and unbounded retry.
+- The seeded demo simulator (`tools/thadam-simulator`) and the `edge-capture` demo stack: a 6-robot MQTT fleet with a per-sample truth oracle, Docker Compose topology (Mosquitto, Toxiproxy, SeaweedFS, Prometheus/Grafana), and a DuckDB exploration script.
 
 **In progress:**
 
-- Local Parquet segments (`crates/thadam-segments`) and S3-compatible delivery ([ADR-0013](docs/design/adr/0013-parquet-segment-layout.md)). The `parquet` and `object_store` sink kinds are registered but the factories are still placeholders, so **`thadam run` cannot yet execute a pipeline end to end** and exits at pipeline build with a "sink not yet implemented" error. `thadam validate` and `thadam schema` work fully.
+- Replay (`thadam replay`), the chaos suites, the oracle verifier, and published benchmarks (PR17–PR18). Local Parquet segments (`crates/thadam-segments`) and S3-compatible delivery ([ADR-0013](docs/design/adr/0013-parquet-segment-layout.md)) are wired and run end to end; the seeded demo fleet with its truth oracle lives in [`examples/edge-capture`](examples/edge-capture).
 - ClickHouse is a P1 sink that starts only after the M1 reliability gate ([ADR-0008](docs/design/adr/0008-clickhouse-sink.md), Draft).
 - ROS 2 is milestone M2 and is not part of v0.1 ([ADR-0007](docs/design/adr/0007-ros2-strategy.md), Draft).
 
@@ -150,9 +152,19 @@ thadam status                                  # JSON from the admin API
 curl -s http://127.0.0.1:9464/metrics         # OpenMetrics for Prometheus
 ```
 
-> **Current limitation (see [status](#project-status-pre-alpha)):** at this stage of the build-out, `thadam validate`, `thadam schema`, and `thadam version` work completely, but every sink kind is still a placeholder factory. `thadam run` parses and validates the configuration, opens the data directory, and then exits with code 1 because the `parquet`/`object_store` sinks cannot be built yet ("sink not yet implemented"). End-to-end capture, Parquet segments, and object-store delivery land with PR14–PR16 ([ARCHITECTURE.md](ARCHITECTURE.md) section 21); the commands above are the supported flow from that point on and are shown now so the shape of a deployment is concrete.
+> **Status (see [project status](#project-status-pre-alpha)):** the pipeline above runs end to end today — messages land in Parquet segments under the data directory. The S3 shipper is likewise wired; chaos verification, replay, and published benchmark numbers are PR17–PR18 ([ARCHITECTURE.md](ARCHITECTURE.md) section 21), so nothing here is claimed faster or more durable than the [claims register](docs/design/adr/0011-delivery-guarantees-and-claims-register.md) says.
 
-The full walkthrough, including publishing test messages and checking a config without secrets (`--allow-unresolved`), is in the book's [getting-started pages](docs/src/getting-started/first-pipeline.md). A larger example with six datasets, transforms, and an S3 target lives in [examples/edge-capture/thadam/pipeline.yaml](examples/edge-capture/thadam/pipeline.yaml).
+**6. Skip to the seeded demo?** [`examples/edge-capture`](examples/edge-capture) runs a synthetic six-robot fleet with a truth oracle (so delivered rows can be checked sample-by-sample), the same Mosquitto-with-raised-limits broker behind Toxiproxy, an optional SeaweedFS S3 level, a provisioned Grafana dashboard, and a DuckDB script:
+
+```bash
+cd examples/edge-capture
+make up          # broker + toxiproxy + simulator (builds the simulator image once)
+make run-native  # native thadam on thadam/pipeline.local.yaml (local Parquet)
+make query       # DuckDB over data/sinks/local/ready/**/...
+make down        # (make clean also wipes ./data and the volumes)
+```
+
+The full walkthrough, including publishing test messages and checking a config without secrets (`--allow-unresolved`), is in the book's [getting-started pages](docs/src/getting-started/first-pipeline.md). A larger example with six datasets, transforms, and an S3 target lives in [examples/edge-capture/thadam/pipeline.yaml](examples/edge-capture/thadam/pipeline.yaml) — the demo's README walks both levels (local Parquet, then S3).
 
 ## Delivery guarantees
 

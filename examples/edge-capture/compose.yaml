@@ -1,0 +1,152 @@
+# Thadam edge-capture demo topology (PR15; plan section 2, S3 adapted to
+# SeaweedFS: MinIO stopped publishing community images in late 2025).
+#
+#   mosquitto ──edge── simulator (writes oracle to the `oracle` volume)
+#       ▲
+#   toxiproxy ──edge (mqtt 21883) ──┐          ┌── cloud ── seaweedfs (+ init)
+#       └─────────────cloud (s3 29000) ────────┘
+#
+# Thadam itself runs NATIVELY in this milestone (`make run-native`) and
+# reaches the broker and the S3 gateway only through the published
+# Toxiproxy ports (localhost:21883 / localhost:29000), so the chaos scripts
+# (PR18) will affect native runs too. The simulator publishes DIRECTLY to
+# the broker, so injection affects Thadam's consumption, never production,
+# and the oracle stays a clean record of what was sent.
+#
+# Profiles: default = broker + proxy + simulator; `s3` adds SeaweedFS and
+# its bucket init; `observe` adds Prometheus + Grafana. Images are public
+# Docker Hub / GHCR only, pinned by tag.
+
+name: thadam-edge-capture
+
+networks:
+  edge:
+  cloud:
+
+volumes:
+  mosquitto-data:
+  oracle:
+  seaweedfs-data:
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    networks: [edge]
+    ports:
+      - "127.0.0.1:1883:1883"          # debug access; native runs use the proxy
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "5"]
+      interval: 5s
+      timeout: 4s
+      retries: 30
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    restart: unless-stopped
+    networks: [edge, cloud]
+    command: ["-config", "/config/toxiproxy.json", "-host", "0.0.0.0"]
+    volumes:
+      - ./toxiproxy/toxiproxy.json:/config/toxiproxy.json:ro
+    ports:
+      - "127.0.0.1:21883:21883"        # mqtt proxy (native run)
+      - "127.0.0.1:29000:29000"        # s3 proxy (native run)
+      - "127.0.0.1:8474:8474"          # control API (chaos scripts, PR18)
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+
+  simulator:
+    image: thadam-simulator:local
+    build:
+      context: ../..
+      dockerfile: tools/thadam-simulator/Dockerfile
+    restart: "no"                       # chaos scripts own the lifecycle (PR18)
+    networks: [edge]
+    command:
+      - run
+      - --broker=mqtt://mosquitto:1883
+      - --fleet=/fleet/fleet.yaml
+      - --oracle=/oracle/oracle.ndjson
+      - --client-id=thadam-simulator
+      - --log-format=json
+    volumes:
+      - ./simulator/fleet.yaml:/fleet/fleet.yaml:ro
+      - oracle:/oracle
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.81
+    profiles: [s3]
+    restart: unless-stopped
+    networks: [cloud]
+    # Small footprint: no preallocation, 64 MiB volume size limit. Do NOT copy
+    # the crate tests' -volume.max=2 here: every collection (bucket) wants its
+    # own volume, and the cap starved writes with "no writable volumes".
+    command:
+      - server
+      - -s3
+      - -s3.port=9000
+      - -filer
+      - -master.volumePreallocate=false
+      - -master.volumeSizeLimitMB=64
+      - -volume.max=7
+    volumes:
+      - seaweedfs-data:/data
+    # No in-image HTTP client exists (the image ships the weed binary only),
+    # so there is no usable in-container healthcheck; the init service below
+    # does the ready-wait with curl before creating the bucket.
+
+  seaweedfs-init:
+    image: curlimages/curl:8.12.1
+    profiles: [s3]
+    networks: [cloud]
+    entrypoint: ["/bin/sh", "/create-bucket.sh"]
+    environment:
+      S3_ENDPOINT: http://seaweedfs:9000
+      S3_BUCKET: thadam-demo
+    volumes:
+      - ./seaweedfs/create-bucket.sh:/create-bucket.sh:ro
+    depends_on:
+      seaweedfs:
+        condition: service_started
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: [observe]
+    restart: unless-stopped
+    networks: [edge]
+    extra_hosts:
+      # Thadam runs natively; the admin API is on the host's loopback.
+      - "host.docker.internal:host-gateway"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=2h"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    profiles: [observe]
+    restart: unless-stopped
+    networks: [edge]
+    environment:
+      # Demo-only frictionless login. A read-only variant is a follow-up.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus

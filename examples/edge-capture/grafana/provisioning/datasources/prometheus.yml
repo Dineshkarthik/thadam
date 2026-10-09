@@ -1,0 +1,12 @@
+apiVersion: 1
+
+# Provisioned at container start; the dashboard JSON references uid
+# `prometheus`.
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

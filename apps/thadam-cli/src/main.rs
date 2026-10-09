@@ -134,6 +134,12 @@ fn version_text() -> String {
 }
 
 fn main() -> ExitCode {
+    // object_store's reqwest is built `rustls-no-provider` (ADR-0020): the
+    // composition root installs the ring provider process-wide, which the
+    // shipper's S3 client and the MQTT TLS relay both build on. A second
+    // install would be rejected, so the result is intentionally dropped.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {

@@ -1,0 +1,12 @@
+# Build context hygiene for the thadam-simulator image. The build runs
+# `cargo build --release` fresh inside the image; host artifacts are never
+# shipped (and a 100+ GB target/ would otherwise be sent to the daemon).
+target/
+.git
+docs/book/
+examples/**/data/
+examples/**/secrets/*
+# ...except an optional build-stage CA bundle for TLS-intercepting networks.
+# The directory itself stays in the context so the Dockerfile COPY always resolves.
+!examples/**/secrets/ca.pem
+**/.DS_Store
