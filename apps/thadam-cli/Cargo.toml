@@ -16,6 +16,7 @@ thadam-config = { path = "../../crates/thadam-config" }
 thadam-runtime = { path = "../../crates/thadam-runtime" }
 thadam-mqtt = { path = "../../crates/thadam-mqtt" }
 thadam-http = { path = "../../crates/thadam-http" }
+thadam-grpc = { path = "../../crates/thadam-grpc" }
 thadam-segments = { path = "../../crates/thadam-segments" }
 thadam-object-store = { path = "../../crates/thadam-object-store" }
 thadam-core = { workspace = true }

@@ -19,6 +19,7 @@ Thadam is early in its first milestone (M1 / MVP v0.1). No releases exist yet; t
 - **`thadam-runtime`**: source/chain/sink drivers, supervisor with component states, ordered shutdown and startup recovery, `thadam.json`/`wal.json` identity split, quarantine routing, primary-chain metric attribution.
 - **`thadam-mqtt`**: MQTT 3.1.1 source — persistent sessions, acknowledge-after-commit with ordered acks, epoch-scoped ack handles, session-loss detection with resubscribe, byte-accounted queue with disconnecting guard, QoS 0 counted drops, in-process TLS/mTLS relay with rustls+`ring` (client library built without TLS features).
 - **`thadam-http`**: HTTP source — `listen` mode (`POST` per message, `204` only after commit, `503` with `Retry-After` under backpressure, `413`, bearer-token auth, optional rustls+`ring` TLS, loopback bind by default) and `poll` mode (periodic GET/POST with jittered backoff and per-request timeouts; at-most-once, documented).
+- **`thadam-grpc`**: gRPC source (`kind: grpc`) serving a tonic `thadam.ingest.v1.Ingest` service — unary `Publish` answers only after commit, `PublishStream` acks in order and counts committed messages, `RESOURCE_EXHAUSTED` under backpressure, `INVALID_ARGUMENT` above `max_message_bytes`, bearer-token auth, optional rustls+`ring` TLS, loopback bind by default.
 - **`thadam-arrow`**: event-to-Arrow encoding with envelope/lineage columns and stable Parquet field IDs (ADR-0013 decisions: unsigned default `Native`, list element name, 16-byte schema fingerprint).
 - **CLI (`thadam`)**: `validate` (with `--allow-unresolved`), `schema`, `version`, `run` (graceful signal handling, admin override flags, `--repair`), `status` against the admin API.
 - **Admin API and observability**: `/healthz`, `/readyz`, `/metrics` (OpenMetrics), `/status` (components, cursors, WAL, budgets); Prometheus metrics; structured lossy logging.
@@ -50,7 +51,7 @@ Thadam is early in its first milestone (M1 / MVP v0.1). No releases exist yet; t
 
 ### Not started
 
-- ClickHouse sink (P1 after the M1 gate; ADR-0008 Draft), ROS 2 (M2; ADR-0007 Draft), Python SDK, plugin mechanism, HTTP/gRPC sources, windowing/aggregation.
+- ClickHouse sink (P1 after the M1 gate; ADR-0008 Draft), ROS 2 (M2; ADR-0007 Draft), Python SDK, plugin mechanism, windowing/aggregation.
 
 ### Known issues
 

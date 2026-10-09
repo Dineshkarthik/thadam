@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package thadam.ingest.v1;
+
+// Ingest service of the Thadam gRPC source (`kind: grpc`).
+//
+// A response is sent only after the message is durably committed by the
+// pipeline. Clients retry on UNAVAILABLE and RESOURCE_EXHAUSTED; a message whose
+// commit was not confirmed may be committed twice (at-least-once).
+service Ingest {
+  // Publishes one message. Returns OK only after the message is committed.
+  rpc Publish(PublishRequest) returns (PublishResponse);
+
+  // Publishes messages in request order. Returns after every message of the
+  // stream is committed, with the number accepted.
+  rpc PublishStream(stream PublishRequest) returns (PublishStreamResponse);
+}
+
+message PublishRequest {
+  // Logical stream name, recorded as the `grpc.stream` attribute.
+  string stream = 1;
+  // The message body, one Thadam message.
+  bytes payload = 2;
+  // Recorded as the `grpc.content_type` attribute when non-empty.
+  string content_type = 3;
+  // Recorded as `grpc.attr.<key>` attributes.
+  map<string, string> attributes = 4;
+}
+
+message PublishResponse {}
+
+message PublishStreamResponse {
+  // Messages of the stream that were committed. Equals the number received.
+  uint64 accepted = 1;
+}

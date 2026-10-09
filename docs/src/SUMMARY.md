@@ -30,6 +30,7 @@
 # Sources
 
 - [HTTP](sources/http.md)
+- [gRPC](sources/grpc.md)
 - [MQTT](sources/mqtt.md)
 
 # Sinks

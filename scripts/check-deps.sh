@@ -49,6 +49,7 @@ def arrow_re: "^(arrow|arrow-.+|parquet)$";
     "thadam-runtime": ["thadam-cli"],
     "thadam-mqtt": ["thadam-cli"],
     "thadam-http": ["thadam-cli"],
+    "thadam-grpc": ["thadam-cli"],
     "thadam-segments": ["thadam-cli", "thadam-object-store"],
     "thadam-object-store": ["thadam-cli"],
     "thadam-clickhouse": ["thadam-cli"],

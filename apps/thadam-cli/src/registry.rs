@@ -10,6 +10,7 @@ use thadam_runtime::Registry;
 /// This function creates a new registry and registers:
 /// - MQTT source factory ([`thadam_mqtt::MqttSourceFactory`])
 /// - HTTP source factory ([`thadam_http::HttpSourceFactory`])
+/// - gRPC source factory ([`thadam_grpc::GrpcSourceFactory`])
 /// - Parquet segment sink factory ([`thadam_segments::ParquetSegmentSinkFactory`])
 /// - Quarantine segment sink factory ([`thadam_segments::QuarantineSinkFactory`])
 /// - Object-store shipper service factory
@@ -22,6 +23,7 @@ pub fn build_registry() -> Registry {
     // Register source factories
     registry.source(Box::new(thadam_mqtt::MqttSourceFactory::new()));
     registry.source(Box::new(thadam_http::HttpSourceFactory::new()));
+    registry.source(Box::new(thadam_grpc::GrpcSourceFactory::new()));
 
     registry.segment_sink(Box::new(thadam_segments::ParquetSegmentSinkFactory::new()));
     registry.quarantine_sink(Box::new(thadam_segments::QuarantineSinkFactory::new()));
@@ -61,6 +63,18 @@ mod tests {
                 .source_kinds
                 .as_ref()
                 .is_some_and(|k| k.iter().any(|s| s == "http"))
+        );
+    }
+
+    #[test]
+    fn build_registry_registers_grpc_source() {
+        let registry = build_registry();
+        let policy = registry.kind_policy();
+        assert!(
+            policy
+                .source_kinds
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|s| s == "grpc"))
         );
     }
 
