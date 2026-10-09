@@ -1,0 +1,22 @@
+[package]
+name = "thadam-ros2-msg"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+thadam-core = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true, features = ["cargo_bench_support"] }
+proptest = { workspace = true }
+
+[[bench]]
+name = "decode"
+harness = false
+
+[lints]
+workspace = true
