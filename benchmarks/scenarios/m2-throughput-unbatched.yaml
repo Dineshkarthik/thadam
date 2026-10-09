@@ -1,0 +1,10 @@
+# M2: throughput with one sample per MQTT message, at the same scale as the
+# batched run, to compare message overhead.
+name: m2-throughput-unbatched
+description: Scale 10 fleet, one sample per message (compare with m2-throughput-batched).
+duration: 60s
+pipeline: examples/edge-capture/thadam/pipeline.local.yaml
+simulator:
+  seed: 42
+  scale: 10
+  unbatched: true

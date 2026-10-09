@@ -45,18 +45,22 @@ def arrow_re: "^(arrow|arrow-.+|parquet)$";
 | {"thadam-core": ["tokio"], "thadam-transform": ["tokio"]} as $forbidden_direct
 
 # Crate -> the only workspace crates allowed to depend on it.
+# thadam-python (sdk/python) is a second composition root alongside the CLI: it
+# builds the same registry and runs pipelines in-process.
 | {
-    "thadam-runtime": ["thadam-cli"],
-    "thadam-mqtt": ["thadam-cli"],
-    "thadam-http": ["thadam-cli"],
-    "thadam-grpc": ["thadam-cli"],
-    "thadam-segments": ["thadam-cli", "thadam-object-store"],
-    "thadam-object-store": ["thadam-cli"],
+    "thadam-runtime": ["thadam-cli", "thadam-python"],
+    "thadam-mqtt": ["thadam-cli", "thadam-python"],
+    "thadam-http": ["thadam-cli", "thadam-python"],
+    "thadam-grpc": ["thadam-cli", "thadam-python"],
+    "thadam-segments": ["thadam-cli", "thadam-object-store", "thadam-python"],
+    "thadam-object-store": ["thadam-cli", "thadam-python"],
     "thadam-clickhouse": ["thadam-cli"],
     "thadam-testkit": []
   } as $allowed_dependents
 
-| ["thadam-arrow", "thadam-segments", "thadam-clickhouse", "thadam-simulator"] as $arrow_users
+# thadam-python reads the sink layout with the parquet/arrow major pyo3-arrow
+# tracks (older than the workspace's; see sdk/python/README.md).
+| ["thadam-arrow", "thadam-segments", "thadam-clickhouse", "thadam-simulator", "thadam-python"] as $arrow_users
 
 | [
     ($forbidden_transitive | to_entries[] | .key as $c | .value as $re
@@ -73,7 +77,7 @@ def arrow_re: "^(arrow|arrow-.+|parquet)$";
       | "composition-root: \($member) must not depend on \($d) (allowed dependents: \($allowed_dependents[$d] | if length == 0 then "none, dev-dependency only" else join(", ") end))"),
 
     ($members[] as $member
-      | select($member != "thadam-cli")
+      | select($member != "thadam-cli" and $member != "thadam-python")
       | select(reach($adj; $member) | index("thadam-runtime") != null)
       | "runtime-reach: \($member) must not depend, even transitively, on thadam-runtime"),
 

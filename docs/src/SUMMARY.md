@@ -32,6 +32,7 @@
 - [HTTP](sources/http.md)
 - [gRPC](sources/grpc.md)
 - [MQTT](sources/mqtt.md)
+- [ROS 2](sources/ros2.md)
 
 # Sinks
 
@@ -54,9 +55,15 @@
 - [Exit codes](operations/exit-codes.md)
 - [Error code reference](operations/error-codes.md)
 
+# SDKs
+
+- [Python](sdk/python.md)
+
 # Reference
 
 - [CLI reference](cli/index.md)
+- [`thadam replay`](cli/replay.md)
+- [`thadam inspect`](cli/inspect.md)
 - [Design and decisions](design/index.md)
 - [Roadmap](roadmap.md)
 - [FAQ](faq.md)

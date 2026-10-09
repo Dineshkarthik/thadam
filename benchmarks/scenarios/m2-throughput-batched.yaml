@@ -1,0 +1,8 @@
+# M2: throughput with batching on, at 10x the default fleet scale.
+name: m2-throughput-batched
+description: Scale 10 fleet, samples batched per message (the demo default).
+duration: 60s
+pipeline: examples/edge-capture/thadam/pipeline.local.yaml
+simulator:
+  seed: 42
+  scale: 10

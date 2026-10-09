@@ -100,7 +100,8 @@ async fn run_pipeline(
     // Build the pipeline - use a mutable options object
     let mut opts = RuntimeOptions::default();
     opts.repair = repair;
-    opts.metrics = Arc::new(PrometheusMetrics::new());
+    let metrics = Arc::new(PrometheusMetrics::new());
+    opts.metrics = metrics.clone();
 
     let pipeline = match Pipeline::build(spec, registry, opts) {
         Ok(pipeline) => pipeline,
@@ -186,7 +187,7 @@ async fn run_pipeline(
             token,
         };
 
-        let metrics = Arc::new(PrometheusMetrics::new());
+        let metrics = metrics.clone();
         let admin_handle = handle.clone();
         let admin_shutdown = shutdown.clone();
 

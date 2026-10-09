@@ -1,0 +1,23 @@
+[package]
+name = "thadam-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Reproducible benchmark runner for the Thadam edge-capture demo: Mosquitto, the simulator, and thadam run, sampled and summarized as JSON"
+
+[[bin]]
+name = "thadam-bench"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+humantime = { workspace = true }
+serde = { workspace = true }
+serde-saphyr = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

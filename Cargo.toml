@@ -10,11 +10,33 @@ members = [
     "crates/thadam-segments",
     "crates/thadam-object-store",
     "crates/thadam-mqtt",
+    "crates/thadam-ros2-msg",
     "crates/thadam-http",
     "crates/thadam-grpc",
     "crates/thadam-testkit",
     "apps/thadam-cli",
     "tools/thadam-simulator",
+    "tools/thadam-bench",
+    "sdk/python",
+]
+# Plain `cargo build`/`cargo test` skip sdk/python (it needs a Python toolchain).
+default-members = [
+    "crates/thadam-core",
+    "crates/thadam-config",
+    "crates/thadam-wal",
+    "crates/thadam-transform",
+    "crates/thadam-runtime",
+    "crates/thadam-arrow",
+    "crates/thadam-segments",
+    "crates/thadam-object-store",
+    "crates/thadam-mqtt",
+    "crates/thadam-ros2-msg",
+    "crates/thadam-http",
+    "crates/thadam-grpc",
+    "crates/thadam-testkit",
+    "apps/thadam-cli",
+    "tools/thadam-simulator",
+    "tools/thadam-bench",
 ]
 # Spikes are standalone projects with their own [workspace] table.
 exclude = ["spikes"]

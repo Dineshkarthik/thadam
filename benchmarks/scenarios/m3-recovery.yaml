@@ -1,0 +1,17 @@
+# M3: SIGKILL thadam 15 s into a 30 s run, then measure restart-to-ready
+# (kill to first 200 from /readyz).
+name: m3-recovery
+description: Default fleet; kill -9 thadam mid-run and time the restart to ready.
+duration: 30s
+pipeline: examples/edge-capture/thadam/pipeline.local.yaml
+simulator:
+  seed: 42
+  scale: 1
+measure:
+  - throughput
+  - latency
+  - resources
+  - storage
+  - recovery
+recovery:
+  kill_after: 15s

@@ -35,6 +35,7 @@ Thadam is early in its first milestone (M1 / MVP v0.1). No releases exist yet; t
 
 
 - **`thadam-mqtt` attributes**: messages now carry the normalized `topic` attribute alongside the documented `mqtt.topic`. The chain's `match.topic` filter and `{topic.N}` identity templates read `topic` (`docs/src/configuration/datasets.md`); without it, every broker message was consumed with zero matched datasets and zero written rows (PR15 end-to-end discovery).
+- **`thadam replay` and `thadam inspect`** (PR17): `thadam replay <pipeline.yaml> --from <position|-45m|RFC3339> [--to ...] --sink <id> [--output <dir>]` re-runs a sink's chain over the retained WAL range into a separate directory (never the production sink directory or cursor), printing the replay id and output path. `thadam inspect wal|cursors|segments --sink|sample` are read-only views of a data directory, human-readable by default and `--json` for machine output, and work while `thadam run` holds the data directory. Supporting API: `thadam-wal` gains a read-only `inspect(dir)` that never takes the writer lock, `thadam-segments` gains a read-only `catalog::inspect(root)`, and `thadam-runtime` gains `ReplayOutput::SeparateDirAt` for a caller-chosen output path, refused inside `sinks/` and `wal/`.
 ### Fixed
 
 - **`thadam-cli` crypto provider**: the composition root now installs the ring rustls crypto provider at process start. `object_store`/`reqwest` are built `rustls-no-provider` (ADR-0020), so every `thadam run` of a config with an `object_store` sink previously panicked with "No rustls crypto provider is configured" when the shipper built its S3 client (PR15 end-to-end discovery); the MQTT TLS relay builds on the same provider.
@@ -51,7 +52,7 @@ Thadam is early in its first milestone (M1 / MVP v0.1). No releases exist yet; t
 
 ### Not started
 
-- ClickHouse sink (P1 after the M1 gate; ADR-0008 Draft), ROS 2 (M2; ADR-0007 Draft), Python SDK, plugin mechanism, windowing/aggregation.
+- ClickHouse sink (P1 after the M1 gate; ADR-0008 Draft), ROS 2 MCAP and live sources (M2; ADR-0007 Draft — the stage-1 `thadam-ros2-msg` decoder has landed above), Python SDK, plugin mechanism, windowing/aggregation.
 
 ### Known issues
 

@@ -36,9 +36,9 @@ These mirror CI exactly and should pass on Linux x86_64 (and aarch64 when availa
 
 ```bash
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo build --workspace --locked
-cargo nextest run --workspace --locked
+cargo clippy --workspace --exclude thadam-python --all-targets --locked -- -D warnings
+cargo build --workspace --exclude thadam-python --locked
+cargo nextest run --workspace --exclude thadam-python --locked
 scripts/check-deps.sh                      # dependency-direction guard
 scripts/check-deps.sh --self-test          # the guard fails on its violating fixture
 cargo deny --locked check                  # advisories, bans, licenses, sources
@@ -58,6 +58,20 @@ Notes:
 - Bans: `aws-lc-sys`, `openssl-sys`, `serde_yaml`. Sources: crates.io only, with a `Cargo.lock` (`--locked` builds).
 - Adversarial-input parsers need `cargo fuzz` targets (the JSON decoder has one; WAL frames are a recommended target).
 - TLS is rustls with `ring`, always.
+
+## Python SDK (`sdk/python`)
+
+`thadam-python` (PyO3 + maturin) is a workspace member but is excluded from default builds: `cargo build`, `cargo test`, and `cargo nextest` at the root do not need a Python toolchain. Pass `-p thadam-python` to build or test it directly, and `--exclude thadam-python` to skip it when running workspace-wide commands.
+
+To build and test the SDK (Python 3.12 is what CI uses):
+
+```bash
+pip install maturin pytest pyarrow
+maturin build -m sdk/python/Cargo.toml --out dist
+pip install dist/*.whl
+pytest sdk/python/tests
+cargo clippy -p thadam-python --all-targets --locked -- -D warnings
+```
 
 ## Making changes
 

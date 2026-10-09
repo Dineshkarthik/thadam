@@ -1,0 +1,8 @@
+# M1: steady state on the default demo fleet (2 sites x 3 robots).
+name: m1-steady-state
+description: Default edge-capture fleet at scale 1, batching on, demo fsync.
+duration: 60s
+pipeline: examples/edge-capture/thadam/pipeline.local.yaml
+simulator:
+  seed: 42
+  scale: 1
