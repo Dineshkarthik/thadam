@@ -1,0 +1,33 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "thadam"
+version = "0.0.0"
+description = "Python SDK for the Thadam edge capture runtime"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "License :: OSI Approved :: Apache Software License",
+]
+dependencies = [
+    # read_segments imports the Arrow stream with pa.Table.from_batches;
+    # 14 is the first pyarrow with full PyCapsule stream import.
+    "pyarrow>=14",
+]
+
+[tool.maturin]
+# Mixed Rust/Python layout: the extension module lands at thadam._native
+# inside the pure-Python package under python/.
+python-source = "python"
+module-name = "thadam._native"
+# maturin links the cdylib without libpython; plain `cargo check/test` builds
+# without this feature and links libpython so Rust unit tests can run.
+features = ["pyo3/extension-module"]
+# abi3: one wheel per platform covers Python 3.9+ (pyo3 abi3-py39). pyo3-arrow
+# 0.19 stays on stable/abi3-safe APIs (PyCapsule + buffer protocol), so the
+# stable ABI suffices — verified against CPython 3.13 in CI.

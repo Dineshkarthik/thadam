@@ -1,0 +1,53 @@
+[package]
+name = "thadam-python"
+description = "Python bindings for the Thadam edge capture runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+# The cdylib is what maturin ships as `thadam._native`; the rlib target keeps
+# `cargo test`/`cargo nextest` able to link and run the unit tests.
+name = "thadam"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Maturin builds with `pyo3/extension-module` (see pyproject.toml), which keeps
+# libpython out of the shipped wheel. Plain `cargo check/clippy/test` builds
+# without it and links libpython, so those targets need a python3 on PATH.
+default = []
+
+[dependencies]
+thadam-config = { path = "../../crates/thadam-config" }
+thadam-core = { path = "../../crates/thadam-core" }
+thadam-runtime = { path = "../../crates/thadam-runtime" }
+thadam-segments = { path = "../../crates/thadam-segments" }
+thadam-mqtt = { path = "../../crates/thadam-mqtt" }
+thadam-http = { path = "../../crates/thadam-http" }
+thadam-grpc = { path = "../../crates/thadam-grpc" }
+thadam-object-store = { path = "../../crates/thadam-object-store" }
+pyo3 = { version = "0.29", features = ["abi3-py39"] }
+# pyo3-arrow 0.19 is the newest release and tracks arrow 59; the workspace is
+# on arrow 60. The `read_segments` path therefore reads Parquet with parquet
+# 59 / arrow 59 so the RecordBatches are the types pyo3-arrow converts. Both
+# majors coexist; the hand-off to pyarrow is zero-copy over the Arrow
+# PyCapsule interface. See README.md ("Arrow versions").
+# default-features off: the `buffer_protocol` feature implements
+# `__getbuffer__`/`__releasebuffer__` with APIs pyo3 gates out of the stable
+# ABI, so it breaks abi3 builds. The Arrow PyCapsule stream (what
+# `read_segments` uses) needs no buffer protocol.
+pyo3-arrow = { version = "0.19", default-features = false }
+parquet59 = { package = "parquet", version = "59", default-features = false, features = [
+    "arrow",
+    "snap",
+    "zstd",
+    "lz4",
+] }
+arrow-array59 = { package = "arrow-array", version = "59" }
+arrow-schema59 = { package = "arrow-schema", version = "59" }
+tokio = { version = "1.53", features = ["rt-multi-thread", "time"] }
+
+[dev-dependencies]
+tempfile.workspace = true

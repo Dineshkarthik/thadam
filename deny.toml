@@ -25,6 +25,10 @@ confidence-threshold = 0.9
 # The allow-list is declared ahead of the dependencies that need it.
 unused-allowed-license = "allow"
 
+[[licenses.exceptions]]
+crate = "target-lexicon"
+allow = ["Apache-2.0 WITH LLVM-exception"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "allow"
