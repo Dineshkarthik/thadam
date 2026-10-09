@@ -63,7 +63,8 @@ Every captured message carries attributes, available for dataset `match` and lin
 
 | Attribute | Value |
 |---|---|
-| `mqtt.topic` | The topic (interned string). |
+| `topic` | The topic (interned string). The normalized attribute `match.topic` filters and `{topic.N}` identity templates read. |
+| `mqtt.topic` | The topic (interned string), also under the connector namespace. |
 | `mqtt.qos` | `0`, `1`, or `2`. |
 | `mqtt.retain` | `true` / `false`. |
 | `mqtt.dup` | `true` / `false` — broker redelivery marker. |

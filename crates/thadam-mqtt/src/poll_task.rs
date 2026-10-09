@@ -131,10 +131,13 @@ impl TopicInterner {
 /// Builds the attributes of a received message.
 fn attributes(names: &AttrNames, interner: &mut TopicInterner, p: &InPublish) -> Attributes {
     let mut attrs = Attributes::new();
-    attrs.insert(
-        names.topic.clone(),
-        Utf8Bytes::from(interner.intern(p.topic.clone())),
-    );
+    let topic = interner.intern(p.topic.clone());
+    // The chain's routing contract (`match.topic` and `{topic.N}` identity
+    // templates, docs/src/configuration/datasets.md) reads the normalized
+    // `topic` attribute; the namespaced `mqtt.topic` documented for
+    // attribute-table consumers stays as well.
+    attrs.insert(Sym::from("topic"), Utf8Bytes::from(Sym::clone(&topic)));
+    attrs.insert(names.topic.clone(), Utf8Bytes::from(topic));
     attrs.insert(
         names.qos.clone(),
         names.qos_values[usize::from(p.qos.min(2))].clone(),
@@ -419,14 +422,15 @@ mod tests {
             &mut interner,
             &publish("robots/r7/telemetry", 1, true, false),
         );
+        assert_eq!(attrs.get("topic"), Some("robots/r7/telemetry"));
         assert_eq!(attrs.get("mqtt.topic"), Some("robots/r7/telemetry"));
         assert_eq!(attrs.get("mqtt.qos"), Some("1"));
         assert_eq!(attrs.get("mqtt.retain"), Some("true"));
         assert_eq!(attrs.get("mqtt.dup"), Some("false"));
         assert_eq!(
             attrs.len(),
-            4,
-            "exactly the documented attributes, none for a gap-free message"
+            5,
+            "the normalized `topic` plus the `mqtt.*` attributes"
         );
 
         let attrs = attributes(&names, &mut interner, &publish("a", 2, false, true));
