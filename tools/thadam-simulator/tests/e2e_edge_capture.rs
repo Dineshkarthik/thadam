@@ -8,6 +8,9 @@
 //! acknowledged `malformed` messages, and no filtered or repeated sample may
 //! appear.
 //!
+//! `crash_loop_delivery_matches_the_oracle` is chaos F5 in miniature: three
+//! SIGKILLs of `thadam run` during the same kind of run, with the same verify.
+//!
 //! These are `#[ignore]`d so `cargo nextest run` passes without Docker; run
 //! them with
 //!
@@ -228,6 +231,46 @@ fn oracle_counts(rows: &[OracleRow], expected: Expected) -> BTreeMap<String, u64
     out
 }
 
+/// The demo's level-1 config, repointed at `broker_port` and a throwaway data dir.
+fn write_demo_config(example: &Path, broker_port: u16, data_dir: &Path, dest: &Path) {
+    let text = std::fs::read_to_string(example.join("thadam/pipeline.local.yaml")).expect("config");
+    let text = text
+        .replace(
+            "url: mqtt://localhost:21883",
+            &format!("url: mqtt://127.0.0.1:{broker_port}"),
+        )
+        .replace(
+            "data_dir: ./data",
+            &format!("data_dir: {}", data_dir.display()),
+        );
+    assert!(text.contains(&data_dir.display().to_string()));
+    std::fs::write(dest, text).expect("write config");
+}
+
+/// Starts `thadam run` in `children`; returns its index in `children.procs`.
+fn spawn_thadam(
+    children: &mut Children,
+    config: &Path,
+    cwd: &Path,
+    admin_port: u16,
+    log: &Path,
+) -> usize {
+    let mut cmd = Command::new(thadam_bin());
+    cmd.args([
+        "run",
+        &config.to_string_lossy(),
+        "--log-format",
+        "json",
+        "--log-level",
+        "info",
+        "--admin-bind",
+        &format!("127.0.0.1:{admin_port}"),
+    ])
+    .current_dir(cwd);
+    children.spawn(cmd, log);
+    children.procs.len() - 1
+}
+
 #[test]
 #[ignore = "needs Docker (Mosquitto)"]
 fn end_to_end_delivery_matches_the_oracle() {
@@ -238,19 +281,7 @@ fn end_to_end_delivery_matches_the_oracle() {
     let dir = tempfile::tempdir().expect("tempdir");
     let data_dir = dir.path().join("data");
     let config = dir.path().join("pipeline.yaml");
-    // The demo's level-1 config, repointed at this test's broker and a
-    // throwaway data dir.
-    let text = std::fs::read_to_string(example.join("thadam/pipeline.local.yaml")).expect("config");
-    let text = text.replace(
-        "url: mqtt://localhost:21883",
-        &format!("url: mqtt://127.0.0.1:{}", broker.port),
-    );
-    let text = text.replace(
-        "data_dir: ./data",
-        &format!("data_dir: {}", data_dir.display()),
-    );
-    assert!(text.contains(&data_dir.display().to_string()));
-    std::fs::write(&config, text).expect("write config");
+    write_demo_config(&example, broker.port, &data_dir, &config);
 
     let admin_port = free_port();
     let thadam_log = dir.path().join("thadam.log");
@@ -258,21 +289,7 @@ fn end_to_end_delivery_matches_the_oracle() {
     let oracle_path = dir.path().join("oracle.ndjson");
 
     let mut children = Children::new();
-    {
-        let mut cmd = Command::new(thadam_bin());
-        cmd.args([
-            "run",
-            &config.to_string_lossy(),
-            "--log-format",
-            "json",
-            "--log-level",
-            "info",
-            "--admin-bind",
-            &format!("127.0.0.1:{admin_port}"),
-        ])
-        .current_dir(dir.path());
-        children.spawn(cmd, &thadam_log);
-    }
+    let thadam_idx = spawn_thadam(&mut children, &config, dir.path(), admin_port, &thadam_log);
     wait_http_ok(&format!("http://127.0.0.1:{admin_port}/readyz"));
 
     {
@@ -315,7 +332,7 @@ fn end_to_end_delivery_matches_the_oracle() {
     wait_http_ok(&format!("http://127.0.0.1:{admin_port}/readyz"));
 
     {
-        let thadam = &mut children.procs[0];
+        let thadam = &mut children.procs[thadam_idx];
         sigterm(thadam);
         let status = wait_exit(thadam, Duration::from_secs(60));
         assert!(
@@ -368,4 +385,116 @@ fn end_to_end_delivery_matches_the_oracle() {
          {duplicates} duplicates dropped, {debug_filtered} debug events filtered",
         deliver.values().sum::<u64>()
     );
+}
+
+/// Chaos F5 in miniature: SIGKILL `thadam run` three times while the fleet keeps
+/// publishing, waiting for /readyz before each kill and restarting after it. The
+/// final oracle check must pass with nothing acknowledged lost.
+#[test]
+#[ignore = "needs Docker (Mosquitto); F5 crash loop, 3 kills"]
+fn crash_loop_delivery_matches_the_oracle() {
+    const KILLS: usize = 3;
+    const GAP: Duration = Duration::from_secs(3);
+
+    let root = workspace_root();
+    let example = root.join("examples/edge-capture");
+    let broker = Broker::start(&example.join("mosquitto/mosquitto.conf"));
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let data_dir = dir.path().join("data");
+    let config = dir.path().join("pipeline.yaml");
+    write_demo_config(&example, broker.port, &data_dir, &config);
+
+    let admin_port = free_port();
+    let admin = format!("http://127.0.0.1:{admin_port}/readyz");
+    let oracle_path = dir.path().join("oracle.ndjson");
+    let sim_log = dir.path().join("simulator.log");
+
+    let mut children = Children::new();
+    let mut thadam_idx = spawn_thadam(
+        &mut children,
+        &config,
+        dir.path(),
+        admin_port,
+        &dir.path().join("thadam-0.log"),
+    );
+    wait_http_ok(&admin);
+
+    let sim_idx = {
+        let mut cmd = Command::new(sim_bin());
+        cmd.args([
+            "run",
+            "--broker",
+            &format!("mqtt://127.0.0.1:{}", broker.port),
+            "--fleet",
+            &example.join("simulator/fleet.yaml").to_string_lossy(),
+            "--oracle",
+            &oracle_path.to_string_lossy(),
+            "--duration",
+            "30s",
+            "--drain-timeout",
+            "8s",
+            "--malformed-rate",
+            "0.01",
+            "--client-id",
+            "sim-e2e-f5",
+            "--log-level",
+            "warn",
+        ]);
+        children.spawn(cmd, &sim_log);
+        children.procs.len() - 1
+    };
+
+    let mut thadam_log = dir.path().join("thadam-0.log");
+    for kill in 1..=KILLS {
+        std::thread::sleep(GAP);
+        wait_http_ok(&admin);
+        children.procs[thadam_idx].kill().expect("SIGKILL thadam");
+        children.procs[thadam_idx].wait().expect("reap thadam");
+        thadam_log = dir.path().join(format!("thadam-{kill}.log"));
+        thadam_idx = spawn_thadam(&mut children, &config, dir.path(), admin_port, &thadam_log);
+        wait_http_ok(&admin);
+    }
+
+    {
+        let sim = &mut children.procs[sim_idx];
+        let status = wait_exit(sim, Duration::from_secs(120));
+        assert!(
+            status.success(),
+            "simulator exited with {status}:\n{}",
+            tail(&sim_log, 40)
+        );
+    }
+
+    std::thread::sleep(Duration::from_secs(5));
+    wait_http_ok(&admin);
+    {
+        let thadam = &mut children.procs[thadam_idx];
+        sigterm(thadam);
+        let status = wait_exit(thadam, Duration::from_secs(60));
+        assert!(
+            status.success(),
+            "thadam exited with {status} after {KILLS} kills:\n{}",
+            tail(&thadam_log, 60)
+        );
+    }
+
+    let rows = read_all(&oracle_path).expect("oracle");
+    assert!(!rows.is_empty(), "oracle is empty");
+    let acked = rows.iter().filter(|r| r.publish_acked).count();
+    let report = verify::verify(
+        &oracle_path,
+        &data_dir.join("sinks/local/ready"),
+        Some(&data_dir.join("quarantine/local/ready")),
+    )
+    .expect("verify");
+    assert!(
+        report.passed(),
+        "verify failed after {KILLS} kills (oracle: {})\n{}\nlast thadam log tail:\n{}\nsim log tail:\n{}",
+        oracle_path.display(),
+        report.render(),
+        tail(&thadam_log, 60),
+        tail(&sim_log, 20)
+    );
+    println!("crash loop ok: {KILLS} SIGKILLs, {acked} acknowledged samples verified");
 }

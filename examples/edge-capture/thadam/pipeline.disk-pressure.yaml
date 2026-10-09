@@ -1,0 +1,173 @@
+# Edge capture chaos F7 (disk pressure): the level-1 pipeline with deliberately
+# small disk budgets so the WAL and the local segment budget reach their limits
+# within a few minutes. Used only by scripts/chaos/f7-disk-pressure.sh.
+#
+#   - wal.max_disk is 8 MiB in 1 MiB segments (eight segments, above the
+#     four-segment warning floor).
+#   - on_full is drop_oldest, so when the budget is hit Thadam evicts the oldest
+#     WAL data and counts it (thadam_wal_evicted_bytes_total, Gap::Evicted). That
+#     is the one path where acknowledged data is lost inside Thadam. The f7
+#     script attributes verify failures to these evictions.
+#   - the segments budget on the parquet sink is 16 MiB, so the sink itself
+#     stops accepting once that budget is full.
+#   - there is no S3 sink in this file. The S3 path is covered by F1 and F3.
+#
+# Same broker and admin endpoints as pipeline.local.yaml (all traffic still
+# goes through Toxiproxy).
+version: 1
+
+pipeline:
+  name: edge-capture
+  node_id: edge-01
+  data_dir: ./data
+
+sources:
+  - id: fleet-mqtt
+    kind: mqtt
+    config:
+      url: mqtt://localhost:21883
+      client_id: thadam-edge-01
+      clean_start: false
+      keep_alive: 15s
+      topics: [{ filter: "thadam-demo/v1/+/+/+", qos: 1 }]
+      ack_mode: on_commit
+      max_message_bytes: 1048576
+      expected_broker_window: 100
+
+wal:
+  max_disk: 8MiB
+  segment_bytes: 1MiB
+  fsync: { interval: 50ms }
+  on_full: drop_oldest
+  retain_for: 1h
+
+quarantine: { format: parquet, max_disk: 16777216 }   # 16 MiB (connector schema: integer bytes)
+
+datasets:
+  - id: telemetry
+    match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/telemetry" }
+    decode: json
+    identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
+    event_id: { key: [site, robot, seq] }
+    dedup: { window: 10m, max_keys: 500k }
+    time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
+    fields:
+      - { id: 1000, name: seq,          type: u64,        from: /seq, required: true }
+      - { id: 1001, name: soc_pct,      type: f32,        from: /soc_pct }
+      - { id: 1002, name: voltage_v,    type: f32,        from: /voltage_mv,   unit: mV,   convert_to: V }
+      - { id: 1003, name: current_a,    type: f32,        from: /current_ma,   unit: mA,   convert_to: A }
+      - { id: 1004, name: cpu_temp_c,   type: f32,        from: /cpu_temp_dc,  unit: dCel, convert_to: Cel }
+      - { id: 1005, name: motor_temp_c, type: "list<f32>", from: /motor_temp_dc, unit: dCel, convert_to: Cel }
+
+  - id: joints
+    match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/joints" }
+    decode: json
+    identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
+    event_id: { key: [site, robot, seq] }
+    dedup: { window: 10m, max_keys: 500k }
+    explode: { path: /samples, index_field: sample_idx }
+    time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
+    fields:
+      - { id: 1000, name: seq,            type: u64,         from: "^/seq" }
+      - { id: 1001, name: position_rad,   type: "list<f64>", from: /pos }
+      - { id: 1002, name: velocity_rad_s, type: "list<f64>", from: /vel }
+      - { id: 1003, name: effort_nm,      type: "list<f64>", from: /eff }
+
+  - id: imu
+    match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/imu" }
+    decode: json
+    identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
+    event_id: { key: [site, robot, seq] }
+    dedup: { window: 10m, max_keys: 500k }
+    explode: { path: /samples, index_field: sample_idx }
+    time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
+    fields:
+      - { id: 1000, name: seq,          type: u64, from: "^/seq" }
+      - { id: 1001, name: accel_x_m_s2, type: f32, from: /accel/0, unit: "[g]",   convert_to: "m/s2" }
+      - { id: 1002, name: accel_y_m_s2, type: f32, from: /accel/1, unit: "[g]",   convert_to: "m/s2" }
+      - { id: 1003, name: accel_z_m_s2, type: f32, from: /accel/2, unit: "[g]",   convert_to: "m/s2" }
+      - { id: 1004, name: gyro_x_rad_s, type: f32, from: /gyro/0,  unit: "deg/s", convert_to: "rad/s" }
+      - { id: 1005, name: gyro_y_rad_s, type: f32, from: /gyro/1,  unit: "deg/s", convert_to: "rad/s" }
+      - { id: 1006, name: gyro_z_rad_s, type: f32, from: /gyro/2,  unit: "deg/s", convert_to: "rad/s" }
+      - { id: 1007, name: quat_w,       type: f32, from: /quat/0 }
+      - { id: 1008, name: quat_x,       type: f32, from: /quat/1 }
+      - { id: 1009, name: quat_y,       type: f32, from: /quat/2 }
+      - { id: 1010, name: quat_z,       type: f32, from: /quat/3 }
+
+  - id: pose
+    match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/pose" }
+    decode: json
+    identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
+    event_id: { key: [site, robot, seq] }
+    dedup: { window: 10m, max_keys: 500k }
+    explode: { path: /samples, index_field: sample_idx }
+    time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
+    fields:
+      - { id: 1000, name: seq,      type: u64, from: "^/seq" }
+      - { id: 1001, name: frame_id, type: str, from: /frame }
+      - { id: 1002, name: x_m,      type: f64, from: /pos/0 }
+      - { id: 1003, name: y_m,      type: f64, from: /pos/1 }
+      - { id: 1004, name: z_m,      type: f64, from: /pos/2 }
+      - { id: 1005, name: qw,       type: f64, from: /quat/0 }
+      - { id: 1006, name: qx,       type: f64, from: /quat/1 }
+      - { id: 1007, name: qy,       type: f64, from: /quat/2 }
+      - { id: 1008, name: qz,       type: f64, from: /quat/3 }
+
+  - id: state
+    match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/state" }
+    decode: json
+    identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
+    event_id: { key: [site, robot, seq] }
+    dedup: { window: 10m, max_keys: 50k }
+    time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
+    fields:
+      - { id: 1000, name: seq,      type: u64, from: /seq, required: true }
+      - { id: 1001, name: mode,     type: str, from: /mode }
+      - { id: 1002, name: cycle_id, type: u64, from: /cycle_id }
+      - { id: 1003, name: program,  type: str, from: /program }
+
+  - id: events
+    match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/events" }
+    decode: json
+    identity: { site: { id: 100, template: "{topic.2}" }, robot: { id: 101, template: "{topic.3}" } }
+    event_id: { key: [site, robot, seq] }
+    dedup: { window: 10m, max_keys: 50k }
+    time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
+    fields:
+      - { id: 1000, name: seq,        type: u64, from: /seq, required: true }
+      - { id: 1001, name: event_type, type: str, from: /type }
+      - { id: 1002, name: level,      type: str, from: /level }
+      - { id: 1003, name: code,       type: str, from: /code }
+      - { id: 1004, name: message,    type: str, from: /message }
+      - { id: 1005, name: cycle_id,   type: u64, from: /cycle_id }
+
+transforms:
+  - kind: validate
+    dataset: telemetry
+    rules: [{ field: motor_temp_c, min: -40, max: 150, flag: OUT_OF_RANGE, status: bad }]
+  - kind: on_change
+    dataset: state
+    fields: [mode, cycle_id, program]
+    heartbeat: 5m
+  - kind: filter
+    dataset: events
+    where: { field: level, ne: debug }
+
+sinks:
+  - id: local
+    kind: parquet
+    config:
+      datasets: [telemetry, joints, imu, pose, state, events]
+      compression: auto
+      row_group_bytes: 1048576
+      rotation: { max_bytes: 67108864, max_age: 60 }
+      max_open_files: 6
+      max_disk: 16777216                      # 16 MiB (connector schema: integer bytes)
+      timestamp_unit: micros
+      finalize_on_shutdown: true
+
+runtime: { worker_threads: 2, memory_target: 256MiB }
+
+observability:
+  logs: { format: json, level: info }
+  admin: { bind: "127.0.0.1:9464" }

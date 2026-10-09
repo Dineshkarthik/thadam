@@ -7,8 +7,9 @@
 #   make query         DuckDB over the local Parquet segments
 #   make down / clean  stop / stop + wipe volumes and ./data
 #
-# Chaos scenarios (F1-F10), the oracle verifier, and benchmarks arrive in
-# PR18; their targets are intentional placeholders.
+#   make chaos           list the chaos scenarios
+#   make chaos-f1        run one (f1 f3 f4 f5 f7 f8); ARGS passes through
+#   make verify          oracle verifier on the newest chaos run (or RUN=dir)
 
 COMPOSE := docker compose -f compose.yaml
 WORKSPACE := $(abspath ../..)
@@ -20,7 +21,7 @@ DUCKDB_IMAGE := duckdb/duckdb@sha256:69128eff5f937dcd451dd3342d0d2d2e24edcab5ad7
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up up-s3 up-observe build run-native validate status query oracle-stats logs down clean verify chaos-%
+.PHONY: help up up-s3 up-observe build run-native validate status query oracle-stats logs down clean verify chaos chaos-%
 
 help: ## List targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sed 's/:.*## /\t/' | column -ts "$$(printf '\t')"
@@ -83,8 +84,19 @@ clean: ## down -v plus ./data (a full demo reset)
 	$(COMPOSE) --profile s3 --profile observe down -v
 	rm -rf ./data
 
-verify: ## Placeholder: the oracle verifier ships in PR18
-	@echo "verify: added in PR18"
+# Newest chaos run directory unless RUN= is given.
+RUN ?= $(firstword $(shell ls -1dt data/chaos/*/ 2>/dev/null))
 
-chaos-%: ## Placeholder: chaos scenarios F1-F10 ship in PR18
-	@echo "chaos $*: added in PR18"
+verify: ## Oracle verifier on a chaos run: make verify [RUN=data/chaos/<run>] (default: newest)
+	@test -n "$(RUN)" || { echo "no chaos run found under data/chaos; pass RUN=<dir>" >&2; exit 2; }
+	@quarantine=""; if [ -d "$(RUN)/data/quarantine/local/ready" ]; then quarantine="--quarantine $(RUN)/data/quarantine/local/ready"; fi; \
+	cargo run --quiet --manifest-path "$(WORKSPACE)/Cargo.toml" -p thadam-simulator -- \
+	  verify --oracle "$(RUN)/oracle.ndjson" --ready "$(RUN)/data/sinks/local" $$quarantine
+
+chaos: ## List chaos scenarios (run one with: make chaos-f1 [ARGS=...])
+	@ls scripts/chaos/f*-*.sh | sed 's|scripts/chaos/|  |; s|\.sh$$||'
+
+chaos-%: ## Run one chaos scenario, e.g. make chaos-f1 ARGS=60
+	@script=$$(ls scripts/chaos/$*-*.sh 2>/dev/null | sed -n 1p); \
+	test -n "$$script" || { echo "unknown chaos scenario '$*' (see: make chaos)" >&2; exit 2; }; \
+	bash "$$script" $(ARGS)

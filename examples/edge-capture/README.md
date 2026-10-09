@@ -2,7 +2,7 @@
 
 **A synthetic robot fleet keeps producing data; Thadam captures it over MQTT, normalizes it, filters it, and writes durable local Parquet — optionally shipping it to S3-compatible storage.** A seeded simulator records the truth (every sample it sent, per message acks, and what the pipeline should do with it) so anything Thadam writes can be checked against that record.
 
-This milestone ships demo levels 1 and 2. The chaos scenarios (F1–F10), the oracle verifier, and benchmarks are [PR18](../../ARCHITECTURE.md); replay (level 4) is PR17.
+This milestone ships demo levels 1 and 2, the oracle verifier (`make verify`), and chaos scenarios F1, F3, F4, F5, F7, and F8 (`make chaos-*`, see [Chaos](#chaos)). Benchmarks and `make report` are [PR18](../../ARCHITECTURE.md); replay (level 4) is PR17.
 
 - **Level 1 — first Parquet in 10 minutes:** Mosquitto + simulator + Thadam → local Parquet → DuckDB.
 - **Level 2 — edge to bucket:** + SeaweedFS S3 behind Toxiproxy, with the idempotent shipper.
@@ -30,7 +30,7 @@ flowchart LR
   prom --> thadam
 ```
 
-Key property of this layout: the simulator talks **directly** to the broker, so toxics (PR18) can only affect Thadam's consumption — production and the oracle record stay clean. Thadam reaches broker and S3 **only** through Toxiproxy, so the same chaos works for in-container runs once the `thadam` image lands (PR18 builds `thadam:failpoints`; Thadam runs natively until then).
+Key property of this layout: the simulator talks **directly** to the broker, so the Toxiproxy toggles used by the chaos scenarios can only affect Thadam's consumption — production and the oracle record stay clean. Thadam reaches broker and S3 **only** through Toxiproxy, so the same chaos works for in-container runs once the `thadam` image lands (PR18 builds `thadam:failpoints`; Thadam runs natively until then).
 
 ## Prerequisites
 
@@ -117,6 +117,46 @@ make up-observe
 
 Dashboard rows track intake vs written, WAL commit p50/p99 and disk vs budget, segment states and sink lag, ship throughput and retries, quality flags and dedup drops, and process resources. (Ship metrics land with the shipper-metrics work item; panels show "No data" until then.)
 
+## Chaos
+
+Each scenario is a bash script in [`scripts/chaos/`](scripts/chaos). It runs Thadam natively against the stack, injects one fault, drains, stops Thadam cleanly, and ends by running `thadam-simulator verify` on the run's oracle and output. The script exits with verify's status (F7 has the one exception below).
+
+```bash
+make chaos                 # list scenarios
+make chaos-f1 ARGS=60      # one scenario; ARGS is passed to the script
+make verify                # re-verify the newest run under data/chaos/
+make verify RUN=data/chaos/<run>
+```
+
+Every run writes to `data/chaos/<scenario>-<timestamp>/` (own config, oracle, logs, and output). Scripts print a timestamped timeline, so each run can be read after the fact. Requirements: Docker, `jq`, `curl`, the workspace Rust toolchain. `shellcheck` is not required.
+
+| Scenario | Fault | Proves | Default | Expected |
+|---|---|---|---|---|
+| `f1-s3-partition` | Toxiproxy `s3` proxy disabled for N s, then re-enabled | An S3 network partition costs no local data; the backlog drains after heal | 30 s | verify PASS |
+| `f3-s3-down` | `docker compose --profile s3 stop/start seaweedfs` for N s | Same as F1 with a dead store behind a live proxy; the store comes back with its data | 30 s | verify PASS |
+| `f4-mqtt-partition` | Toxiproxy `mqtt` proxy disabled for N s (simulator still publishes to the broker) | A consumer partition loses no acknowledged data; the persistent session resumes and drains the queued messages | 30 s | verify PASS |
+| `f5-crash-loop` | `kill -9` of `thadam run` K times, random 5–20 s gaps, wait for `/readyz`, restart | Crash-recovery of the WAL and the sinks loses nothing acknowledged across K hard kills | K=3 | verify PASS |
+| `f7-disk-pressure` | Small budgets (`pipeline.disk-pressure.yaml`: 8 MiB WAL, 1 MiB segments, 16 MiB sink, `on_full: drop_oldest`), S3 not used | WAL disk stays within budget plus one segment; losses are attributed to `on_full` evictions | 60 s | see below |
+| `f8-poison` | Simulator burst at a high malformed rate (default 0.25 for 20 s) | Every injected malformed sample lands in quarantine, none in the datasets | 30 s, 0.25 | verify PASS |
+
+Arguments: `f1`, `f3`, `f4`: `[SECONDS]`. `f5`: `[KILLS]` (env `F5_SEED` fixes the gap sequence). `f7`: `[SECONDS]`. `f8`: `[BURST_SECONDS] [MALFORMED_RATE]`.
+
+**Drain and the source of truth.** A scenario waits until the source is idle (every received batch is in the WAL, and the WAL has stopped growing for 5 s) and then stops Thadam with SIGTERM, which finalizes the open Parquet files. Verify runs only after that, and it is the authoritative check. Sink cursor lag is not awaited, because an idle live sink does not advance its watermark until rotation or shutdown. In live runs the reported lag at the drain point was roughly 1,600 to 2,900 frames; the finalize step clears it.
+
+**F5 gaps differ from the e2e test.** The script uses random 5–20 s gaps. The ignored Rust test below uses fixed 3 s gaps so it runs in about 40 s.
+
+**F7 exit rule.** F7 exits 1 if the WAL peak exceeds budget plus one segment, or if no evictions happened (the budget never engaged). Otherwise it exits 0: when verify passes, or when verify fails but the failures are attributed to `on_full: drop_oldest` evictions (`wal.evicted_bytes` > 0). In the live run, evictions happened (about 23 MB) and verify passed, so no rows were lost and the attributed-loss path did not trigger.
+
+**Known gap, S3 (F1, F3).** These scenarios run `pipeline.s3.local.yaml`. Verify checks the local output, which is complete. In the live runs the bucket stayed empty after finalize, and the log showed no upload activity. The S3 shipping path is therefore not demonstrated by these scripts yet. The bucket count is printed for information only.
+
+**Ignored Docker test.** The end-to-end test `crash_loop_delivery_matches_the_oracle` (`tools/thadam-simulator/tests/e2e_edge_capture.rs`) runs the F5 shape in-process. Run it with:
+
+```bash
+cargo nextest run -p thadam-simulator --run-ignored only
+```
+
+It needs Docker, so it is `#[ignore]`d by default. It runs three SIGKILLs and asserts verify passes, then removes its containers and volumes.
+
 ## How the oracle maps to the data
 
 The simulator writes `oracle/oracle.ndjson` — one JSON object per **sample** (exploded streams count each sample):
@@ -159,7 +199,7 @@ Streams per robot: telemetry 10 Hz (1 sample), joints 100 Hz (10/msg), imu 200 H
 
 ## What this milestone does NOT include
 
-- **Chaos scenarios F1–F10, `make verify`, benchmarks, `make report`** — PR18 (`make chaos-*` / `make verify` print `added in PR18` placeholders by design). The metrics they assert on are being wired in parallel.
+- **Chaos scenarios F2, F6, F9, F10, benchmarks, and `make report`** — PR18. F2, F6, F9, and F10 have no scripts here yet.
 - **Replay (level 4)** — PR17; the catch is the WAL `retain_for: 1h` and `replay --output` never writing to production paths.
 - **A `thadam` container image.** Thadam runs natively here (`make run-native`); the published image (and thus the true cold-clone-under-10-minutes gate) lands with PR18's `thadam:failpoints` image work. Level-1 end-to-end on a warm checkout is a couple of minutes; the first `make up` also builds the simulator image.
 - **Power-loss honesty.** Containers cannot simulate it; the `fsync: { interval: 50ms }` exposure window is what it is, and hardware-rig evidence is pending before any power-loss claim (see the repo README's claims discipline). macOS is for development only; durability statements cover Linux.
@@ -176,6 +216,8 @@ simulator/fleet.yaml               fleet, rates, behavior model, chaos knobs
 thadam/pipeline.yaml                container-topology reference (level 2 shape)
 thadam/pipeline.local.yaml          LEVEL 1 (native): local Parquet only
 thadam/pipeline.s3.local.yaml       LEVEL 2 (native): + S3 through the proxy
+thadam/pipeline.disk-pressure.yaml  CHAOS F7: small WAL/segment/sink budgets, no S3
+scripts/chaos/                     chaos scenarios (F1, F3, F4, F5, F7, F8) and lib.sh
 seaweedfs/create-bucket.sh         idempotent bucket init (unsigned, demo store)
 prometheus/prometheus.yml          scrapes the native admin /metrics
 grafana/                           provisioned datasource + dashboard
