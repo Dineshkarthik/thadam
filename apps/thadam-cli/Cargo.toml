@@ -18,6 +18,7 @@ thadam-mqtt = { path = "../../crates/thadam-mqtt" }
 thadam-http = { path = "../../crates/thadam-http" }
 thadam-grpc = { path = "../../crates/thadam-grpc" }
 thadam-segments = { path = "../../crates/thadam-segments" }
+thadam-wal = { path = "../../crates/thadam-wal" }
 thadam-object-store = { path = "../../crates/thadam-object-store" }
 thadam-core = { workspace = true }
 rustls = { workspace = true }
@@ -29,6 +30,9 @@ ureq = { version = "3", default-features = false }
 
 [dev-dependencies]
 assert_cmd = "2.0"
+bytes = { workspace = true }
+parquet = { workspace = true }
+thadam-testkit = { path = "../../crates/thadam-testkit" }
 
 [lints]
 workspace = true

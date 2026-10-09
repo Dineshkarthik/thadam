@@ -87,6 +87,7 @@ mod error;
 pub mod failpoints;
 mod format;
 mod fsutil;
+mod inspect;
 mod meta;
 mod options;
 mod proto;
@@ -101,6 +102,7 @@ mod tests;
 
 pub use cursor::CursorState;
 pub use error::WalError;
+pub use inspect::{CursorInfo, FrameInfo, RecordInfo, SegmentInfo, WalInspection, inspect};
 pub use options::{ConsumerSpec, Fsync, MaxLag, OnFull, StartFrom, WalOptions};
 pub use reader::{Frame, FrameChunk, Gap, ReadItem, RecordView, WalReader};
 pub use retention::RetentionReport;

@@ -15,8 +15,11 @@
 //! 0 ok, 1 runtime failure, 2 invalid configuration or usage, 3 data directory
 //! locked or incompatible, 130 interrupted.
 
+mod data_dir;
 mod exit;
+mod inspect;
 mod registry;
+mod replay;
 mod run;
 mod status;
 mod validate;
@@ -50,6 +53,10 @@ enum Command {
     Run(RunArgs),
     /// Check the admin server status.
     Status(StatusArgs),
+    /// Re-run a sink's chain over a retained WAL range into a separate directory.
+    Replay(replay::ReplayArgs),
+    /// Read-only views of a data directory: WAL, cursors, segments, samples.
+    Inspect(inspect::InspectArgs),
 }
 
 #[derive(Args)]
@@ -193,6 +200,8 @@ fn main() -> ExitCode {
             &mut out,
             &mut err,
         ),
+        Command::Replay(args) => replay::run(&args, &mut out, &mut err),
+        Command::Inspect(args) => inspect::run(&args, &mut out, &mut err),
     };
     exit.into()
 }

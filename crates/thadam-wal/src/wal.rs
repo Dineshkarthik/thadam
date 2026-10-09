@@ -23,8 +23,8 @@ use crate::writer::{self, WalWriter, WriterThread};
 
 pub(crate) const LOCK_FILE: &str = "LOCK";
 pub(crate) const CLEAN_MARKER: &str = "clean_shutdown";
-const SEGMENTS_DIR: &str = "segments";
-const CURSORS_DIR: &str = "cursors";
+pub(crate) const SEGMENTS_DIR: &str = "segments";
+pub(crate) const CURSORS_DIR: &str = "cursors";
 
 /// What [`open`] found and did.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -40,8 +40,11 @@ use crate::error::SegmentError;
 use crate::partition;
 pub use record::{SegmentId, SegmentRecord};
 
+pub mod inspection;
 pub(crate) mod log;
 pub(crate) mod record;
+
+pub use inspection::{CatalogInspection, SegmentFile, SegmentStatus, inspect};
 
 /// Bumped on every applied batch of log records.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -436,22 +439,7 @@ impl SegmentCatalog {
     /// small and bounded by the segment budget, so callers report these on
     /// every state change for exactness).
     pub fn state_totals(&self) -> SegmentTotals {
-        let state = lock(&self.inner.state);
-        let mut out = SegmentTotals::default();
-        for entry in state.segments.values() {
-            if !entry.record.has_file() {
-                continue;
-            }
-            let total = match entry.state {
-                SegmentState::Finalized => &mut out.finalized,
-                SegmentState::Eligible { .. } => &mut out.eligible,
-                SegmentState::Uploaded { .. } => &mut out.uploaded,
-                SegmentState::Deleted { .. } => &mut out.deleted,
-            };
-            total.files += 1;
-            total.bytes += entry.record.bytes;
-        }
-        out
+        totals_of(&lock(&self.inner.state))
     }
 
     /// The watermark over `datasets`: the highest WAL position every one of
@@ -538,6 +526,24 @@ fn reconcile_charge(inner: &Arc<Inner>) {
             Err(actual) => cur = actual,
         }
     }
+}
+
+fn totals_of(state: &CatalogState) -> SegmentTotals {
+    let mut out = SegmentTotals::default();
+    for entry in state.segments.values() {
+        if !entry.record.has_file() {
+            continue;
+        }
+        let total = match entry.state {
+            SegmentState::Finalized => &mut out.finalized,
+            SegmentState::Eligible { .. } => &mut out.eligible,
+            SegmentState::Uploaded { .. } => &mut out.uploaded,
+            SegmentState::Deleted { .. } => &mut out.deleted,
+        };
+        total.files += 1;
+        total.bytes += entry.record.bytes;
+    }
+    out
 }
 
 fn apply_ref(state: &mut CatalogState, record: &CatalogRecord) {

@@ -9,7 +9,7 @@
 //! produced for the same range and configuration. Rejects are counted, not
 //! quarantined.
 
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use thadam_config::PipelineSpec;
@@ -36,6 +36,10 @@ pub enum ReplayOutput {
     /// A fresh instance of the sink's kind, built from its configuration in
     /// `data_dir/replays/<replay_id>/<sink>`.
     SeparateDir,
+    /// A fresh instance of the sink's kind, built from its configuration in
+    /// the given directory. Must not be inside the data directory's `sinks/`
+    /// or `wal/` trees, which hold production state.
+    SeparateDirAt(PathBuf),
     /// A segment sink the caller built.
     Sink(Box<dyn SegmentSink>),
 }
@@ -44,6 +48,7 @@ impl std::fmt::Debug for ReplayOutput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ReplayOutput::SeparateDir => f.write_str("SeparateDir"),
+            ReplayOutput::SeparateDirAt(dir) => f.debug_tuple("SeparateDirAt").field(dir).finish(),
             ReplayOutput::Sink(_) => f.write_str("Sink(..)"),
         }
     }
@@ -115,6 +120,27 @@ pub struct ReplayReport {
     pub watermark: Option<u64>,
     /// The output directory, for [`ReplayOutput::SeparateDir`].
     pub output_dir: Option<PathBuf>,
+}
+
+/// Makes `path` absolute against the working directory and resolves `.` and
+/// `..` lexically. Symbolic links are not followed.
+fn lexical_absolute(path: &Path) -> PathBuf {
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().map_or_else(|_| path.to_path_buf(), |cwd| cwd.join(path))
+    };
+    let mut out = PathBuf::new();
+    for component in joined.components() {
+        match component {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 fn valid_id(id: &str) -> bool {
@@ -204,23 +230,38 @@ pub async fn replay(
     datadir::check_wal_binding(existing.as_ref(), wal.epoch(), opts.repair)?;
 
     let out_id = format!("replay.{}.{}", req.replay_id, req.sink);
+    let protected = [
+        lexical_absolute(&layout.root.join("sinks")),
+        lexical_absolute(&layout.wal()),
+    ];
+    let build_at = |dir: PathBuf| -> Result<(Box<dyn SegmentSink>, Option<PathBuf>), ThadamError> {
+        let abs = lexical_absolute(&dir);
+        if protected.iter().any(|p| abs.starts_with(p)) {
+            return Err(config_error(
+                "replay_output",
+                format!(
+                    "replay output `{}` is inside production state; choose another directory",
+                    dir.display()
+                ),
+            ));
+        }
+        let ctx = BuildContext::new(out_id.as_str(), Arc::clone(&opts.clock), dir.clone())
+            .with_datasets(plan::dataset_decls(spec, only.as_deref()));
+        let built = match &factory {
+            Some(SinkFactory::Segment(f)) => f.build(sink_spec.config.clone(), &ctx)?,
+            _ => {
+                return Err(config_error(
+                    "sink",
+                    "replay into a separate directory needs a segment sink; pass ReplayOutput::Sink",
+                ));
+            }
+        };
+        Ok((built, Some(dir)))
+    };
     let (mut out, output_dir) = match req.output {
         ReplayOutput::Sink(s) => (s, None),
-        ReplayOutput::SeparateDir => {
-            let dir = layout.replay(&req.replay_id, &req.sink);
-            let ctx = BuildContext::new(out_id.as_str(), Arc::clone(&opts.clock), dir.clone())
-                .with_datasets(plan::dataset_decls(spec, only.as_deref()));
-            let built = match factory {
-                Some(SinkFactory::Segment(f)) => f.build(sink_spec.config.clone(), &ctx)?,
-                _ => {
-                    return Err(config_error(
-                        "sink",
-                        "replay into a separate directory needs a segment sink; pass ReplayOutput::Sink",
-                    ));
-                }
-            };
-            (built, Some(dir))
-        }
+        ReplayOutput::SeparateDir => build_at(layout.replay(&req.replay_id, &req.sink))?,
+        ReplayOutput::SeparateDirAt(dir) => build_at(dir)?,
     };
     let ctx = SinkContext::new(
         SinkId::new(out_id.as_str()),
@@ -350,4 +391,23 @@ pub async fn replay(
     }
     tracing::info!(replay = %report.replay_id, frames = report.frames, events = report.events, "replay finished");
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parent_components_resolve_before_the_protected_check() {
+        let p = lexical_absolute(Path::new("/data/out/../sinks/pq"));
+        assert_eq!(p, PathBuf::from("/data/sinks/pq"));
+        assert!(p.starts_with("/data/sinks"));
+    }
+
+    #[test]
+    fn relative_paths_are_anchored_to_the_working_directory() {
+        let p = lexical_absolute(Path::new("./wal/segments"));
+        assert!(p.is_absolute());
+        assert!(p.ends_with("wal/segments"));
+    }
 }

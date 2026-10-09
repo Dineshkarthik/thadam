@@ -253,11 +253,36 @@ pub(crate) struct ScanResult {
 pub(crate) fn scan_frames(
     file: &File,
     file_len: u64,
+    off: u64,
+    expect: u64,
+    stop_before: u64,
+    frame_max: usize,
+) -> io::Result<ScanResult> {
+    scan_visit(
+        file,
+        file_len,
+        off,
+        expect,
+        stop_before,
+        frame_max,
+        |_, _| true,
+    )
+}
+
+/// [`scan_frames`] that also hands each valid frame's sequence number and
+/// payload to `visit`. Scanning stops early when `visit` returns `false`.
+pub(crate) fn scan_visit<F>(
+    file: &File,
+    file_len: u64,
     mut off: u64,
     mut expect: u64,
     stop_before: u64,
     frame_max: usize,
-) -> io::Result<ScanResult> {
+    mut visit: F,
+) -> io::Result<ScanResult>
+where
+    F: FnMut(u64, &[u8]) -> bool,
+{
     let mut buf: Vec<u8> = Vec::new();
     let mut buf_off = off;
     let mut frames = 0;
@@ -273,9 +298,13 @@ pub(crate) fn scan_frames(
         let have = buf.get(start..).unwrap_or(&[]);
         match parse_frame(have, expect, frame_max) {
             Step::Frame { len, .. } => {
+                let payload = &have[FRAME_HDR..FRAME_HDR + len];
                 off += (FRAME_HDR + len) as u64;
-                expect += 1;
                 frames += 1;
+                if !visit(expect, payload) {
+                    return Ok(done(off, expect + 1, frames, ScanEnd::Reached));
+                }
+                expect += 1;
             }
             Step::Zero => return Ok(done(off, expect, frames, ScanEnd::Zero)),
             Step::Bad(why) => return Ok(done(off, expect, frames, ScanEnd::Bad(why))),

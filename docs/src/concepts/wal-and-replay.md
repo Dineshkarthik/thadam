@@ -47,7 +47,21 @@ Replay is a cursor rewind, not a separate storage path: reset a sink reader into
 
 The defined replay property is **row-set equivalence** for the same WAL range, the same config hash, and the same enrichment-file hash: identical `_event_id`s, values, and flags. Replay is deliberately **not** byte-identical — rotation uses durations, file boundaries may differ, and enrichment files may change. Event IDs are deterministic and sampling/transforms never read the wall clock, so equivalence is testable. Replay output always goes to a separate directory or isolated prefix (`.../replays/{replay_id}/`), never the production prefix ([ADR-0013](../design/index.md)).
 
-The `thadam replay` subcommand itself is planned (PR17) and not yet implemented; the retained-window machinery it rewinds is built and tested.
+The [`thadam replay`](../cli/replay.md) subcommand runs this rewind from the command line. It re-runs one sink's chain over the retained range into `--output` (default `<data_dir>/replays/<id>/<sink>`), leaves the production sink directory and cursor untouched, and prints the replay id and output path.
+
+### Replay a fix
+
+1. Correct the transform or filter in the configuration file.
+2. Find the range to recover with [`thadam inspect wal`](../cli/inspect.md#thadam-inspect-wal) (first and durable positions) or pick a duration such as `-2h`.
+3. Replay it into a scratch directory:
+
+   ```text
+   thadam replay pipeline.yaml --from -2h --sink pq --output /tmp/replay-fix
+   ```
+
+4. Check the output and the printed row counts, then move the rows you want into place by your own process. Replay never writes to the production prefix.
+
+The replay runs the current configuration, so the corrected chain applies to the retained frames. Frames already evicted by retention cannot be replayed.
 
 ## Recovery
 

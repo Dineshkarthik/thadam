@@ -1,6 +1,6 @@
 # CLI reference
 
-The `thadam` binary is the only interface: validation, runtime, status, and schema/version introspection. Output below is verbatim from `thadam --help` (pre-alpha; the grammar is stable for config version 1 and the subcommand set may grow with replay/inspect in later PRs).
+The `thadam` binary is the only interface: validation, runtime, status, replay, WAL inspection, and schema/version introspection. Output below is verbatim from `thadam --help` (pre-alpha; the grammar is stable for config version 1).
 
 ## `thadam`
 
@@ -15,6 +15,8 @@ Commands:
   schema    Print the JSON Schema of the configuration file
   run       Run a pipeline configuration
   status    Check the admin server status
+  replay    Re-run a sink's chain over a retained WAL range into a separate directory
+  inspect   Read-only views of a data directory: WAL, cursors, segments, samples
   help      Print this message or the help of the given subcommand(s)
 
 Options:
@@ -118,10 +120,18 @@ Options:
 
 Fetches `<admin-url>/status` and pretty-prints the JSON [status snapshot](../operations/admin-api.md#status). Exit 0 on HTTP 200; 1 if the server is unreachable, the token is rejected, or a non-200 status is returned.
 
+## `thadam replay`
+
+Re-runs one sink's chain over the retained WAL range between `--from` and `--to` (a WAL position, a duration such as `-45m`, or an RFC 3339 time) into a separate output directory, and prints the replay id and output path. Full usage, output format, and exit codes: [`thadam replay`](replay.md).
+
+## `thadam inspect`
+
+Read-only views of a data directory: `wal`, `cursors`, `segments --sink`, and `sample`, each with `--json`. Safe to run while `thadam run` holds the data directory. Full usage: [`thadam inspect`](inspect.md).
+
 ## `thadam help`
 
 Prints the same help as `--help` for the binary or a subcommand (`thadam help run`).
 
 ## Roadmap subcommands (planned)
 
-`product.md` and ARCHITECTURE.md section 21 sketch additional subcommands as later PRs, **not implemented today**: `thadam replay` and `thadam inspect` (PR17 — replay into isolated output, WAL/cursor/segment inspection, `--suggest-schema`), `thadam export --mcap` (M2), and benchmark tooling (`tools/thadam-bench`, not a CLI subcommand). This page will grow with them.
+`product.md` and ARCHITECTURE.md section 21 sketch additional subcommands as later PRs, **not implemented today**: `--suggest-schema` on `thadam inspect`, `thadam export --mcap` (M2), and benchmark tooling (`tools/thadam-bench`, not a CLI subcommand). This page will grow with them.
