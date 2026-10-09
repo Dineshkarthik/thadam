@@ -1,6 +1,6 @@
 # Readiness gate: re-run of 2026-10-07 (after the owner decisions)
 
-Status: **CONDITIONALLY READY, implementation under way.** PR1 to PR9, PR12, and PR13 are done and committed, and so is wave 3's PR10, the runtime (`e2dd744`, plus the `f2c2282` contract and sink-policy follow-up); PR11 (observability, admin API, `thadam run`, `thadam status`) is in progress (hashes in "Implementation status (waves 2 and 3)"). The WAL was built ahead of ADR-0004's acceptance by the owner's choice, so its on-disk format is versioned but not frozen: the ADR-0004 hardware re-run still gates the freeze and the acceptance. The owner still needs to apply `docs/design/product-amendments.md` Part A to `product.md`.
+Status: **CONDITIONALLY READY, implementation under way.** PR1 to PR9, PR12, and PR13 are done and committed, and so is wave 3's PR10, the runtime (`e2dd744`, plus the `f2c2282` contract and sink-policy follow-up); PR11 (observability, admin API, `thadam run`, `thadam status`) and PR14 to PR18 are done as well (hashes in the per-PR table). The WAL was built ahead of ADR-0004's acceptance by the owner's choice, so its on-disk format is versioned but not frozen: the ADR-0004 hardware re-run still gates the freeze and the acceptance. The owner still needs to apply `docs/design/product-amendments.md` Part A to `product.md`.
 
 Date: 2026-10-07 (status updated after wave 2, commits `8cc03a2` to `2a681ce`, the same day). This document re-runs the checklist in section 1 of the readiness gate plan (`thadam_mvp_readiness_gate`) against the current documents and evidence, after the owner's decisions of the same day (ADR acceptances, B7, and the EMQX pin; see `docs/design/owner-decisions.md`). It supersedes the plan's "NOT READY" paragraph for tracking purposes and is updated whenever a blocker moves. The sources of truth it summarizes are `ARCHITECTURE.md`, `docs/design/owner-decisions.md`, `docs/design/adr/`, and the spike reports in `docs/design/spikes/` (S1 WAL, S2 MQTT, D8 record representation, ADR-0012 YAML, ADR-0018 filter).
 
@@ -33,10 +33,23 @@ The overall verdict is a conjunction. The practical question is which work can s
 | PR8 (transform part 1) | PR3 | **Done**, `424c2cc` (with PR9). |
 | PR9 (transform part 2) | PR3 and PR8 | **Done**, `424c2cc` (with PR8). ADR-0018 is Accepted; its PR9 details are recorded in the `thadam-transform` crate documentation. |
 | PR10 (`thadam-runtime` core) | PR3 to PR8 | **Done**, `e2dd744`, plus the `f2c2282` follow-up (segment-sink appends grouped by dataset; per-sink `required`/`max_lag`/`start_from` in `thadam-config`). D5 and D6 were signed, so no decision blocked it. |
-| PR11 (observability, admin API, `thadam run`, `thadam status`) | PR10 | **In progress.** The runtime attaches through the `PipelineHandle::status` snapshots and the `MetricsSink` callback added in PR10. |
+| PR11 (observability, admin API, `thadam run`, `thadam status`) | PR10 | **Done**, `8e5ccab`..`8e32cb9`. |
 | PR12 (`thadam-mqtt`) | PR4 and the runtime sequence | **Done**, `2a681ce`. ADR-0006 is Accepted (amended 2026-10-07: TLS is terminated in `thadam-mqtt`); EMQX is pinned to 5.8.x for CI. |
 | PR13 (`thadam-arrow`) | Earlier PRs | **Done**, `4fa3802`. ADR-0013 is Accepted; PR13 closed O4, O5, and the unsigned default. |
-| PR14 onward | Earlier PRs | Not started. |
+| PR14 Parquet segments | Earlier PRs | **Done**, `6b8a975`. |
+| PR15 simulator + demo | Earlier PRs | **Done**, `9a494d8`. |
+| PR16 S3 shipper | Earlier PRs | **Done**, `9489a30` (fixes `934be0d`, `b477274`). |
+| PR17 replay/inspect | Earlier PRs | **Done**, `b9e248f`. |
+| PR18 verifier | Earlier PRs | **Done**, `ee615f3`. |
+| chaos | Earlier PRs | **Done**, `62cde5f`. |
+| benchmark harness | Earlier PRs | **Done**, `bf4b979`. |
+| HTTP source | Earlier PRs | **Done**, `6df7b71`. |
+| gRPC source | Earlier PRs | **Done**, `eba6136`. |
+| Python SDK | Earlier PRs | **Done**, `b2b591e`. |
+| ROS 2 decoder | Earlier PRs | **Done**, `4eb9230`. |
+| metrics hook | Earlier PRs | **Done**, `5fa9bdb`. |
+| ROS 2 MCAP source | Earlier PRs | **In progress.** |
+| ClickHouse sink | Earlier PRs | **In progress.** |
 
 ### Implementation status (waves 2 and 3)
 
@@ -112,7 +125,7 @@ Closed in this pass: acceptance of ADRs 0001, 0002, 0003, 0006, 0011, 0012, 0013
 
 ### What flips the project to fully READY
 
-Blocker 2 closed, and, for the WAL format freeze only, blocker 3 (with blocker 4 as its dependency). Blocker 1 is closed. Work proceeds incrementally: wave 2 and PR10 (the runtime core) are done, and PR11 is in progress. The owner action in blocker 2 does not gate code, but it gates README, demo, and release wording.
+Blocker 2 closed, and, for the WAL format freeze only, blocker 3 (with blocker 4 as its dependency). Blocker 1 is closed. Work proceeds incrementally: waves 2 to 5 are done, including PR10 and PR11. The owner action in blocker 2 does not gate code, but it gates README, demo, and release wording.
 
 ## 4. Caveats on the evidence
 

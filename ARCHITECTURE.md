@@ -808,8 +808,21 @@ This replaces the implementation plan's PR list (itself a revision of the origin
 | PR12 `thadam-mqtt` | Done (wave 2) | `2a681ce` |
 | PR10 `thadam-runtime` core (wave 3) | Done | `e2dd744` |
 | Contract and sink-policy follow-up: segment-sink appends grouped by dataset, per-sink `required`/`max_lag`/`start_from` | Done | `f2c2282` |
-| PR11 observability, admin API, `thadam run`, `thadam status` | **In progress** | none |
-| PR14 to PR18 | Not started | none |
+| PR11 observability, admin API, `thadam run`, `thadam status` | Done | `8e5ccab`..`8e32cb9` |
+| PR14 Parquet segments | Done | `6b8a975` |
+| PR15 simulator + demo | Done | `9a494d8` |
+| PR16 S3 shipper | Done | `9489a30` |
+| PR17 replay/inspect | Done | `b9e248f` |
+| PR18 verifier | Done | `ee615f3` |
+| chaos | Done | `62cde5f` |
+| benchmark harness | Done | `bf4b979` |
+| HTTP source | Done | `6df7b71` |
+| gRPC source | Done | `eba6136` |
+| Python SDK | Done | `b2b591e` |
+| ROS 2 decoder | Done | `4eb9230` |
+| metrics hook | Done | `5fa9bdb` |
+| ROS 2 MCAP source | In progress | none |
+| ClickHouse sink | In progress | none |
 
 A test-only follow-up, `4857bcc` ("Gate WAL crash-loop kills on child readiness"), stabilizes the `thadam-wal` crash-loop test. `f2c2282` ("Group segment-sink appends by dataset and add sink consumer policies") is PR10's follow-up; it also settled the per-sink consumer-policy keys in `thadam-config` (section 15) and the `SegmentSink::append` signature (section 5).
 
@@ -873,7 +886,7 @@ These items do not use PR numbers 19 to 21, which belong to ClickHouse. Order fo
 - PR5: ADR-0012 is Accepted (2026-10-07). **Done** (`8cc03a2`).
 - PR6 and PR7: the gate was ADR-0004 accepted, which requires the S1 re-run on x86 NVMe and ARM eMMC (the format becomes permanent when released). The owner chose to build the WAL first and re-validate later, so both are **done** (`0c4cf6f`) with a versioned but unfrozen format. **The format freeze is still gated** on the re-run, and ADR-0004 stays Draft.
 - PR9: ADR-0018 is Accepted (2026-10-07). **Done** with PR8 (`424c2cc`).
-- PR10: D5 and D6 signed (done). **Done** (`e2dd744`, plus the `f2c2282` contract and sink-policy follow-up). PR11 follows; it is in progress.
+- PR10: D5 and D6 signed (done). **Done** (`e2dd744`, plus the `f2c2282` contract and sink-policy follow-up). PR11 is done (`8e5ccab`..`8e32cb9`).
 - PR12: ADR-0006 is Accepted (2026-10-07). **Done** (`2a681ce`).
 - PR19: the M1 gate.
 - Live ROS 2: S3 and ADR-0007.

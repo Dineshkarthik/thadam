@@ -232,8 +232,9 @@ observe() {
 # wait_drained LIMIT_SECONDS: the source side is idle. Every batch received has
 # been committed to the WAL (uncommitted 0) and the WAL has stopped growing for
 # 5 s. Sink cursors are NOT awaited: a segment sink commits its watermark only at
-# rotation, and an idle open segment does not rotate in this build (lag stays
-# flat for minutes). The SIGTERM finalize commits every sink, and verify on the
+# rotation (timer-driven); the commit point can be held back by a pending
+# quarantined record until the quarantine segment rotates (`quarantine.rotation.max_age`,
+# demo uses 15 s). The SIGTERM finalize commits every sink, and verify on the
 # finalized output is the authoritative delivery check.
 wait_drained() {
   local limit="${1:-120}" waited=0 stable=0 last="" now=""
