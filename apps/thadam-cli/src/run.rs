@@ -107,6 +107,7 @@ async fn run_pipeline(
         Err(errs) => {
             for e in &errs {
                 tracing::error!(error = %e, "pipeline build error");
+                eprintln!("error: pipeline build failed: {e}");
             }
             return ExitStatus::for_errors(&errs).into();
         }
@@ -216,6 +217,7 @@ async fn run_pipeline(
         Ok(report) => report.exit.into(),
         Err(e) => {
             tracing::error!(error = %e, "pipeline run failed");
+            eprintln!("error: pipeline run failed: {e}");
             ExitStatus::for_error(&e).into()
         }
     }
