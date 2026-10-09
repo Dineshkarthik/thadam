@@ -217,6 +217,81 @@ impl RecordingMetrics {
     }
 }
 
+/// Connector-metric events from the service-context hook (what the
+/// runtime would see), debug-formatted in order.
+#[derive(Debug, Default)]
+pub(crate) struct RecordingConnectorMetrics {
+    events: Mutex<Vec<String>>,
+}
+
+impl RecordingConnectorMetrics {
+    /// A fresh recorder.
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new(RecordingConnectorMetrics::default())
+    }
+
+    /// Recorded events whose text contains `needle`.
+    pub(crate) fn matching(&self, needle: &str) -> Vec<String> {
+        self.events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|e| e.contains(needle))
+            .cloned()
+            .collect()
+    }
+}
+
+impl thadam_core::MetricsRecorder for RecordingConnectorMetrics {
+    fn record(&self, metric: thadam_core::ConnectorMetric<'_>) {
+        self.events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(format!("{metric:?}"));
+    }
+}
+
+/// Like [`run_service_until`], but the shipper reports through the service
+/// context's metrics hook (no `with_metrics`) and `done` sees the
+/// connector events.
+pub(crate) async fn run_service_until_hooked(
+    mut shipper: Shipper,
+    catalog: &SegmentCatalog,
+    done: impl Fn(&SegmentCatalog, &Arc<RecordingConnectorMetrics>) -> bool,
+    metrics: &Arc<RecordingConnectorMetrics>,
+    timeout: Duration,
+) -> Result<(), thadam_core::ThadamError> {
+    let shutdown = Shutdown::new();
+    let shared = SharedObjects::default();
+    shared.publish("local", Arc::new(catalog.clone()));
+    let ctx = ServiceContext::new(
+        "s3",
+        shutdown.clone(),
+        Arc::new(SystemClock::new()),
+        std::path::PathBuf::from("/tmp/thadam-ship-test-service"),
+        Arc::new(DiskBudget::new()),
+    )
+    .with_shared(shared)
+    .with_metrics(metrics.clone());
+    let task = tokio::spawn(async move { shipper.run(&ctx).await });
+    let start = std::time::Instant::now();
+    loop {
+        if task.is_finished() {
+            break;
+        }
+        if done(catalog, metrics) {
+            shutdown.trigger();
+            break;
+        }
+        if start.elapsed() > timeout {
+            shutdown.trigger();
+            panic!("shipper did not finish in {timeout:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    task.await.expect("service task")
+}
+
 impl ShipMetrics for RecordingMetrics {
     fn uploaded(&self, bytes: u64, _latency: Duration, outcome: &str) {
         self.uploaded

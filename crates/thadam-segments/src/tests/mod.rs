@@ -4,3 +4,4 @@ mod behavior;
 mod catalog_recovery;
 mod conformance;
 mod fixture;
+mod metrics;

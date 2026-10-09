@@ -9,8 +9,9 @@ use futures_util::StreamExt;
 use object_store::ObjectStore;
 
 use super::fixture::{
-    FlakyStore, LaxCreateStore, RecordingMetrics, TestSink, catalog_segment, make_config,
-    make_record, open_catalog, run_service_until,
+    FlakyStore, LaxCreateStore, RecordingConnectorMetrics, RecordingMetrics, TestSink,
+    catalog_segment, make_config, make_record, open_catalog, run_service_until,
+    run_service_until_hooked,
 };
 use crate::config::{ConditionalPut, RetentionMode};
 use crate::shipper::Shipper;
@@ -488,4 +489,49 @@ pub(crate) fn sha_hex_of(bytes: &[u8]) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
+}
+
+/// Without an explicit [`crate::ShipMetrics`] receiver the shipper reports
+/// through the service context's metrics hook: the upload lands as
+/// `ShipUploaded` and the catalog transitions surface as `SegmentFiles`
+/// snapshots labeled with the `from` sink.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reports_through_the_context_metrics_hook() {
+    let (_sink, catalog, _records) = fixture_one(&[(0, 9)]).await;
+    let store = FlakyStore::new();
+    let metrics = RecordingConnectorMetrics::new();
+    let config = make_config("demo", "", RetentionMode::DeleteAfterUpload);
+    let shipper = Shipper::new("s3", config, store.store());
+
+    run_service_until_hooked(
+        shipper,
+        &catalog,
+        |_c, m| {
+            !m.matching(r#"ShipUploaded { sink: "s3", outcome: "ok", bytes: 512"#)
+                .is_empty()
+                && !m
+                    .matching(
+                        r#"SegmentFiles { sink: "local", state: "uploaded", files: 1, bytes: 512"#,
+                    )
+                    .is_empty()
+                && !m
+                    .matching(r#"SegmentFiles { sink: "local", state: "deleted", files: 1"#)
+                    .is_empty()
+        },
+        &metrics,
+        TIMEOUT,
+    )
+    .await
+    .expect("service");
+
+    assert_eq!(metrics.matching("ShipUploaded").len(), 1);
+    assert!(metrics.matching("ShipRetried").is_empty());
+    // The eligible series dropped to zero when the record shipped.
+    assert!(
+        metrics
+            .matching(r#"SegmentFiles { sink: "local", state: "eligible", files: 0"#)
+            .len()
+            >= 2,
+        "eligibility scan and upload each publish absolute totals"
+    );
 }

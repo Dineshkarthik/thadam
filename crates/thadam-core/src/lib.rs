@@ -64,6 +64,7 @@ mod dataset;
 mod error;
 mod event;
 mod identity;
+mod metrics;
 mod position;
 mod quality;
 mod record;
@@ -91,6 +92,7 @@ pub use event::{Event, EventBuildError, EventBuilder, EventId, ObjectRef, Payloa
 pub use identity::{
     AssetLevel, AssetPath, AssetPathError, Attributes, MAX_ASSET_LEVELS, SinkId, SourceId,
 };
+pub use metrics::{ConnectorMetric, MetricsRecorder, NoopMetricsRecorder};
 pub use position::{BatchId, InvertedWalRange, ParseBatchIdError, WalEpoch, WalPos, WalRange};
 pub use quality::{Quality, QualityFlags, QualityStatus};
 pub use record::{Record, RecordError};

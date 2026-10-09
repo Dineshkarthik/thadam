@@ -41,8 +41,9 @@ use arrow_array::RecordBatch;
 use async_trait::async_trait;
 use thadam_arrow::{BatchContext, DatasetSchema};
 use thadam_core::{
-    BudgetCategory, Clock, DiskBudget, ErrorDomain, Event, Reject, ThadamError, SegmentBatch,
-    SegmentSink, SegmentSinkFactory, SinkContext, Timestamp, WalEpoch, WalPos, WalRange, codes,
+    BudgetCategory, Clock, ConnectorMetric, DiskBudget, ErrorDomain, Event, MetricsRecorder,
+    Reject, ThadamError, SegmentBatch, SegmentSink, SegmentSinkFactory, SinkContext, Timestamp,
+    WalEpoch, WalPos, WalRange, codes,
 };
 
 use crate::catalog::{LocalRetention, SegmentCatalog, SegmentRecord};
@@ -165,6 +166,8 @@ struct Live {
     tick: u64,
     clock: Arc<dyn Clock>,
     budget: Arc<DiskBudget>,
+    sink_id: String,
+    metrics: Arc<dyn MetricsRecorder>,
 }
 
 enum State {
@@ -288,6 +291,36 @@ impl ParquetSegmentSink {
         }
     }
 
+    /// Reports the absolute segment gauges after a state change
+    /// (`thadam_segment_files`/`thadam_segment_bytes`): the catalog totals
+    /// plus the open (`staging`) set, whose byte figure includes the
+    /// in-progress row group's estimate.
+    fn report_segment_state(&self) {
+        let State::Live(l) = &self.state else {
+            return;
+        };
+        for (state, totals) in l.catalog.state_totals().each() {
+            l.metrics.record(ConnectorMetric::SegmentFiles {
+                sink: &l.sink_id,
+                state,
+                files: totals.files,
+                bytes: totals.bytes,
+            });
+        }
+        let mut files = 0u64;
+        let mut bytes = 0u64;
+        for seg in l.open.values() {
+            files += 1;
+            bytes = bytes.saturating_add(seg.bytes_est());
+        }
+        l.metrics.record(ConnectorMetric::SegmentFiles {
+            sink: &l.sink_id,
+            state: "staging",
+            files,
+            bytes,
+        });
+    }
+
     /// Finalizes one open segment and catalogs it (a coverage marker when it
     /// never produced rows). Removes the segment from the open set first;
     /// on failure the rows regenerate from the WAL after `recover`, because
@@ -298,6 +331,7 @@ impl ParquetSegmentSink {
             File(Box<dyn FnOnce() -> Result<SegmentRecord, SegmentError> + Send>),
         }
 
+        let started = Instant::now();
         let root = self.engine.dir.clone();
         let node_id = self.engine.node_id.clone();
         let fps_before = self.failpoints.clone();
@@ -346,7 +380,17 @@ impl ParquetSegmentSink {
                     .await
                     .map_err(|e| ThadamError::from(SegmentError::Join(e.to_string())))
                     .and_then(|r| r.map_err(ThadamError::from));
+                let latency = started.elapsed();
+                let bytes = result.as_ref().map_or(0, |r| r.bytes);
                 let record = self.latch(result)?;
+                if let State::Live(l) = &self.state {
+                    l.metrics.record(ConnectorMetric::SegmentFinalized {
+                        sink: &l.sink_id,
+                        bytes,
+                        latency,
+                    });
+                }
+                self.report_segment_state();
                 self.pressure_release(record.bytes).await
             }
         }
@@ -368,6 +412,7 @@ impl ParquetSegmentSink {
             .release_local(&PRESSURE_POLICY)
             .await
             .map_err(ThadamError::from)?;
+        self.report_segment_state();
         let usage = self.live_mut()?.budget.usage(category);
         if self.live_mut()?.budget.is_over_limit(category) {
             return Err(SegmentError::Budget {
@@ -387,7 +432,10 @@ impl ParquetSegmentSink {
             return Ok(());
         }
         let catalog = self.live_mut()?.catalog.clone();
-        catalog.mark_eligible(at).await.map_err(ThadamError::from)?;
+        let marked = catalog.mark_eligible(at).await.map_err(ThadamError::from)?;
+        if marked > 0 {
+            self.report_segment_state();
+        }
         Ok(())
     }
 
@@ -658,7 +706,10 @@ impl SegmentSink for ParquetSegmentSink {
             tick: 0,
             clock: Arc::clone(&ctx.clock),
             budget: Arc::clone(&ctx.budget),
+            sink_id: ctx.sink_id.as_str().to_owned(),
+            metrics: Arc::clone(&ctx.metrics),
         });
+        self.report_segment_state();
         Ok(watermark)
     }
 

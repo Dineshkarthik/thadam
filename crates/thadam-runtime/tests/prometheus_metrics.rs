@@ -1,5 +1,6 @@
 //! Tests for the Prometheus metrics sink.
 
+use thadam_core::ConnectorMetric;
 use thadam_runtime::{MetricEvent, MetricsSink, PrometheusMetrics};
 
 /// The exact list of exported metric names: every counter carries its `_total`
@@ -23,6 +24,13 @@ fn test_metric_names_exact_list() {
         "thadam_rejects_dropped_total",
         "thadam_rejects_total",
         "thadam_retry_total",
+        "thadam_segment_bytes",
+        "thadam_segment_files",
+        "thadam_segment_finalize_seconds",
+        "thadam_ship_bytes_total",
+        "thadam_ship_retry_age_seconds",
+        "thadam_ship_upload_seconds",
+        "thadam_ship_uploads_total",
         "thadam_source_ack_latency_seconds",
         "thadam_source_bytes_total",
         "thadam_source_dropped_total",
@@ -143,5 +151,94 @@ fn test_chain_outcomes_are_separate_series() {
             encoded.contains(&want),
             "missing outcome series `{want}` in:\n{encoded}"
         );
+    }
+}
+
+/// Shipper outcomes, bytes, and durations land in their dedicated
+/// families, with `fatal` counting no bytes and observing no latency and
+/// each retry counting once against the `retry` outcome.
+#[test]
+fn test_ship_metrics_encode() {
+    let metrics = PrometheusMetrics::new();
+    let ok = |bytes| {
+        MetricEvent::Connector(ConnectorMetric::ShipUploaded {
+            sink: "s3",
+            outcome: "ok",
+            bytes,
+            latency: Some(std::time::Duration::from_millis(30)),
+        })
+    };
+    metrics.record(ok(120));
+    metrics.record(ok(70));
+    metrics.record(MetricEvent::Connector(ConnectorMetric::ShipUploaded {
+        sink: "s3",
+        outcome: "conflict_equal",
+        bytes: 90,
+        latency: Some(std::time::Duration::from_millis(6)),
+    }));
+    metrics.record(MetricEvent::Connector(ConnectorMetric::ShipUploaded {
+        sink: "s3",
+        outcome: "fatal",
+        bytes: 0,
+        latency: None,
+    }));
+    metrics.record(MetricEvent::Connector(ConnectorMetric::ShipRetried {
+        sink: "s3",
+        retry_age: std::time::Duration::from_secs(42),
+    }));
+
+    let encoded = metrics.encode();
+
+    for want in [
+        "thadam_ship_uploads_total{sink=\"s3\",outcome=\"ok\"} 2",
+        "thadam_ship_uploads_total{sink=\"s3\",outcome=\"conflict_equal\"} 1",
+        "thadam_ship_uploads_total{sink=\"s3\",outcome=\"fatal\"} 1",
+        "thadam_ship_uploads_total{sink=\"s3\",outcome=\"retry\"} 1",
+        "thadam_ship_bytes_total{sink=\"s3\"} 280",
+        "thadam_ship_upload_seconds_count{sink=\"s3\"} 3",
+        "thadam_ship_retry_age_seconds_count{sink=\"s3\"} 1",
+    ] {
+        assert!(encoded.contains(want), "missing `{want}` in:\n{encoded}");
+    }
+}
+
+/// Segment gauges take absolute values per (sink, state) series, and a
+/// finalized file observes the finalize histogram.
+#[test]
+fn test_segment_metrics_encode() {
+    let metrics = PrometheusMetrics::new();
+
+    for (state, files, bytes) in [("finalized", 3u64, 900u64), ("staging", 1, 55)] {
+        metrics.record(MetricEvent::Connector(ConnectorMetric::SegmentFiles {
+            sink: "local",
+            state,
+            files,
+            bytes,
+        }));
+    }
+    // A later absolute snapshot replaces the earlier one.
+    metrics.record(MetricEvent::Connector(ConnectorMetric::SegmentFiles {
+        sink: "local",
+        state: "staging",
+        files: 0,
+        bytes: 0,
+    }));
+    metrics.record(MetricEvent::Connector(ConnectorMetric::SegmentFinalized {
+        sink: "local",
+        bytes: 42,
+        latency: std::time::Duration::from_millis(12),
+    }));
+
+    let encoded = metrics.encode();
+
+    for want in [
+        "thadam_segment_files{sink=\"local\",state=\"finalized\"} 3",
+        "thadam_segment_bytes{sink=\"local\",state=\"finalized\"} 900",
+        "thadam_segment_files{sink=\"local\",state=\"staging\"} 0",
+        "thadam_segment_bytes{sink=\"local\",state=\"staging\"} 0",
+        "thadam_segment_finalize_seconds_count{sink=\"local\"} 1",
+        "thadam_segment_finalize_seconds_sum{sink=\"local\"} 0.012",
+    ] {
+        assert!(encoded.contains(want), "missing `{want}` in:\n{encoded}");
     }
 }

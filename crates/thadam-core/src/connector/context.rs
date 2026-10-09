@@ -13,6 +13,7 @@ use crate::budget::DiskBudget;
 use crate::clock::Clock;
 use crate::dataset::DatasetDecl;
 use crate::identity::{SinkId, SourceId};
+use crate::metrics::{MetricsRecorder, NoopMetricsRecorder};
 use crate::shutdown::Shutdown;
 use crate::text::Sym;
 
@@ -56,6 +57,9 @@ pub struct SinkContext {
     /// Objects other components in this pipeline published (the shared set;
     /// empty unless the runtime threaded one through).
     pub shared: SharedObjects,
+    /// Reports [`crate::ConnectorMetric`]s to the runtime; a no-op sink
+    /// unless the runtime threaded one through.
+    pub metrics: Arc<dyn MetricsRecorder>,
 }
 
 impl SinkContext {
@@ -74,6 +78,7 @@ impl SinkContext {
             data_dir,
             budget,
             shared: SharedObjects::default(),
+            metrics: Arc::new(NoopMetricsRecorder),
         }
     }
 
@@ -81,6 +86,13 @@ impl SinkContext {
     #[must_use]
     pub fn with_shared(mut self, shared: SharedObjects) -> Self {
         self.shared = shared;
+        self
+    }
+
+    /// Sets the metrics recorder connector metrics flow through.
+    #[must_use]
+    pub fn with_metrics(mut self, metrics: Arc<dyn MetricsRecorder>) -> Self {
+        self.metrics = metrics;
         self
     }
 }
@@ -102,6 +114,9 @@ pub struct ServiceContext {
     /// Objects other components in this pipeline published (the shared set;
     /// empty unless the runtime threaded one through).
     pub shared: SharedObjects,
+    /// Reports [`crate::ConnectorMetric`]s to the runtime; a no-op sink
+    /// unless the runtime threaded one through.
+    pub metrics: Arc<dyn MetricsRecorder>,
 }
 
 impl ServiceContext {
@@ -120,6 +135,7 @@ impl ServiceContext {
             data_dir,
             budget,
             shared: SharedObjects::default(),
+            metrics: Arc::new(NoopMetricsRecorder),
         }
     }
 
@@ -127,6 +143,13 @@ impl ServiceContext {
     #[must_use]
     pub fn with_shared(mut self, shared: SharedObjects) -> Self {
         self.shared = shared;
+        self
+    }
+
+    /// Sets the metrics recorder connector metrics flow through.
+    #[must_use]
+    pub fn with_metrics(mut self, metrics: Arc<dyn MetricsRecorder>) -> Self {
+        self.metrics = metrics;
         self
     }
 }

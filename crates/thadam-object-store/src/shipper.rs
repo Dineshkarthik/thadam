@@ -22,7 +22,9 @@ use std::time::{Duration, Instant};
 use object_store::{
     Error as StoreError, GetOptions, GetRange, ObjectStore, ObjectStoreExt, PutMode, PutOptions,
 };
-use thadam_core::{Classify, ThadamError, ServiceContext, Shutdown};
+use thadam_core::{
+    Classify, ConnectorMetric, MetricsRecorder, ThadamError, ServiceContext, Shutdown,
+};
 use thadam_segments::{LocalRetention, SegmentCatalog, SegmentId, SegmentRecord};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
@@ -35,7 +37,7 @@ use crate::failpoints::{Failpoint, Failpoints};
 use crate::keys::{
     Verification, display_key, object_key, put_attributes, sha256_attr, store_path, verify_remote,
 };
-use crate::metrics::{NoopShipMetrics, ShipMetrics};
+use crate::metrics::{RecorderShipMetrics, ShipMetrics};
 use crate::probe::{StoreCapabilities, probe};
 
 /// Wake fallback when the catalog subscription misses an event.
@@ -69,12 +71,15 @@ pub struct Shipper {
     id: String,
     config: ShipConfig,
     store: Arc<dyn ObjectStore>,
-    metrics: Arc<dyn ShipMetrics>,
+    /// An explicit progress receiver (tests); when unset, `run` adapts the
+    /// service context's metrics recorder through [`RecorderShipMetrics`].
+    metrics: Option<Arc<dyn ShipMetrics>>,
     failpoints: Failpoints,
 }
 
 impl Shipper {
-    /// A shipper over `store` with no metrics and no armed failpoints.
+    /// A shipper over `store` with no explicit metrics receiver and no
+    /// armed failpoints.
     pub fn new(
         component_id: impl Into<String>,
         config: ShipConfig,
@@ -84,15 +89,16 @@ impl Shipper {
             id: component_id.into(),
             config,
             store,
-            metrics: Arc::new(NoopShipMetrics),
+            metrics: None,
             failpoints: Failpoints::default(),
         }
     }
 
-    /// Plumbs a metrics receiver.
+    /// Plumbs an explicit progress receiver, overriding the service
+    /// context's metrics recorder.
     #[must_use]
     pub fn with_metrics(mut self, metrics: Arc<dyn ShipMetrics>) -> Self {
-        self.metrics = metrics;
+        self.metrics = Some(metrics);
         self
     }
 
@@ -134,6 +140,14 @@ struct UploadCtx {
 
 impl Shipper {
     async fn run_inner(&mut self, ctx: &ServiceContext) -> Result<(), ShipError> {
+        // The default receiver adapts the runtime's metrics hook; tests
+        // inject their own through `with_metrics`.
+        let metrics: Arc<dyn ShipMetrics> = self.metrics.clone().unwrap_or_else(|| {
+            Arc::new(RecorderShipMetrics::new(
+                self.id.clone(),
+                Arc::clone(&ctx.metrics),
+            ))
+        });
         let caps = self.probe_with_retry(ctx).await?;
         tracing::info!(
             conditional_create = caps.conditional_create,
@@ -177,7 +191,7 @@ impl Shipper {
             let mut watch_rx = catalog.subscribe();
 
             let eligible = catalog.eligible_for_upload();
-            self.metrics.backlog(eligible.len());
+            metrics.backlog(eligible.len());
             for record in eligible {
                 if in_flight.len() >= self.config.upload_concurrency {
                     break;
@@ -187,7 +201,7 @@ impl Shipper {
                 }
                 let uctx = UploadCtx {
                     store: Arc::clone(&self.store),
-                    metrics: Arc::clone(&self.metrics),
+                    metrics: Arc::clone(&metrics),
                     failpoints: self.failpoints.clone(),
                     root: catalog.root().to_path_buf(),
                     node_id: node_id.clone(),
@@ -222,16 +236,19 @@ impl Shipper {
                             finished.etag.as_deref(),
                         )
                         .await?;
-                    self.metrics.uploaded(
+                    metrics.uploaded(
                         finished.record.bytes,
                         finished.latency,
                         finished.outcome,
                     );
-                    self.retention_pass(&catalog).await;
+                    report_segment_totals(&catalog, &ctx.metrics, &self.config.from);
+                    self.retention_pass(&catalog, &metrics, &ctx.metrics).await;
                 }
                 _ = watch_rx.changed() => {}
                 () = tokio::time::sleep(POLL_IDLE) => {}
-                _ = retention.tick() => self.retention_pass(&catalog).await,
+                _ = retention.tick() => {
+                    self.retention_pass(&catalog, &metrics, &ctx.metrics).await;
+                }
             }
         }
     }
@@ -315,13 +332,18 @@ impl Shipper {
 
     /// Applies the configured local-retention policy; failures only log
     /// (a failed deletion retries on the next tick or upload).
-    async fn retention_pass(&self, catalog: &SegmentCatalog) {
+    async fn retention_pass(
+        &self,
+        catalog: &SegmentCatalog,
+        metrics: &Arc<dyn ShipMetrics>,
+        connector: &Arc<dyn MetricsRecorder>,
+    ) {
         let policy = retention_policy(&self.config);
         match catalog.release_local(&policy).await {
             Ok(report) => {
                 if report.deleted_files > 0 {
-                    self.metrics
-                        .released(report.deleted_files, report.deleted_bytes);
+                    metrics.released(report.deleted_files, report.deleted_bytes);
+                    report_segment_totals(catalog, connector, &self.config.from);
                     tracing::info!(
                         files = report.deleted_files,
                         bytes = report.deleted_bytes,
@@ -347,6 +369,21 @@ fn log_task_exit(outcome: Result<Result<Finished, ShipError>, JoinError>) {
         Ok(Err(ShipError::Cancelled)) => {}
         Ok(Err(e)) => tracing::warn!(error = %e, "upload aborted during shutdown"),
         Err(join) => tracing::warn!(error = %join, "upload task did not exit cleanly"),
+    }
+}
+
+/// Publishes the catalog's per-state totals to the `from` sink's
+/// `thadam_segment_files`/`thadam_segment_bytes` series (the shipper drives
+/// the `eligible` → `uploaded` → `deleted` transitions, so it reports
+/// them).
+fn report_segment_totals(catalog: &SegmentCatalog, metrics: &Arc<dyn MetricsRecorder>, sink: &str) {
+    for (state, totals) in catalog.state_totals().each() {
+        metrics.record(ConnectorMetric::SegmentFiles {
+            sink,
+            state,
+            files: totals.files,
+            bytes: totals.bytes,
+        });
     }
 }
 

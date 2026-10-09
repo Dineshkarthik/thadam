@@ -11,6 +11,7 @@ use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::metrics::histogram::Histogram;
 use prometheus_client::registry::Registry;
+use thadam_core::ConnectorMetric;
 
 use crate::metrics::{MetricEvent, MetricsSink};
 
@@ -83,6 +84,39 @@ pub struct SinkDatasetOutcomeLabels {
     pub outcome: String,
 }
 
+/// Label set for the shipper's per-outcome upload counts.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct SinkOutcomeLabels {
+    /// The shipper service's sink identifier.
+    pub sink: String,
+    /// The upload outcome (`ok`, `conflict_equal`, `retry`, `fatal`).
+    pub outcome: String,
+}
+
+/// Label set for segment-catalog gauges.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct SinkStateLabels {
+    /// The segment sink identifier.
+    pub sink: String,
+    /// The segment state (`staging`, `finalized`, `eligible`, `uploaded`,
+    /// `deleted`).
+    pub state: String,
+}
+
+/// Buckets for whole-file operations (uploads, finalizes): tens of
+/// milliseconds up to a minute.
+fn file_op_seconds() -> Histogram {
+    Histogram::new([0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0])
+}
+
+/// Buckets for a retry's age at the attempt: seconds up to an hour (shipper
+/// retries are unbounded).
+fn retry_age_seconds() -> Histogram {
+    Histogram::new([
+        1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0,
+    ])
+}
+
 /// A Prometheus metrics sink that implements the MetricsSink trait.
 ///
 /// This sink collects metrics from the runtime and exposes them in OpenMetrics
@@ -108,12 +142,19 @@ pub struct PrometheusMetrics {
     rejects_dropped_total: Family<SinkLabels, Counter>,
     wal_maintained_deleted_bytes_total: Counter,
     wal_maintained_evicted_bytes_total: Counter,
+    ship_bytes_total: Family<SinkLabels, Counter>,
+    ship_uploads_total: Family<SinkOutcomeLabels, Counter>,
     // Gauges
     component_state: Family<ComponentStateLabels, Gauge>,
     clock_synced: Gauge,
+    segment_files: Family<SinkStateLabels, Gauge>,
+    segment_bytes: Family<SinkStateLabels, Gauge>,
     // Histograms
     source_ack_latency_seconds: Family<SourceLabels, Histogram, fn() -> Histogram>,
     batch_write_latency_seconds: Family<SinkLabels, Histogram, fn() -> Histogram>,
+    ship_upload_seconds: Family<SinkLabels, Histogram, fn() -> Histogram>,
+    ship_retry_age_seconds: Family<SinkLabels, Histogram, fn() -> Histogram>,
+    segment_finalize_seconds: Family<SinkLabels, Histogram, fn() -> Histogram>,
 }
 
 impl PrometheusMetrics {
@@ -239,6 +280,20 @@ impl PrometheusMetrics {
             wal_maintained_evicted_bytes_total.clone(),
         );
 
+        let ship_bytes_total = Family::default();
+        registry.register(
+            "thadam_ship_bytes",
+            "Total segment bytes settled in the object store",
+            ship_bytes_total.clone(),
+        );
+
+        let ship_uploads_total = Family::default();
+        registry.register(
+            "thadam_ship_uploads",
+            "Total shipper uploads by outcome",
+            ship_uploads_total.clone(),
+        );
+
         // Gauges
         let component_state = Family::default();
         registry.register(
@@ -252,6 +307,20 @@ impl PrometheusMetrics {
             "thadam_clock_synced",
             "Whether the clock is synchronized (1 or 0)",
             clock_synced.clone(),
+        );
+
+        let segment_files = Family::default();
+        registry.register(
+            "thadam_segment_files",
+            "Segment records per state in the catalog",
+            segment_files.clone(),
+        );
+
+        let segment_bytes = Family::default();
+        registry.register(
+            "thadam_segment_bytes",
+            "Recorded segment bytes per state in the catalog",
+            segment_bytes.clone(),
         );
 
         // Histograms
@@ -281,6 +350,30 @@ impl PrometheusMetrics {
             batch_write_latency_seconds.clone(),
         );
 
+        let ship_upload_seconds =
+            Family::new_with_constructor(file_op_seconds as fn() -> Histogram);
+        registry.register(
+            "thadam_ship_upload_seconds",
+            "Time to upload one segment, verification included",
+            ship_upload_seconds.clone(),
+        );
+
+        let ship_retry_age_seconds =
+            Family::new_with_constructor(retry_age_seconds as fn() -> Histogram);
+        registry.register(
+            "thadam_ship_retry_age_seconds",
+            "Age of the first failure when an upload is retried",
+            ship_retry_age_seconds.clone(),
+        );
+
+        let segment_finalize_seconds =
+            Family::new_with_constructor(file_op_seconds as fn() -> Histogram);
+        registry.register(
+            "thadam_segment_finalize_seconds",
+            "Time to finalize one segment file",
+            segment_finalize_seconds.clone(),
+        );
+
         Self {
             registry,
             source_messages_total,
@@ -300,10 +393,17 @@ impl PrometheusMetrics {
             rejects_dropped_total,
             wal_maintained_deleted_bytes_total,
             wal_maintained_evicted_bytes_total,
+            ship_bytes_total,
+            ship_uploads_total,
             component_state,
             clock_synced,
+            segment_files,
+            segment_bytes,
             source_ack_latency_seconds,
             batch_write_latency_seconds,
+            ship_upload_seconds,
+            ship_retry_age_seconds,
+            segment_finalize_seconds,
         }
     }
 
@@ -338,10 +438,17 @@ impl PrometheusMetrics {
             "thadam_rejects_dropped_total",
             "thadam_wal_maintained_deleted_bytes_total",
             "thadam_wal_evicted_bytes_total",
+            "thadam_ship_bytes_total",
+            "thadam_ship_uploads_total",
             "thadam_component_state",
             "thadam_clock_synced",
+            "thadam_segment_files",
+            "thadam_segment_bytes",
             "thadam_source_ack_latency_seconds",
             "thadam_batch_write_seconds",
+            "thadam_ship_upload_seconds",
+            "thadam_ship_retry_age_seconds",
+            "thadam_segment_finalize_seconds",
         ];
         names.sort_unstable();
         names
@@ -509,6 +616,79 @@ impl MetricsSink for PrometheusMetrics {
             MetricEvent::ClockSynced { synced } => {
                 self.clock_synced.set(if synced { 1 } else { 0 });
             }
+            MetricEvent::Connector(metric) => self.record_connector(metric),
+        }
+    }
+}
+
+impl PrometheusMetrics {
+    fn record_connector(&self, metric: ConnectorMetric<'_>) {
+        match metric {
+            ConnectorMetric::ShipUploaded {
+                sink,
+                outcome,
+                bytes,
+                latency,
+            } => {
+                let sink_only = SinkLabels {
+                    sink: sink.to_string(),
+                };
+                self.ship_uploads_total
+                    .get_or_create(&SinkOutcomeLabels {
+                        sink: sink.to_string(),
+                        outcome: outcome.to_string(),
+                    })
+                    .inc();
+                self.ship_bytes_total
+                    .get_or_create(&sink_only)
+                    .inc_by(bytes);
+                if let Some(latency) = latency {
+                    self.ship_upload_seconds
+                        .get_or_create(&sink_only)
+                        .observe(latency.as_secs_f64());
+                }
+            }
+            ConnectorMetric::ShipRetried { sink, retry_age } => {
+                let sink_only = SinkLabels {
+                    sink: sink.to_string(),
+                };
+                self.ship_uploads_total
+                    .get_or_create(&SinkOutcomeLabels {
+                        sink: sink.to_string(),
+                        outcome: "retry".to_string(),
+                    })
+                    .inc();
+                self.ship_retry_age_seconds
+                    .get_or_create(&sink_only)
+                    .observe(retry_age.as_secs_f64());
+            }
+            ConnectorMetric::SegmentFiles {
+                sink,
+                state,
+                files,
+                bytes,
+            } => {
+                let labels = SinkStateLabels {
+                    sink: sink.to_string(),
+                    state: state.to_string(),
+                };
+                self.segment_files
+                    .get_or_create(&labels)
+                    .set(i64::try_from(files).unwrap_or(i64::MAX));
+                self.segment_bytes
+                    .get_or_create(&labels)
+                    .set(i64::try_from(bytes).unwrap_or(i64::MAX));
+            }
+            ConnectorMetric::SegmentFinalized { sink, latency, .. } => {
+                self.segment_finalize_seconds
+                    .get_or_create(&SinkLabels {
+                        sink: sink.to_string(),
+                    })
+                    .observe(latency.as_secs_f64());
+            }
+            // The core enum is open; new connector metrics land here until
+            // they get a Prometheus mapping.
+            _ => {}
         }
     }
 }

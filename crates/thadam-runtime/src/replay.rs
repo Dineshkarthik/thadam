@@ -24,6 +24,7 @@ use serde::Serialize;
 use crate::chain::{clock_groups, group_range, read_now, try_process, wal_error, warm};
 use crate::datadir::{self, Layout};
 use crate::lane::ChainBatch;
+use crate::metrics::connector_metrics;
 use crate::options::RuntimeOptions;
 use crate::plan::{self, config_error};
 use crate::registry::{Registry, SinkFactory};
@@ -229,7 +230,8 @@ pub async fn replay(
             .clone()
             .unwrap_or_else(|| layout.replay(&req.replay_id, &req.sink)),
         Arc::clone(&budget),
-    );
+    )
+    .with_metrics(connector_metrics(Arc::clone(&opts.metrics)));
     if let Some(p) = out.recover(&ctx).await?
         && p >= req.from
     {

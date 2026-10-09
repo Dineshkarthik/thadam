@@ -139,6 +139,46 @@ pub struct ReleaseReport {
     pub pressure: bool,
 }
 
+/// File and byte totals for one catalog state (the `thadam_segment_*`
+/// gauges' values).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StateTotal {
+    /// Records in the state that have (or had) a file; coverage markers are
+    /// not files and never count.
+    pub files: u64,
+    /// The records' file sizes as recorded at finalization.
+    pub bytes: u64,
+}
+
+/// The catalog's per-state totals, from one pass over the in-memory
+/// entries. `staging` files are the sink's, not the catalog's, so they do
+/// not appear here.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SegmentTotals {
+    /// Finalized locally, not yet ship-eligible.
+    pub finalized: StateTotal,
+    /// The WAL cursor passed the segment's end.
+    pub eligible: StateTotal,
+    /// Uploaded, still on local disk.
+    pub uploaded: StateTotal,
+    /// Removed locally after upload (tombstones; `bytes` is what the file
+    /// measured at finalization, not disk usage).
+    pub deleted: StateTotal,
+}
+
+impl SegmentTotals {
+    /// `(state, totals)` pairs in a fixed order; the state names match
+    /// ARCHITECTURE.md section 14 (`thadam_segment_files{state}`).
+    pub fn each(&self) -> [(&'static str, StateTotal); 4] {
+        [
+            ("finalized", self.finalized),
+            ("eligible", self.eligible),
+            ("uploaded", self.uploaded),
+            ("deleted", self.deleted),
+        ]
+    }
+}
+
 struct Inner {
     root: PathBuf,
     node_id: String,
@@ -390,6 +430,28 @@ impl SegmentCatalog {
     /// Bytes charged to the shared budget by files on local disk.
     pub fn charged_bytes(&self) -> u64 {
         self.inner.charged.load(Ordering::Relaxed)
+    }
+
+    /// Per-state file and byte totals (one in-memory pass; the catalog is
+    /// small and bounded by the segment budget, so callers report these on
+    /// every state change for exactness).
+    pub fn state_totals(&self) -> SegmentTotals {
+        let state = lock(&self.inner.state);
+        let mut out = SegmentTotals::default();
+        for entry in state.segments.values() {
+            if !entry.record.has_file() {
+                continue;
+            }
+            let total = match entry.state {
+                SegmentState::Finalized => &mut out.finalized,
+                SegmentState::Eligible { .. } => &mut out.eligible,
+                SegmentState::Uploaded { .. } => &mut out.uploaded,
+                SegmentState::Deleted { .. } => &mut out.deleted,
+            };
+            total.files += 1;
+            total.bytes += entry.record.bytes;
+        }
+        out
     }
 
     /// The watermark over `datasets`: the highest WAL position every one of

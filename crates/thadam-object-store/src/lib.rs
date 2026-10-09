@@ -49,12 +49,14 @@
 //!
 //! # Metrics
 //!
-//! There is no typed channel from a service to the runtime's `MetricsSink`
-//! yet (the trait lives in `thadam-runtime`, which connector crates cannot
-//! depend on), so progress is reported through [`ShipMetrics`] and
-//! structured `tracing` fields named after the planned `thadam_ship_*`
-//! metric names. A Prometheus mapping lands when the runtime grows that
-//! channel.
+//! The shipper reports progress through [`ShipMetrics`]; in production
+//! [`RecorderShipMetrics`] adapts the `thadam-core` metrics recorder on the
+//! service context, landing `thadam_ship_bytes_total`,
+//! `thadam_ship_uploads_total{outcome}`, `thadam_ship_retry_age_seconds`,
+//! and `thadam_ship_upload_seconds`. Upload-driven segment-catalog state
+//! changes are reported through the same recorder as
+//! `thadam_segment_files{state}`/`thadam_segment_bytes{state}`, labeled with
+//! the `from` sink.
 //!
 //! # Deliberately not exposed
 //!
@@ -80,7 +82,7 @@ pub use config::{
 };
 pub use error::ShipError;
 pub use factory::ObjectStoreShipperFactory;
-pub use metrics::{NoopShipMetrics, ShipMetrics};
+pub use metrics::{NoopShipMetrics, RecorderShipMetrics, ShipMetrics};
 pub use probe::StoreCapabilities;
 pub use shipper::Shipper;
 

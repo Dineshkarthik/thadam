@@ -21,7 +21,7 @@ use crate::chain::{ChainConfig, ChainTask, wal_error};
 use crate::datadir::{self, Layout};
 use crate::exit::ExitStatus;
 use crate::lane::{lane, rewind_channel};
-use crate::metrics::MetricEvent;
+use crate::metrics::{MetricEvent, connector_metrics};
 use crate::options::RuntimeOptions;
 use crate::plan::{self, config_error, cursor_name};
 use crate::quarantine::Quarantine;
@@ -725,7 +725,8 @@ impl Pipeline {
                 layout.sink(&id),
                 Arc::clone(&budget),
             )
-            .with_shared(shared.clone());
+            .with_shared(shared.clone())
+            .with_metrics(connector_metrics(Arc::clone(&metrics)));
             let quarantine = quarantine.map(|q| {
                 let qctx = SinkContext::new(
                     SinkId::new(format!("quarantine.{id}")),
@@ -734,7 +735,8 @@ impl Pipeline {
                     layout.quarantine(&id),
                     Arc::clone(&budget),
                 )
-                .with_shared(shared.clone());
+                .with_shared(shared.clone())
+                .with_metrics(connector_metrics(Arc::clone(&metrics)));
                 Quarantine::new(q, qctx, id.clone(), Arc::clone(&sink_c))
             });
             let cursor = cursor_name(&id);
@@ -836,7 +838,8 @@ impl Pipeline {
                         layout.service(&s.id),
                         Arc::clone(&budget),
                     )
-                    .with_shared(shared.clone());
+                    .with_shared(shared.clone())
+                    .with_metrics(connector_metrics(Arc::clone(&metrics)));
                     sup.spawn(
                         Group::Services,
                         Arc::clone(&c),

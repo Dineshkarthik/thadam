@@ -38,6 +38,27 @@ These are registered by the runtime today (`thadam-runtime`'s Prometheus sink). 
 | `thadam_batch_bisect_total` | counter | `sink` | Batches bisected to isolate poison events. |
 | `thadam_retry_total` | counter | `component` | Retry attempts across components. |
 
+### Segments
+
+Segment lifecycle gauges come from the Parquet segment sink and the object-store shipper. Reporters publish **absolute totals** on every catalog transition, so last-writer-wins keeps the series exact across restarts. `state` is one of `staging` (open files; only the segment sink reports these, and their bytes include the in-progress row group's estimate), `finalized`, `eligible`, `uploaded`, `deleted` (local file removed after upload; the count covers tombstones and bytes is the file's recorded size at finalization, not disk usage).
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `thadam_segment_files` | gauge | `sink`, `state` | Segment records with files per catalog state. |
+| `thadam_segment_bytes` | gauge | `sink`, `state` | Recorded bytes for those records. |
+| `thadam_segment_finalize_seconds` | histogram | `sink` | Time to finalize one segment file (close, checksum, rename, catalog append). Coverage markers are not files and observe nothing. Buckets: 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60. |
+
+### Shipping
+
+Reported by the `object_store` shipper service, labeled with its own sink id.
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `thadam_ship_bytes_total` | counter | `sink` | Segment bytes settled in the store (`ok` and `conflict_equal`; `fatal` adds nothing). |
+| `thadam_ship_uploads_total` | counter | `sink`, `outcome` | Upload settlements. `outcome` is `ok`, `conflict_equal` (a create-if-absent conflict verified as identical content — the crash-recovery path), `retry` (a transient attempt failed; shipper retries are unbounded), or `fatal` (an unresolvable object-key collision; the pipeline fails). |
+| `thadam_ship_upload_seconds` | histogram | `sink` | End-to-end time of one settled upload, verification included (`fatal` observes nothing). Same buckets as `thadam_segment_finalize_seconds`. |
+| `thadam_ship_retry_age_seconds` | histogram | `sink` | Age of an upload's first failure at each retried attempt. Buckets: 1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600. |
+
 ### Durability and health
 
 | Metric | Type | Labels | Meaning |
@@ -53,4 +74,4 @@ Per-source connection detail (MQTT epoch, ack pipeline depth, queue sizes, unack
 
 ## Planned metric names {#planned}
 
-ARCHITECTURE.md section 14 lists the consolidated metric set, some of which are **planned — not yet emitted** by this build. Names reserved there for later PRs include `thadam_wal_commit_seconds`, `thadam_wal_fsync_seconds`, `thadam_wal_disk_bytes`, `thadam_wal_budget_bytes`, `thadam_recovery_seconds`, `thadam_recovery_truncated_bytes`, `thadam_source_connected`, `thadam_source_backpressure_seconds_total`, `thadam_ack_oldest_age_seconds`, `thadam_source_unacked_max`, `thadam_source_stale_acks_total`, `thadam_quality_flags_total{dataset,flag}`, `thadam_segment_files{state}`, `thadam_segment_bytes{state}`, `thadam_segment_finalize_seconds`, `thadam_sink_lag_bytes`, `thadam_sink_lag_seconds`, `thadam_ship_bytes_total`, `thadam_ship_uploads_total{outcome}`, `thadam_ship_retry_age_seconds`, `thadam_ship_upload_seconds`, `thadam_log_dropped_total`, and `thadam_sink_delivery_class{class}`. Every metric name is pinned by an exact-list test, so names do not drift silently.
+ARCHITECTURE.md section 14 lists the consolidated metric set, some of which are **planned — not yet emitted** by this build. Names reserved there for later PRs include `thadam_wal_commit_seconds`, `thadam_wal_fsync_seconds`, `thadam_wal_disk_bytes`, `thadam_wal_budget_bytes`, `thadam_recovery_seconds`, `thadam_recovery_truncated_bytes`, `thadam_source_connected`, `thadam_source_backpressure_seconds_total`, `thadam_ack_oldest_age_seconds`, `thadam_source_unacked_max`, `thadam_source_stale_acks_total`, `thadam_quality_flags_total{dataset,flag}`, `thadam_sink_lag_bytes`, `thadam_sink_lag_seconds`, `thadam_log_dropped_total`, and `thadam_sink_delivery_class{class}`. Every metric name is pinned by an exact-list test, so names do not drift silently.

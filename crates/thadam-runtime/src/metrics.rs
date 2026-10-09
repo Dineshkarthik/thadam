@@ -6,9 +6,10 @@
 //! states) are read from [`PipelineHandle::status`](crate::PipelineHandle::status)
 //! instead. Labels are only source, sink, dataset, and bounded enums.
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use thadam_core::WalPos;
+use thadam_core::{ConnectorMetric, WalPos};
 
 /// One thing the runtime did. Borrowed so reporting allocates nothing.
 #[derive(Clone, Copy, Debug)]
@@ -141,6 +142,10 @@ pub enum MetricEvent<'a> {
         /// Whether the clock is synchronized.
         synced: bool,
     },
+    /// A connector (sink or service) reported through the `thadam-core`
+    /// metrics hook on its context. Carried verbatim: the core enum pins
+    /// the vocabulary and the label value sets.
+    Connector(ConnectorMetric<'a>),
 }
 
 /// Receives [`MetricEvent`]s. Implementations must be cheap and must not
@@ -156,4 +161,80 @@ pub struct NoopMetrics;
 
 impl MetricsSink for NoopMetrics {
     fn record(&self, _event: MetricEvent<'_>) {}
+}
+
+/// The `thadam-core` metrics hook connectors receive on their contexts:
+/// every [`ConnectorMetric`] becomes one [`MetricEvent::Connector`] on the
+/// runtime's sink.
+pub(crate) fn connector_metrics(
+    sink: Arc<dyn MetricsSink>,
+) -> Arc<dyn thadam_core::MetricsRecorder> {
+    Arc::new(ForwardToSink(sink))
+}
+
+struct ForwardToSink(Arc<dyn MetricsSink>);
+
+impl thadam_core::MetricsRecorder for ForwardToSink {
+    fn record(&self, metric: ConnectorMetric<'_>) {
+        self.0.record(MetricEvent::Connector(metric));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum Seen {
+        Ship { outcome: String, bytes: u64 },
+        Retried,
+        Other,
+    }
+
+    struct Recording(Mutex<Vec<Seen>>);
+
+    impl MetricsSink for Recording {
+        fn record(&self, event: MetricEvent<'_>) {
+            let seen = match event {
+                MetricEvent::Connector(ConnectorMetric::ShipUploaded {
+                    outcome, bytes, ..
+                }) => Seen::Ship {
+                    outcome: outcome.to_owned(),
+                    bytes,
+                },
+                MetricEvent::Connector(ConnectorMetric::ShipRetried { .. }) => Seen::Retried,
+                _ => Seen::Other,
+            };
+            self.0.lock().unwrap_or_else(|e| e.into_inner()).push(seen);
+        }
+    }
+
+    #[test]
+    fn connector_metrics_forward_verbatim() {
+        let sink = Arc::new(Recording(Mutex::new(Vec::new())));
+        let recorder = connector_metrics(sink.clone());
+        recorder.record(ConnectorMetric::ShipUploaded {
+            sink: "s3",
+            outcome: "ok",
+            bytes: 42,
+            latency: Some(Duration::from_millis(3)),
+        });
+        recorder.record(ConnectorMetric::ShipRetried {
+            sink: "s3",
+            retry_age: Duration::from_secs(1),
+        });
+        let seen = sink.0.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            seen.as_slice(),
+            &[
+                Seen::Ship {
+                    outcome: "ok".to_owned(),
+                    bytes: 42
+                },
+                Seen::Retried
+            ],
+            "connector metrics reach the runtime sink unaltered"
+        );
+    }
 }
