@@ -38,7 +38,9 @@ wal:
   on_full: block                          # explicit; see scenario F7 for drop_oldest
   retain_for: 1h                          # replay window, bounded by max_disk
 
-quarantine: { format: parquet, max_disk: 268435456 }   # 256 MiB (connector schema: integer bytes)
+# The quarantine sink's rotation bounds the shipping pause after a rejected
+# record: the owning sink's durable cursor waits on the quarantine segment.
+quarantine: { format: parquet, max_disk: 268435456, rotation: { max_age: 15 } }   # 256 MiB
 
 datasets:
   - id: telemetry

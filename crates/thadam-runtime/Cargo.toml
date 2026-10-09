@@ -24,8 +24,11 @@ tracing-appender = { workspace = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }
+futures-util = "0.3"
 http-body-util = "0.1"
+object_store = { workspace = true }
 parquet = { workspace = true }
+thadam-object-store = { path = "../thadam-object-store" }
 thadam-segments = { path = "../thadam-segments" }
 thadam-testkit = { path = "../thadam-testkit" }
 tempfile = { workspace = true }

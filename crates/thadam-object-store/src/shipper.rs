@@ -473,8 +473,10 @@ async fn upload_once(
         path: format!("{:?}", record.path),
         message: format!("segment {} has no ship-able path", record.id),
     })?;
-    let path = store_path(&key);
+    // The url prefix is part of the stored key (ADR-0013), not display-only:
+    // put, HEAD, and the ranged attribute GET all target `path`.
     let display = display_key(&uctx.prefix, &key);
+    let path = store_path(&display);
     let Some(abs) = record.path.as_ref().map(|rel| uctx.root.join(rel)) else {
         return Err(ShipError::Cancelled);
     };
@@ -662,7 +664,7 @@ async fn verify_and_finish(
         Verification::SameContent => {
             uctx.metrics.conflict_verified(true);
             tracing::info!(
-                key = %display_key(&uctx.prefix, path.as_ref()),
+                key = %path.as_ref(),
                 "object already exists with identical content (the crash-recovery path); marking uploaded"
             );
             Ok(meta.e_tag)
@@ -670,7 +672,7 @@ async fn verify_and_finish(
         Verification::Differs(detail) => {
             uctx.metrics.conflict_verified(false);
             Err(ShipError::Collision {
-                key: display_key(&uctx.prefix, path.as_ref()),
+                key: path.as_ref().to_owned(),
                 detail,
             })
         }

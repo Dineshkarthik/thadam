@@ -345,6 +345,28 @@ fn default_rotation_max_age() -> Option<u64> {
     Some(300)
 }
 
+/// The rotation zero-check the quarantine parser shares with the sink parser.
+fn check_rotation(rotation: &RawRotation, errors: &mut Vec<ThadamError>) {
+    if let Some(0) = rotation.max_bytes {
+        errors.push(config_error(
+            "rotation.max_bytes",
+            "must be null or at least 1",
+        ));
+    }
+    if let Some(0) = rotation.max_rows {
+        errors.push(config_error(
+            "rotation.max_rows",
+            "must be null or at least 1",
+        ));
+    }
+    if let Some(0) = rotation.max_age {
+        errors.push(config_error(
+            "rotation.max_age",
+            "must be null or at least 1 second",
+        ));
+    }
+}
+
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum RawTsUnit {
@@ -591,6 +613,7 @@ pub fn parse_quarantine_config(
             "ndjson quarantine segments are not implemented in this build; use parquet",
         ));
     }
+    check_rotation(&raw.rotation, &mut errors);
     if !errors.is_empty() {
         return Err(errors);
     }

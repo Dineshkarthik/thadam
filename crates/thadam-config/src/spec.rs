@@ -526,10 +526,41 @@ pub struct QuarantineSpec {
     /// The disk budget for quarantine segments.
     #[serde(default = "default_quarantine_disk")]
     pub max_disk: SizeSpec,
+    /// Rotation thresholds for the quarantine segment sink.
+    #[serde(default, skip_serializing_if = "QuarantineRotationSpec::is_default")]
+    pub rotation: QuarantineRotationSpec,
 }
 
 fn default_quarantine_disk() -> SizeSpec {
     SizeSpec(256 << 20)
+}
+
+/// Rotation thresholds for the quarantine segments; the same shape as a
+/// Parquet sink's `rotation` block. Keys left out use the sink's defaults
+/// (128 MiB or 300 seconds, whichever first).
+///
+/// A quarantined reject caps the owning sink's durable cursor until the
+/// quarantine segment holding it finalizes, so `max_age` bounds the shipping
+/// pause after any quarantined record.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct QuarantineRotationSpec {
+    /// Finalize the quarantine segment once it reaches this size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<SizeSpec>,
+    /// Finalize the quarantine segment after this many rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_rows: Option<u64>,
+    /// Finalize the quarantine segment once it is this old, seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_age: Option<u64>,
+}
+
+impl QuarantineRotationSpec {
+    fn is_default(&self) -> bool {
+        self.max_bytes.is_none() && self.max_rows.is_none() && self.max_age.is_none()
+    }
 }
 
 impl Default for QuarantineSpec {
@@ -537,6 +568,7 @@ impl Default for QuarantineSpec {
         QuarantineSpec {
             format: QuarantineFormat::default(),
             max_disk: default_quarantine_disk(),
+            rotation: QuarantineRotationSpec::default(),
         }
     }
 }
