@@ -54,7 +54,7 @@ The overall verdict is a conjunction. The practical question is which work can s
 | NATS JetStream sink | Earlier PRs | **Done**, `c810236`. |
 | SocketCAN source | Earlier PRs | **Done**, `2bdc25d` (vcan tests run in the `can-vcan` CI job). |
 | Connector registration and CI | Earlier PRs | **Done**, `f2d10ce`. |
-| MQTT publish sink | Earlier PRs | **In progress.** |
+| MQTT publish sink | Earlier PRs | **Done**, `d0570b1`. |
 
 ### Implementation status (waves 2 and 3)
 
