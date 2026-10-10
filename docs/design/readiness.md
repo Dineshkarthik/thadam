@@ -48,8 +48,13 @@ The overall verdict is a conjunction. The practical question is which work can s
 | Python SDK | Earlier PRs | **Done**, `b2b591e`. |
 | ROS 2 decoder | Earlier PRs | **Done**, `4eb9230`. |
 | metrics hook | Earlier PRs | **Done**, `5fa9bdb`. |
-| ROS 2 MCAP source | Earlier PRs | **In progress.** |
-| ClickHouse sink | Earlier PRs | **In progress.** |
+| ROS 2 MCAP source | Earlier PRs | **Done**, `d60552b`. |
+| ClickHouse sink | Earlier PRs | **Done**, `b5f9b83`. |
+| Modbus TCP source | Earlier PRs | **Done**, `7847caa`. |
+| NATS JetStream sink | Earlier PRs | **Done**, `c810236`. |
+| SocketCAN source | Earlier PRs | **Done**, `2bdc25d` (vcan tests run in the `can-vcan` CI job). |
+| Connector registration and CI | Earlier PRs | **Done**, `f2d10ce`. |
+| MQTT publish sink | Earlier PRs | **In progress.** |
 
 ### Implementation status (waves 2 and 3)
 

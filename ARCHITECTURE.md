@@ -821,8 +821,13 @@ This replaces the implementation plan's PR list (itself a revision of the origin
 | Python SDK | Done | `b2b591e` |
 | ROS 2 decoder | Done | `4eb9230` |
 | metrics hook | Done | `5fa9bdb` |
-| ROS 2 MCAP source | In progress | none |
-| ClickHouse sink | In progress | none |
+| ROS 2 MCAP source | Done | `d60552b` |
+| ClickHouse sink | Done | `b5f9b83` |
+| Modbus TCP source | Done | `7847caa` |
+| NATS JetStream sink | Done | `c810236` |
+| SocketCAN source | Done | `2bdc25d` (vcan tests run in the `can-vcan` CI job) |
+| Connector registration and CI | Done | `f2d10ce` |
+| MQTT publish sink | In progress | none |
 
 A test-only follow-up, `4857bcc` ("Gate WAL crash-loop kills on child readiness"), stabilizes the `thadam-wal` crash-loop test. `f2c2282` ("Group segment-sink appends by dataset and add sink consumer policies") is PR10's follow-up; it also settled the per-sink consumer-policy keys in `thadam-config` (section 15) and the `SegmentSink::append` signature (section 5).
 
