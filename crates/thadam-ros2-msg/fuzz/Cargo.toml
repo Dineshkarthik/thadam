@@ -1,0 +1,30 @@
+[package]
+name = "thadam-ros2-msg-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+thadam-ros2-msg = { path = ".." }
+
+# Own workspace root: this crate is not a member of the thadam workspace and is
+# not built by CI.
+[workspace]
+
+[[bin]]
+name = "msg_parse"
+path = "fuzz_targets/msg_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cdr_decode"
+path = "fuzz_targets/cdr_decode.rs"
+test = false
+doc = false
+bench = false
