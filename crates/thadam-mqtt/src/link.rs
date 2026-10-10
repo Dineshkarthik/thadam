@@ -42,6 +42,20 @@ pub(crate) enum LinkEvent {
     AckWritten,
     /// A DISCONNECT left for the socket.
     DisconnectSent,
+    /// A PUBLISH left for the socket. `pkid` is 0 for QoS 0.
+    PublishWritten {
+        pkid: u16,
+    },
+    /// A QoS 1 PUBLISH was held back because the packet id it would use is
+    /// still awaiting its acknowledgement. It leaves later as `PublishWritten`
+    /// with the same packet id.
+    PublishHeld {
+        pkid: u16,
+    },
+    /// The broker acknowledged a QoS 1 PUBLISH.
+    PubAck {
+        pkid: u16,
+    },
     Other,
 }
 
@@ -150,6 +164,22 @@ impl ClientHandle {
         }
     }
 
+    /// Queues a PUBLISH for the event loop, waiting for room in the request
+    /// channel. The packet id is assigned when the event loop writes it.
+    pub async fn publish(
+        &self,
+        topic: &str,
+        qos: u8,
+        retain: bool,
+        payload: Bytes,
+    ) -> Result<(), ClientClosed> {
+        match self {
+            ClientHandle::V4(c) => v4::publish(c, topic, qos, retain, payload).await,
+            #[cfg(feature = "v5")]
+            ClientHandle::V5(c) => v5::publish(c, topic, qos, retain, payload).await,
+        }
+    }
+
     /// Asks for a DISCONNECT without waiting. Used by the poll task, which must
     /// never wait on anything but `poll`.
     pub fn try_disconnect(&self) {
@@ -233,6 +263,9 @@ mod v4 {
                 dup: p.dup,
                 pkid: p.pkid,
             })),
+            Ok(Event::Incoming(Incoming::PubAck(a))) => Ok(LinkEvent::PubAck { pkid: a.pkid }),
+            Ok(Event::Outgoing(Outgoing::Publish(pkid))) => Ok(LinkEvent::PublishWritten { pkid }),
+            Ok(Event::Outgoing(Outgoing::AwaitAck(pkid))) => Ok(LinkEvent::PublishHeld { pkid }),
             Ok(Event::Outgoing(Outgoing::PubAck(_) | Outgoing::PubRec(_))) => {
                 Ok(LinkEvent::AckWritten)
             }
@@ -276,6 +309,18 @@ mod v4 {
             .map(|(filter, q)| SubscribeFilter::new(filter.clone(), qos(*q)))
             .collect();
         c.subscribe_many(filters).await.map_err(|_| ClientClosed)
+    }
+
+    pub(super) async fn publish(
+        c: &AsyncClient,
+        topic: &str,
+        q: u8,
+        retain: bool,
+        payload: bytes::Bytes,
+    ) -> Result<(), ClientClosed> {
+        c.publish(topic, qos(q), retain, payload)
+            .await
+            .map_err(|_| ClientClosed)
     }
 }
 
@@ -354,6 +399,9 @@ mod v5 {
                 dup: p.dup,
                 pkid: p.pkid,
             })),
+            Ok(Event::Incoming(Packet::PubAck(a))) => Ok(LinkEvent::PubAck { pkid: a.pkid }),
+            Ok(Event::Outgoing(Outgoing::Publish(pkid))) => Ok(LinkEvent::PublishWritten { pkid }),
+            Ok(Event::Outgoing(Outgoing::AwaitAck(pkid))) => Ok(LinkEvent::PublishHeld { pkid }),
             Ok(Event::Outgoing(Outgoing::PubAck(_) | Outgoing::PubRec(_))) => {
                 Ok(LinkEvent::AckWritten)
             }
@@ -404,5 +452,17 @@ mod v5 {
             .map(|(filter, q)| Filter::new(filter.clone(), qos(*q)))
             .collect();
         c.subscribe_many(filters).await.map_err(|_| ClientClosed)
+    }
+
+    pub(super) async fn publish(
+        c: &AsyncClient,
+        topic: &str,
+        q: u8,
+        retain: bool,
+        payload: Bytes,
+    ) -> Result<(), ClientClosed> {
+        c.publish(topic, qos(q), retain, payload)
+            .await
+            .map_err(|_| ClientClosed)
     }
 }

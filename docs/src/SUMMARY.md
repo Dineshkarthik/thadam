@@ -42,6 +42,7 @@
 - [Object storage](sinks/object-store.md)
 - [ClickHouse](sinks/clickhouse.md)
 - [NATS JetStream](sinks/nats.md)
+- [MQTT publish](sinks/mqtt-publish.md)
 
 # Transforms
 

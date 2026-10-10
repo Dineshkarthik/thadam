@@ -68,6 +68,7 @@ mod error;
 mod factory;
 mod link;
 mod poll_task;
+pub mod sink;
 mod source;
 mod state;
 mod stats;

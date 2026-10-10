@@ -228,7 +228,10 @@ impl PollTask {
                     return Flow::Stop;
                 }
             }
-            LinkEvent::Other => {}
+            LinkEvent::PublishWritten { .. }
+            | LinkEvent::PublishHeld { .. }
+            | LinkEvent::PubAck { .. }
+            | LinkEvent::Other => {}
         }
         Flow::Continue
     }

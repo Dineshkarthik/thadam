@@ -19,6 +19,8 @@ pub enum DeliveryClass {
     AtLeastOnce,
     /// A retried batch with the same [`BatchId`] is applied once.
     IdempotentBatch,
+    /// A write that failed in flight may be lost; it is never applied twice.
+    AtMostOnce,
 }
 
 impl DeliveryClass {
@@ -27,6 +29,7 @@ impl DeliveryClass {
         match self {
             DeliveryClass::AtLeastOnce => "at_least_once",
             DeliveryClass::IdempotentBatch => "idempotent_batch",
+            DeliveryClass::AtMostOnce => "at_most_once",
         }
     }
 }

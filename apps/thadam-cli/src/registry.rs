@@ -17,6 +17,7 @@ use thadam_runtime::Registry;
 /// - Parquet segment sink factory ([`thadam_segments::ParquetSegmentSinkFactory`])
 /// - Quarantine segment sink factory ([`thadam_segments::QuarantineSinkFactory`])
 /// - NATS JetStream batch sink factory ([`thadam_nats::NatsSinkFactory`])
+/// - MQTT publish batch sink factory ([`thadam_mqtt::sink::MqttPublishSinkFactory`])
 /// - ClickHouse batch sink factory (`thadam_clickhouse::ClickHouseSinkFactory`,
 ///   behind the default-on `clickhouse` feature)
 /// - Object-store shipper service factory
@@ -39,6 +40,8 @@ pub fn build_registry() -> Registry {
 
     // Batch sinks: JetStream publish with per-event Nats-Msg-Id dedupe.
     registry.batch_sink(Box::new(thadam_nats::NatsSinkFactory::new()));
+    // Batch sink: one MQTT message per event, at-least-once at QoS 1.
+    registry.batch_sink(Box::new(thadam_mqtt::sink::MqttPublishSinkFactory::new()));
     // Batch sink: Native inserts into an existing ClickHouse table, deduped by
     // the batch id where the table can.
     #[cfg(feature = "clickhouse")]
@@ -139,6 +142,18 @@ mod tests {
                 .sink_kinds
                 .as_ref()
                 .is_some_and(|k| k.iter().any(|s| s == "nats"))
+        );
+    }
+
+    #[test]
+    fn build_registry_registers_mqtt_publish_batch_sink() {
+        let registry = build_registry();
+        let policy = registry.kind_policy();
+        assert!(
+            policy
+                .sink_kinds
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|s| s == "mqtt_publish"))
         );
     }
 

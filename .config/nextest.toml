@@ -15,6 +15,12 @@ path = "junit.xml"
 
 [test-groups]
 wal-crash-loop = { max-threads = 1 }
+# Parallel EMQX containers starve each other and flake session-loss tests.
+emqx-docker = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = "package(thadam-mqtt) & test(/^emqx_/)"
+test-group = "emqx-docker"
 
 [[profile.default.overrides]]
 filter = "package(thadam-wal) & test(kill_dash_nine_crash_loop)"

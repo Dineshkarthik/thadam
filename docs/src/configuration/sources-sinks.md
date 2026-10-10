@@ -35,6 +35,7 @@ sinks:
 | `parquet` | segment sink | Implemented ([Parquet segments sink](../sinks/parquet.md)) |
 | `object_store` | shipper service | Implemented ([object storage sink](../sinks/object-store.md)); configured under `sinks:` and runs as a service shipping the named segment sink |
 | `clickhouse` | batch sink | Implemented ([ClickHouse sink](../sinks/clickhouse.md)); inserts into an existing table, never creates or alters tables |
+| `mqtt_publish` | batch sink | Implemented ([MQTT publish sink](../sinks/mqtt-publish.md)); one message per event, QoS 0 or 1 |
 
 ## Sink WAL-consumer policies {#sink-policies}
 

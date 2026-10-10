@@ -64,6 +64,9 @@ pub enum MqttError {
     /// The connection did not become ready in time.
     #[error("timed out after {0:?} waiting for the broker")]
     OpenTimeout(std::time::Duration),
+    /// A published message was not acknowledged in time.
+    #[error("no acknowledgement from the broker within {0:?}")]
+    PublishTimeout(std::time::Duration),
     /// A connector task panicked.
     #[error("connector task panicked")]
     Panic,
@@ -93,7 +96,7 @@ impl Classify for MqttError {
             MqttError::PacketTooLarge { .. } => codes::CONNECTOR_MESSAGE_TOO_LARGE,
             MqttError::UnackedGuard { .. } | MqttError::State(_) => codes::CONNECTOR_PROTOCOL,
             MqttError::Cancelled => codes::CONNECTOR_CANCELLED,
-            MqttError::OpenTimeout(_) => codes::CONNECTOR_TIMEOUT,
+            MqttError::OpenTimeout(_) | MqttError::PublishTimeout(_) => codes::CONNECTOR_TIMEOUT,
             MqttError::Panic => codes::CONNECTOR_PANIC,
         }
     }
@@ -103,7 +106,8 @@ impl Classify for MqttError {
             MqttError::Tls(_)
             | MqttError::Network(_)
             | MqttError::Unavailable(_)
-            | MqttError::OpenTimeout(_) => Retry::Transient,
+            | MqttError::OpenTimeout(_)
+            | MqttError::PublishTimeout(_) => Retry::Transient,
             MqttError::Cancelled => Retry::Permanent,
             MqttError::Config(_)
             | MqttError::Credentials { .. }
