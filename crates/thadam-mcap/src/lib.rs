@@ -34,10 +34,21 @@
 //! ([`AckMode::None`](thadam_core::AckMode::None)) — files are re-readable,
 //! so there is nothing to acknowledge and a crash mid-replay loses nothing
 //! on re-run.
+//!
+//! # Export
+//!
+//! [`McapExporter`] is the writer side: it turns captured messages into one
+//! indexed MCAP file. Each `(source, topic)` becomes a channel and keeps its
+//! original encoding, with schema text supplied by a [`SchemaResolver`]
+//! because the WAL does not carry it. WAL gaps and file provenance are
+//! written as `thadam.gap` and `thadam.provenance` metadata records. Unresolved
+//! schemas are listed in a `thadam.unresolved_schemas` record, so nothing is
+//! lost silently.
 
 mod config;
 mod decode;
 mod error;
+mod export;
 mod factory;
 mod file_reader;
 mod source;
@@ -45,5 +56,9 @@ mod source;
 pub use config::{DecodeMode, McapConfig, Pace, TimeBound, TopicFilter, config_schema};
 pub use decode::decode_ros2;
 pub use error::McapError;
+pub use export::{
+    DefaultEncoding, ExportOptions, ExportReport, GapKind, McapExporter, Provenance,
+    SchemaResolver, UnresolvedSchema,
+};
 pub use factory::McapSourceFactory;
 pub use source::{McapSource, attr};

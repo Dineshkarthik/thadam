@@ -33,12 +33,28 @@ pub enum McapError {
     /// The source was used in the wrong state.
     #[error("{0}")]
     State(&'static str),
+    /// The MCAP writer failed: an I/O error, or a state it cannot recover
+    /// from. The output file is unusable and the export must be rerun.
+    #[error("cannot write MCAP: {detail}")]
+    Write {
+        /// What the MCAP library reported; never payload bytes.
+        detail: String,
+    },
+    /// A message or gap cannot be exported as given: an ingest time before
+    /// the Unix epoch, a channel whose encoding or schema disagrees with an
+    /// earlier message on the same topic, or an inverted gap range.
+    #[error("cannot export: {detail}")]
+    Export {
+        /// The rejected input, named by source and topic, never by payload.
+        detail: String,
+    },
 }
 
 impl Classify for McapError {
     fn domain(&self) -> ErrorDomain {
         match self {
             McapError::Config(_) => ErrorDomain::Config,
+            McapError::Write { .. } | McapError::Export { .. } => ErrorDomain::Sink,
             _ => ErrorDomain::Connector,
         }
     }
@@ -48,6 +64,8 @@ impl Classify for McapError {
             McapError::Config(_) => codes::CONFIG_INVALID,
             McapError::Open { .. } => codes::CONNECTOR_CONNECT_FAILED,
             McapError::Parse { .. } | McapError::State(_) => codes::CONNECTOR_PROTOCOL,
+            McapError::Write { .. } => codes::SINK_IO,
+            McapError::Export { .. } => codes::SINK_REJECTED,
         }
     }
 
@@ -58,6 +76,7 @@ impl Classify for McapError {
             McapError::Open { .. } => Retry::Transient,
             // Retrying never fixes a corrupt file; a restart re-reads it identically.
             McapError::Parse { .. } => Retry::Permanent,
+            McapError::Write { .. } | McapError::Export { .. } => Retry::Permanent,
         }
     }
 
