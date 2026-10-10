@@ -32,6 +32,8 @@
 - [HTTP](sources/http.md)
 - [gRPC](sources/grpc.md)
 - [MQTT](sources/mqtt.md)
+- [Modbus](sources/modbus.md)
+- [CAN](sources/can.md)
 - [ROS 2](sources/ros2.md)
 
 # Sinks
@@ -39,6 +41,7 @@
 - [Parquet segments](sinks/parquet.md)
 - [Object storage](sinks/object-store.md)
 - [ClickHouse](sinks/clickhouse.md)
+- [NATS JetStream](sinks/nats.md)
 
 # Transforms
 

@@ -6,7 +6,7 @@ Concretely, Thadam is a single Rust binary that runs next to your data producers
 
 1. **Capture.** Messages from sources such as MQTT brokers are appended to a local, durable write-ahead log (WAL) and flushed to disk *before* the source is acknowledged. Nothing that Thadam acknowledged is lost to a crash or a restart.
 2. **Process.** Each sink reads the log independently: messages are decoded, normalized into typed, declared datasets *while keeping device identity, time domains, and data quality as first-class columns*.
-3. **Deliver.** Processed datasets are written as Parquet segment files and shipped to S3-compatible object storage, with ClickHouse planned as the first analytical database sink. Delivery survives outages: data is replayed from the log when the downstream system comes back.
+3. **Deliver.** Processed datasets are written as Parquet segment files and shipped to S3-compatible object storage, with ClickHouse available as the first analytical database sink. Delivery survives outages: data is replayed from the log when the downstream system comes back.
 
 Thadam is open source (Apache-2.0), Rust-first, and designed for the edge: unreliable networks, limited CPU and memory, intermittent power, and long periods of disconnection. Durability is a design input, not a bolt-on: the delivery guarantees Thadam makes (and the ones it explicitly refuses to make) are recorded in [ADR-0011](design/index.md) and every public claim is gated on benchmark or spike evidence.
 

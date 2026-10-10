@@ -30,7 +30,7 @@ No. Thadam may transport command/event-like messages only where explicitly confi
 
 ## Which protocols and sinks work today?
 
-Sources: MQTT (3.1.1; v5 experimental). Sinks: Parquet (local segments) works; object storage shipping is in progress, ClickHouse is planned after M1, ROS 2 is M2. The [roadmap](roadmap.md) has the full sequence.
+Sources: MQTT (3.1.1; v5 experimental). Sinks: Parquet (local segments) works; object storage shipping is in progress, the ClickHouse batch sink is implemented, ROS 2 is M2. The [roadmap](roadmap.md) has the full sequence.
 
 ## Can I run Thadam on a Raspberry Pi / Jetson / Mac?
 

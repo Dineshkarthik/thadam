@@ -14,6 +14,10 @@ members = [
     "crates/thadam-http",
     "crates/thadam-grpc",
     "crates/thadam-mcap",
+    "crates/thadam-modbus",
+    "crates/thadam-nats",
+    "crates/thadam-can",
+    "crates/thadam-clickhouse",
     "crates/thadam-testkit",
     "apps/thadam-cli",
     "tools/thadam-simulator",
@@ -35,6 +39,10 @@ default-members = [
     "crates/thadam-http",
     "crates/thadam-grpc",
     "crates/thadam-mcap",
+    "crates/thadam-modbus",
+    "crates/thadam-nats",
+    "crates/thadam-can",
+    "crates/thadam-clickhouse",
     "crates/thadam-testkit",
     "apps/thadam-cli",
     "tools/thadam-simulator",
@@ -68,6 +76,12 @@ async-trait = "0.1.92"
 bitflags = "2.13"
 bytes = "1.12"
 bytesize = "2.7"
+# SocketCAN source (thadam-can), Linux only: `netlink` and `dump` stay off;
+# the crate itself adds the `tokio` feature.
+socketcan = { version = "4", default-features = false }
+# DBC parsing for the CAN source's `emit: decoded` mode. `serde` and
+# `encodings` stay off: we parse UTF-8 files and keep encoding_rs out.
+can-dbc = { version = "10", default-features = false }
 clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 crc32c = "0.6.8"
 csv = "1.4"
@@ -108,6 +122,10 @@ thiserror = "2.0.21"
 tokio = { version = "1.53", default-features = false }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = "0.1.19"
+# Modbus TCP polling source (thadam-modbus). Client only: the `tcp-server` feature
+# is enabled by thadam-modbus's dev-dependency for the in-process test server.
+# Default features (RTU serial) are off: no tokio-serial in the tree.
+tokio-modbus = { version = "0.17", default-features = false, features = ["tcp"] }
 # gRPC ingest (thadam-grpc). tonic's TLS is the ring provider only (ADR-0020);
 # the `tls-aws-lc` feature must stay off. `protox` compiles the .proto in pure
 # Rust, so the build needs no `protoc` on PATH.

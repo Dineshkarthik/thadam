@@ -12,8 +12,13 @@ use thadam_runtime::Registry;
 /// - HTTP source factory ([`thadam_http::HttpSourceFactory`])
 /// - gRPC source factory ([`thadam_grpc::GrpcSourceFactory`])
 /// - MCAP file source factory ([`thadam_mcap::McapSourceFactory`])
+/// - Modbus TCP source factory ([`thadam_modbus::ModbusSourceFactory`])
+/// - SocketCAN source factory ([`thadam_can::CanSourceFactory`])
 /// - Parquet segment sink factory ([`thadam_segments::ParquetSegmentSinkFactory`])
 /// - Quarantine segment sink factory ([`thadam_segments::QuarantineSinkFactory`])
+/// - NATS JetStream batch sink factory ([`thadam_nats::NatsSinkFactory`])
+/// - ClickHouse batch sink factory (`thadam_clickhouse::ClickHouseSinkFactory`,
+///   behind the default-on `clickhouse` feature)
 /// - Object-store shipper service factory
 ///   ([`thadam_object_store::ObjectStoreShipperFactory`])
 ///
@@ -26,9 +31,18 @@ pub fn build_registry() -> Registry {
     registry.source(Box::new(thadam_http::HttpSourceFactory::new()));
     registry.source(Box::new(thadam_grpc::GrpcSourceFactory::new()));
     registry.source(Box::new(thadam_mcap::McapSourceFactory::new()));
+    registry.source(Box::new(thadam_modbus::ModbusSourceFactory::new()));
+    registry.source(Box::new(thadam_can::CanSourceFactory::new()));
 
     registry.segment_sink(Box::new(thadam_segments::ParquetSegmentSinkFactory::new()));
     registry.quarantine_sink(Box::new(thadam_segments::QuarantineSinkFactory::new()));
+
+    // Batch sinks: JetStream publish with per-event Nats-Msg-Id dedupe.
+    registry.batch_sink(Box::new(thadam_nats::NatsSinkFactory::new()));
+    // Batch sink: Native inserts into an existing ClickHouse table, deduped by
+    // the batch id where the table can.
+    #[cfg(feature = "clickhouse")]
+    registry.batch_sink(Box::new(thadam_clickhouse::ClickHouseSinkFactory::new()));
 
     // The shipper is configured as a sinks: entry (`kind: object_store`) and
     // runs as a service consuming the named segment sink's catalog.
@@ -89,6 +103,55 @@ mod tests {
                 .source_kinds
                 .as_ref()
                 .is_some_and(|k| k.iter().any(|s| s == "mcap"))
+        );
+    }
+
+    #[test]
+    fn build_registry_registers_modbus_source() {
+        let registry = build_registry();
+        let policy = registry.kind_policy();
+        assert!(
+            policy
+                .source_kinds
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|s| s == "modbus"))
+        );
+    }
+
+    #[test]
+    fn build_registry_registers_can_source() {
+        let registry = build_registry();
+        let policy = registry.kind_policy();
+        assert!(
+            policy
+                .source_kinds
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|s| s == "can"))
+        );
+    }
+
+    #[test]
+    fn build_registry_registers_nats_batch_sink() {
+        let registry = build_registry();
+        let policy = registry.kind_policy();
+        assert!(
+            policy
+                .sink_kinds
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|s| s == "nats"))
+        );
+    }
+
+    #[cfg(feature = "clickhouse")]
+    #[test]
+    fn build_registry_registers_clickhouse_batch_sink() {
+        let registry = build_registry();
+        let policy = registry.kind_policy();
+        assert!(
+            policy
+                .sink_kinds
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|s| s == "clickhouse"))
         );
     }
 

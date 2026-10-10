@@ -10,17 +10,28 @@ publish.workspace = true
 name = "thadam"
 path = "src/main.rs"
 
+[features]
+default = ["clickhouse"]
+# The ClickHouse batch sink (ADR-0008). On by default so `kind: clickhouse`
+# works out of the box; `--no-default-features` builds a binary without the
+# ClickHouse client and its HTTP stack.
+clickhouse = ["dep:thadam-clickhouse"]
+
 [dependencies]
 clap = { workspace = true }
 thadam-config = { path = "../../crates/thadam-config" }
 thadam-runtime = { path = "../../crates/thadam-runtime" }
 thadam-mqtt = { path = "../../crates/thadam-mqtt" }
 thadam-http = { path = "../../crates/thadam-http" }
+thadam-modbus = { path = "../../crates/thadam-modbus" }
+thadam-can = { path = "../../crates/thadam-can" }
 thadam-grpc = { path = "../../crates/thadam-grpc" }
 thadam-mcap = { path = "../../crates/thadam-mcap" }
 thadam-segments = { path = "../../crates/thadam-segments" }
 thadam-wal = { path = "../../crates/thadam-wal" }
 thadam-object-store = { path = "../../crates/thadam-object-store" }
+thadam-nats = { path = "../../crates/thadam-nats" }
+thadam-clickhouse = { path = "../../crates/thadam-clickhouse", optional = true }
 thadam-core = { workspace = true }
 rustls = { workspace = true }
 serde_json = { workspace = true }

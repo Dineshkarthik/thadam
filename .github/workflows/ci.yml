@@ -75,6 +75,21 @@ jobs:
       - run: pytest sdk/python/tests
       - run: cargo clippy -p thadam-python --all-targets --locked -- -D warnings
 
+  # Docker Desktop kernels lack CAN, so the vcan tests only run here.
+  can-vcan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y "linux-modules-extra-$(uname -r)" can-utils iproute2
+          sudo modprobe vcan
+          sudo ip link add dev vcan0 type vcan
+          sudo ip link set up vcan0
+      - run: cargo test --locked -p thadam-can --test vcan --no-run
+      # The FD test changes the interface MTU, which needs CAP_NET_ADMIN.
+      - run: sudo -E env "PATH=$PATH" cargo test --locked -p thadam-can --test vcan -- --include-ignored
+
   loom:
     runs-on: ubuntu-24.04
     env:

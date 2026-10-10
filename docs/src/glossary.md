@@ -10,7 +10,7 @@ Terms as Thadam uses them. Where a term has a formal definition in an ADR, the A
 
 **At-most-once** — Delivery without retransmission; a crash can lose messages. Applies to QoS 0 and `ack_mode: on_receive` across a crash.
 
-**Batch sink** — Sink contract for transactional batch targets (ClickHouse, planned): deterministic batches retried under the same batch ID. Compare *segment sink*.
+**Batch sink** — Sink contract for transactional batch targets (ClickHouse, NATS): deterministic batches retried under the same batch ID. Compare *segment sink*.
 
 **Capture-first WAL** — The architectural rule (D1) that raw messages are appended to a durable write-ahead log *before* decode, transform, or acknowledgement. See [WAL](concepts/wal-and-replay.md).
 

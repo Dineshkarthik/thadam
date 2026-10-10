@@ -56,6 +56,9 @@ def arrow_re: "^(arrow|arrow-.+|parquet)$";
     "thadam-object-store": ["thadam-cli", "thadam-python"],
     "thadam-clickhouse": ["thadam-cli"],
     "thadam-mcap": ["thadam-cli"],
+    "thadam-modbus": ["thadam-cli"],
+    "thadam-can": ["thadam-cli"],
+    "thadam-nats": ["thadam-cli"],
     "thadam-testkit": []
   } as $allowed_dependents
 
