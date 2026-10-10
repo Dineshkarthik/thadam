@@ -1,0 +1,36 @@
+[package]
+name = "thadam-nats"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# `ring` is the only TLS provider (ADR-0020): async-nats's default features
+# would also be fine, but `jetstream` and `nkeys` are the ones this sink uses,
+# and the defaults pull websockets, KV, and object store.
+async-nats = { version = "0.50", default-features = false, features = ["ring", "jetstream", "nkeys"] }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+thadam-core = { workspace = true }
+rustls-native-certs = { workspace = true }
+rustls-pki-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# Re-exports the rustls 0.23 instance async-nats uses, so the client config
+# built here (ring provider) type-checks against `tls_client_config`.
+tokio-rustls = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+futures-util = "0.3"
+rcgen = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true
