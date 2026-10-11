@@ -47,6 +47,11 @@ pub const SCHEMAS_DIR: &str = "schemas";
 
 const LOCK_FILE: &str = "LOCK";
 
+/// The schema-store directory of the data directory at `root`.
+pub fn schemas_dir(root: &Path) -> PathBuf {
+    root.join(SCHEMAS_DIR)
+}
+
 /// Contents of `data_dir/thadam.json`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]

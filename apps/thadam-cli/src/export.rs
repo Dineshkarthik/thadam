@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use clap::Args;
 use thadam_config::{DecodeFormat, PipelineSpec, ProcessEnv, load_file};
-use thadam_core::{DiskBudget, SystemClock, WalPos};
+use thadam_core::{DiskBudget, SchemaStore, SystemClock, WalPos};
 use thadam_mcap::{
     DefaultEncoding, ExportOptions, ExportReport, GapKind, McapError, McapExporter, Provenance,
 };
@@ -159,7 +159,9 @@ fn export(
         .map_err(|e| wal_failure(&wal_dir, &e))?;
     reader.seek(plan.from);
 
-    let mut options = ExportOptions::new(DefaultEncoding::OctetStream, schemas.into_resolver());
+    let store = SchemaStore::open(thadam_runtime::schemas_dir(root));
+    let stored = store.list().map_err(|e| Failure::data_dir(e.to_string()))?;
+    let mut options = ExportOptions::new(DefaultEncoding::OctetStream, schemas.with_store(stored));
     for (source, encoding) in source_encodings(spec, &plan.encodings) {
         options = options.with_source_encoding(source, encoding);
     }

@@ -5,7 +5,8 @@
 //! `thadam.source` metadata entry. A message keeps its original encoding when
 //! it carries `mcap.message_encoding`: its schema is named by
 //! `mcap.schema_name` and `mcap.schema_encoding` and resolved through the
-//! caller's [`SchemaResolver`], since schema text is not in the WAL. Without
+//! caller's [`SchemaResolver`], by `mcap.schema_hash` when present, since
+//! schema text is not in the WAL. Without
 //! that attribute the source's [`DefaultEncoding`] applies and the channel has
 //! no schema. A schema the resolver cannot supply is written as schema id 0
 //! and listed in the `thadam.unresolved_schemas` metadata record at finish.
@@ -52,12 +53,22 @@ impl DefaultEncoding {
 
 /// Supplies schema text for a schema named in a message's `mcap.*` attributes.
 ///
-/// Implemented for any `Fn(&str, &str) -> Option<Bytes>`, so a closure works
-/// directly. Returning `None` is not an error: the channel is written without
-/// a schema and reported as unresolved.
+/// A message that carries `mcap.schema_hash` is resolved by hash first, through
+/// [`resolve_hash`](Self::resolve_hash); otherwise, or when that returns `None`,
+/// by name through [`resolve`](Self::resolve). Implemented for any
+/// `Fn(&str, &str) -> Option<Bytes>`, so a closure works directly (it never
+/// resolves by hash). Returning `None` is not an error: the channel is written
+/// without a schema and reported as unresolved.
 pub trait SchemaResolver {
     /// The schema text for `name` in `encoding`, or `None` if it is unknown.
     fn resolve(&self, name: &str, encoding: &str) -> Option<Bytes>;
+
+    /// The schema stored under `hash` as `(name, encoding, text)`, or `None`
+    /// when this resolver does not hold it. The exporter rejects a result whose
+    /// name or encoding differs from the message's.
+    fn resolve_hash(&self, _hash: &str) -> Option<(String, String, Bytes)> {
+        None
+    }
 }
 
 impl<F> SchemaResolver for F
@@ -179,6 +190,7 @@ struct ChannelSpec {
     encoding: String,
     schema_name: String,
     schema_encoding: String,
+    schema_hash: String,
 }
 
 struct ChannelState {
@@ -380,6 +392,23 @@ impl<W: Write + Seek> McapExporter<W> {
         if spec.schema_name.is_empty() {
             return Ok(0);
         }
+        if !spec.schema_hash.is_empty()
+            && let Some((name, encoding, text)) =
+                self.options.resolver.resolve_hash(&spec.schema_hash)
+        {
+            if name != spec.schema_name || encoding != spec.schema_encoding {
+                return Err(McapError::Export {
+                    detail: format!(
+                        "source `{source}` topic `{topic}`: schema hash {} is stored as `{name}` ({encoding}), but the messages name `{}` ({})",
+                        spec.schema_hash, spec.schema_name, spec.schema_encoding
+                    ),
+                });
+            }
+            return self
+                .writer
+                .add_schema(&name, &encoding, &text)
+                .map_err(write_error);
+        }
         match self
             .options
             .resolver
@@ -449,11 +478,16 @@ fn channel_spec(options: &ExportOptions, source: &str, attrs: &Attributes) -> Ch
                 .get(attr::MCAP_SCHEMA_ENCODING)
                 .unwrap_or_default()
                 .to_owned(),
+            schema_hash: attrs
+                .get(attr::MCAP_SCHEMA_HASH)
+                .unwrap_or_default()
+                .to_owned(),
         },
         None => ChannelSpec {
             encoding: options.encoding_for(source).as_str().to_owned(),
             schema_name: String::new(),
             schema_encoding: String::new(),
+            schema_hash: String::new(),
         },
     }
 }
@@ -496,9 +530,16 @@ mod tests {
     fn export(
         build: impl FnOnce(&mut McapExporter<&mut Cursor<Vec<u8>>>),
     ) -> (Vec<u8>, ExportReport) {
+        export_with(options(), build)
+    }
+
+    fn export_with(
+        options: ExportOptions,
+        build: impl FnOnce(&mut McapExporter<&mut Cursor<Vec<u8>>>),
+    ) -> (Vec<u8>, ExportReport) {
         let mut buf = Cursor::new(Vec::new());
         let report = {
-            let mut exporter = McapExporter::new(&mut buf, options()).expect("new");
+            let mut exporter = McapExporter::new(&mut buf, options).expect("new");
             build(&mut exporter);
             exporter.finish(provenance()).expect("finish")
         };
@@ -761,6 +802,138 @@ mod tests {
             .expect_err("conflict");
         assert!(format!("{err}").contains("robot"));
         assert!(format!("{err}").contains("/t"));
+    }
+
+    const HASH_KNOWN: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+    const HASH_OTHER: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+    const HASH_UNKNOWN: &str = "3333333333333333333333333333333333333333333333333333333333333333";
+
+    /// A resolver that holds schemas by hash and falls back to `resolver` by name.
+    struct Store {
+        hashes: BTreeMap<String, (String, String, Bytes)>,
+    }
+
+    impl SchemaResolver for Store {
+        fn resolve(&self, name: &str, encoding: &str) -> Option<Bytes> {
+            resolver(name, encoding)
+        }
+
+        fn resolve_hash(&self, hash: &str) -> Option<(String, String, Bytes)> {
+            self.hashes.get(hash).cloned()
+        }
+    }
+
+    fn store_options() -> ExportOptions {
+        let hashes = BTreeMap::from([
+            (
+                HASH_KNOWN.to_owned(),
+                (
+                    "example/Known".to_owned(),
+                    "ros2msg".to_owned(),
+                    Bytes::from_static(b"int32 y\n"),
+                ),
+            ),
+            (
+                HASH_OTHER.to_owned(),
+                (
+                    "example/Known".to_owned(),
+                    "ros2msg".to_owned(),
+                    Bytes::from_static(b"int32 z\n"),
+                ),
+            ),
+        ]);
+        ExportOptions::new(DefaultEncoding::OctetStream, Store { hashes })
+    }
+
+    fn schema_data(bytes: &[u8], topic: &str) -> Option<Vec<u8>> {
+        let summary = mcap::read::Summary::read(bytes).unwrap().unwrap();
+        summary
+            .channels
+            .values()
+            .find(|c| c.topic == topic)?
+            .schema
+            .as_ref()
+            .map(|s| s.data.to_vec())
+    }
+
+    fn hashed(ingest: i64, topic: &str, hash: &str, name: &str) -> RawMessage {
+        msg(
+            ingest,
+            &[
+                (attr::MCAP_TOPIC, topic),
+                (attr::MCAP_MESSAGE_ENCODING, "cdr"),
+                (attr::MCAP_SCHEMA_NAME, name),
+                (attr::MCAP_SCHEMA_ENCODING, "ros2msg"),
+                (attr::MCAP_SCHEMA_HASH, hash),
+            ],
+            b"h",
+        )
+    }
+
+    #[test]
+    fn hash_resolves_schema_text_before_the_name() {
+        let (bytes, report) = export_with(store_options(), |e| {
+            e.write_raw("robot", &hashed(1, "/h", HASH_KNOWN, "example/Known"))
+                .unwrap();
+        });
+        assert!(report.unresolved_schemas.is_empty());
+        assert_eq!(schema_data(&bytes, "/h").unwrap(), b"int32 y\n");
+    }
+
+    #[test]
+    fn hash_stored_under_another_name_is_an_export_error() {
+        let mut buf = Cursor::new(Vec::new());
+        let mut exporter = McapExporter::new(&mut buf, store_options()).expect("new");
+        let err = exporter
+            .write_raw("robot", &hashed(1, "/h", HASH_KNOWN, "example/Other"))
+            .expect_err("mismatch");
+        assert!(matches!(err, McapError::Export { .. }));
+        let text = format!("{err}");
+        assert!(text.contains("robot"), "{text}");
+        assert!(text.contains("/h"), "{text}");
+        assert!(text.contains("example/Known"), "{text}");
+    }
+
+    #[test]
+    fn two_hashes_on_one_topic_are_a_conflict() {
+        let mut buf = Cursor::new(Vec::new());
+        let mut exporter = McapExporter::new(&mut buf, store_options()).expect("new");
+        exporter
+            .write_raw("robot", &hashed(1, "/h", HASH_KNOWN, "example/Known"))
+            .expect("first");
+        let err = exporter
+            .write_raw("robot", &hashed(2, "/h", HASH_OTHER, "example/Known"))
+            .expect_err("conflict");
+        assert!(format!("{err}").contains("disagree"));
+        assert!(format!("{err}").contains("/h"));
+    }
+
+    #[test]
+    fn absent_or_unknown_hash_falls_back_to_the_name_resolver() {
+        let (bytes, report) = export_with(store_options(), |e| {
+            e.write_raw(
+                "robot",
+                &hashed(1, "/unknown", HASH_UNKNOWN, "example/Known"),
+            )
+            .unwrap();
+            e.write_raw(
+                "robot",
+                &msg(
+                    2,
+                    &[
+                        (attr::MCAP_TOPIC, "/named"),
+                        (attr::MCAP_MESSAGE_ENCODING, "cdr"),
+                        (attr::MCAP_SCHEMA_NAME, "example/Known"),
+                        (attr::MCAP_SCHEMA_ENCODING, "ros2msg"),
+                    ],
+                    b"n",
+                ),
+            )
+            .unwrap();
+        });
+        assert!(report.unresolved_schemas.is_empty());
+        assert_eq!(schema_data(&bytes, "/unknown").unwrap(), b"int32 x\n");
+        assert_eq!(schema_data(&bytes, "/named").unwrap(), b"int32 x\n");
     }
 
     #[test]

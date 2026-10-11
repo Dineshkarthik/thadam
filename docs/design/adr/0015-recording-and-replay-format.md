@@ -31,7 +31,7 @@ Per ADR-0000 this ADR is Draft; the text records the owner's 2026-10-10 decision
 - Original encodings are kept:
   - A message with `mcap.message_encoding` (MCAP-sourced data) keeps that encoding and its schema, named by `mcap.schema_name` and `mcap.schema_encoding`. ROS 2 CDR stays `cdr` with its `ros2msg` schema.
   - Other sources use a per-source default: `json` with no schema, or `application/octet-stream` with no schema.
-- Schema text comes from a resolver supplied by the caller. The CLI reads the schema records of the MCAP files the configuration's MCAP sources point at, plus any extra files given on the command line. A schema it cannot resolve is written as schema id 0 and listed in a `thadam.unresolved_schemas` metadata record.
+- Schema text comes from a resolver supplied by the caller. The CLI resolves a message carrying `mcap.schema_hash` from the data directory's schema store first: the MCAP source writes each ROS 2 schema there by content hash at capture time, so the export does not need the original file. Messages without a hash, or whose hash is not in the store, fall back to the schema records of the MCAP files the configuration's MCAP sources point at, plus any extra files given on the command line. Two schema hashes on one topic are a conflict, as two encodings are. A schema it cannot resolve is written as schema id 0 and listed in a `thadam.unresolved_schemas` metadata record.
 - Messages on one channel that disagree on encoding or schema fail the export rather than opening a second channel.
 
 ### Times and sequence
@@ -60,7 +60,7 @@ Per ADR-0000 this ADR is Draft; the text records the owner's 2026-10-10 decision
 ## Consequences
 
 - An exported file is a faithful copy of the captured bytes for its range, with gaps and provenance visible to any MCAP reader.
-- MCAP-sourced ROS 2 data round-trips through `thadam-mcap` with its schemas, as long as the original files or a schema file are available at export time.
+- MCAP-sourced ROS 2 data round-trips through `thadam-mcap` with its schemas. Captures made after the schema store existed resolve from the store, so the original files may be deleted before export; captures made earlier still need the original files or a schema file at export time.
 - Raw channels (`application/octet-stream`) are preserved but not rendered by Foxglove.
 - A live ROS 2 source (ADR-0007 stage 4) must decide how schema text becomes available to the exporter, since no file holds it.
 

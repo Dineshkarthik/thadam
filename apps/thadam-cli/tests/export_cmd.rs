@@ -8,11 +8,13 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Bytes;
 use mcap::records::MessageHeader;
-use thadam_core::{DiskBudget, RawBatch, RawMessage, SourceId, SystemClock, Timestamp};
+use thadam_core::{DiskBudget, RawBatch, RawMessage, Shutdown, SourceId, SystemClock, Timestamp};
 use thadam_mcap::attr;
+use thadam_runtime::{BackoffPolicy, Pipeline, Registry, RuntimeOptions};
 use thadam_testkit::TempDataDir;
 use thadam_wal::{OnFull, Wal, WalOptions, WalWriter};
 
@@ -171,6 +173,66 @@ async fn populate(data: &Path) -> u64 {
     epoch
 }
 
+fn capture_yaml(data: &Path, bag: &Path) -> String {
+    format!(
+        r#"version: 1
+pipeline: {{ name: test, node_id: node-1, data_dir: "{data}" }}
+sources:
+  - {{ id: bag, kind: mcap, config: {{ paths: ["{bag}"] }} }}
+wal: {{ max_disk: 64MiB, segment_bytes: 1MiB, fsync: {{ interval: 1ms }}, on_full: block, retain_for: 1h }}
+datasets:
+  - id: d
+    match: {{ source: bag }}
+    decode: json
+    fields:
+      - {{ id: 1000, name: n, type: u64, from: /n, required: true }}
+sinks:
+  - id: pq
+    kind: parquet
+    config: {{ datasets: [d], compression: none, rotation: {{ max_bytes: null, max_rows: 2, max_age: null }} }}
+"#,
+        data = data.display(),
+        bag = bag.display()
+    )
+}
+
+fn fast_opts() -> RuntimeOptions {
+    let mut o = RuntimeOptions::default();
+    o.poll_commit_interval = Duration::from_millis(10);
+    o.cursor_commit_interval = Duration::from_millis(10);
+    o.maintenance_interval = Duration::from_millis(50);
+    o.drain_timeout = Duration::from_secs(10);
+    o.shutdown_timeout = Duration::from_secs(30);
+    o.sink_retry = BackoffPolicy::new(Duration::from_millis(5), Duration::from_millis(50));
+    o.source_restart = BackoffPolicy::new(Duration::from_millis(5), Duration::from_millis(50));
+    o.batch_max_age = Duration::from_millis(20);
+    o.clock_sync_probe = None;
+    o.batch_limits.linger = Duration::from_millis(1);
+    o
+}
+
+/// Runs the pipeline of `yaml` until its MCAP sources drain, so the WAL holds
+/// what they read and the data directory lock is released.
+async fn capture(yaml: &str) {
+    let mut registry = Registry::new();
+    registry
+        .source(Box::new(thadam_mcap::McapSourceFactory::new()))
+        .segment_sink(Box::new(thadam_segments::ParquetSegmentSinkFactory::new()))
+        .quarantine_sink(Box::new(thadam_segments::QuarantineSinkFactory::new()));
+    let spec = match thadam_config::load_str(yaml, &thadam_config::MapEnv::new()) {
+        Ok(spec) => spec,
+        Err(report) => panic!("invalid capture config:\n{}", report.render(yaml)),
+    };
+    let mut opts = fast_opts();
+    opts.stop_when_sources_finish = true;
+    let pipeline =
+        Pipeline::build(spec, &registry, opts).unwrap_or_else(|e| panic!("build: {e:?}"));
+    pipeline
+        .run(Shutdown::new())
+        .await
+        .expect("the capture run failed");
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct Received {
     topic: String,
@@ -292,6 +354,44 @@ async fn export_writes_channels_messages_schemas_and_provenance() {
     assert_eq!(prov["first_pos"], "1");
     assert_eq!(prov["last_pos"], "3");
     assert_eq!(prov["node_id"], "node-1");
+}
+
+#[tokio::test]
+async fn export_writes_the_schema_from_the_store_after_the_mcap_is_deleted() {
+    let base = TempDataDir::new().unwrap();
+    let data = base.join("data");
+    let bag = base.join("bag.mcap");
+    write_bag(&bag);
+    let config = base.join("capture.yaml");
+    let yaml = capture_yaml(&data, &bag);
+    fs::write(&config, &yaml).unwrap();
+    capture(&yaml).await;
+    fs::remove_file(&bag).unwrap();
+    let out_path = base.join("run.mcap");
+
+    let out = thadam(&[
+        "export",
+        config.to_str().unwrap(),
+        "--mcap",
+        out_path.to_str().unwrap(),
+        "--from",
+        "1",
+    ]);
+    assert_eq!(code(&out), 0, "{}", text(&out.stderr));
+    let stdout = text(&out.stdout);
+    assert!(stdout.contains("unresolved schemas: 0"), "{stdout}");
+
+    let bytes = fs::read(&out_path).unwrap();
+    let summary = mcap::read::Summary::read(&bytes).unwrap().unwrap();
+    let joint = summary
+        .channels
+        .values()
+        .find(|c| c.topic == "/joint")
+        .expect("the /joint channel");
+    let schema = joint.schema.as_ref().expect("a schema");
+    assert_eq!(schema.name, SCHEMA_NAME);
+    assert_eq!(schema.encoding, "ros2msg");
+    assert_eq!(&schema.data[..], SCHEMA_TEXT);
 }
 
 #[tokio::test]

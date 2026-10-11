@@ -1,7 +1,8 @@
 //! Schema text for `thadam export`. The WAL keeps each message's schema name and
-//! encoding but not the schema text, so the text is read from the MCAP files
-//! that the configuration's `kind: mcap` sources point at, then from any files
-//! named with `--schemas`.
+//! encoding but not the schema text. Text is resolved by hash from the data
+//! directory's schema store first; by name, it is read from the MCAP files that
+//! the configuration's `kind: mcap` sources point at, then from any files named
+//! with `--schemas`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
@@ -11,22 +12,34 @@ use std::path::{Path, PathBuf};
 use bytes::Bytes;
 use mcap::sans_io::summary_reader::{SummaryReadEvent, SummaryReader};
 use thadam_config::PipelineSpec;
-use thadam_mcap::McapSourceFactory;
+use thadam_core::StoredSchema;
+use thadam_mcap::{McapSourceFactory, SchemaResolver};
 
-/// Schema text keyed by `(schema name, schema encoding)`.
+/// Schema text from the schema store, keyed by hash, and from MCAP files, keyed
+/// by `(schema name, schema encoding)`.
 #[derive(Debug, Default)]
 pub struct SchemaSet {
     schemas: BTreeMap<(String, String), Bytes>,
+    stored: BTreeMap<String, (String, String, Bytes)>,
 }
 
 impl SchemaSet {
-    /// The schema text for `name` in `encoding`, for the exporter.
-    pub fn into_resolver(self) -> impl Fn(&str, &str) -> Option<Bytes> + 'static {
-        move |name: &str, encoding: &str| {
-            self.schemas
-                .get(&(name.to_owned(), encoding.to_owned()))
-                .cloned()
+    /// Adds the schemas of the data directory's store, which resolve by hash.
+    /// They are not offered by name: a name can have several versions in the
+    /// store, and only the hash identifies one.
+    #[must_use]
+    pub fn with_store(mut self, stored: Vec<(String, StoredSchema)>) -> Self {
+        for (hash, schema) in stored {
+            self.stored.insert(
+                hash,
+                (
+                    String::from(schema.name),
+                    String::from(schema.encoding),
+                    Bytes::from(schema.text),
+                ),
+            );
         }
+        self
     }
 
     fn add(&mut self, from: &Path, found: Vec<Schema>, err: &mut dyn Write) {
@@ -50,6 +63,18 @@ impl SchemaSet {
     #[cfg(test)]
     fn len(&self) -> usize {
         self.schemas.len()
+    }
+}
+
+impl SchemaResolver for SchemaSet {
+    fn resolve(&self, name: &str, encoding: &str) -> Option<Bytes> {
+        self.schemas
+            .get(&(name.to_owned(), encoding.to_owned()))
+            .cloned()
+    }
+
+    fn resolve_hash(&self, hash: &str) -> Option<(String, String, Bytes)> {
+        self.stored.get(hash).cloned()
     }
 }
 
@@ -242,13 +267,34 @@ mod tests {
 
         let mut set = SchemaSet::default();
         set.add(&path, found, &mut Vec::new());
-        let resolve = set.into_resolver();
         assert_eq!(
-            resolve("sensor/Joint", "ros2msg"),
+            set.resolve("sensor/Joint", "ros2msg"),
             Some(Bytes::from_static(b"float64 p\n"))
         );
-        assert_eq!(resolve("sensor/Joint", "jsonschema"), None);
-        assert_eq!(resolve("sensor/Other", "ros2msg"), None);
+        assert_eq!(set.resolve("sensor/Joint", "jsonschema"), None);
+        assert_eq!(set.resolve("sensor/Other", "ros2msg"), None);
+    }
+
+    #[test]
+    fn stored_schemas_resolve_by_hash_only() {
+        let (name, encoding, text) = ("sensor/Joint", "ros2msg", "float64 p\n");
+        let hash = thadam_core::SchemaStore::hash(name, encoding, text);
+        let stored = StoredSchema {
+            name: name.into(),
+            encoding: encoding.into(),
+            text: text.to_owned(),
+        };
+        let set = SchemaSet::default().with_store(vec![(hash.clone(), stored)]);
+        assert_eq!(
+            set.resolve_hash(&hash),
+            Some((
+                name.to_owned(),
+                encoding.to_owned(),
+                Bytes::from_static(b"float64 p\n")
+            ))
+        );
+        assert_eq!(set.resolve_hash(&"0".repeat(64)), None);
+        assert_eq!(set.resolve(name, encoding), None);
     }
 
     #[test]
