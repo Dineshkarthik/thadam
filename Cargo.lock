@@ -358,6 +358,7 @@ checksum = "d83a251fa1a4c9d0fe6e816b7acd60549e473e08d14f27a1d992c2675abff05f"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "crc32c",
  "futures-util",
  "memchr",
  "nkeys",

@@ -60,7 +60,9 @@
 //! - **Quarantine.** Chain rejects (from the primary chain only,
 //!   ARCHITECTURE.md O3: the first chain sink in configuration order) and
 //!   sink rejects go to that sink's quarantine instance. A sink's cursor never
-//!   passes a reject its quarantine has not made durable.
+//!   passes a reject until it is fsynced into the quarantine instance's
+//!   staging file; the quarantine Parquet segment is built from staging on its
+//!   own rotation cadence and no longer holds the cursor.
 //!
 //! # `thadam.json` and `wal.json`
 //!
@@ -118,8 +120,8 @@
 //!
 //! Startup: data-directory lock, `thadam.json` checks, WAL open and recovery on
 //! the blocking pool, epoch binding, cursors, sink recovery (segment sinks
-//! advance the cursor to their recovered watermark when no quarantined reject
-//! is pending; batch sinks re-send the in-flight range first), chain warm start
+//! advance the cursor to their recovered watermark when quarantine (staged or
+//! durable) already holds every reject up to it; batch sinks re-send the in-flight range first), chain warm start
 //! from up to [`RuntimeOptions::warm_start_frames`] frames before the cursor,
 //! then maintenance, sinks and chains, services, and sources last.
 //!
@@ -153,6 +155,7 @@ mod registry;
 mod replay;
 mod segment;
 mod source;
+mod staging;
 mod status;
 
 pub use admin::{AdminConfig, router, serve, validate_admin_config};

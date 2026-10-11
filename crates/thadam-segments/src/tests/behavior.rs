@@ -79,6 +79,76 @@ async fn rotation_by_rows() {
     );
 }
 
+/// With durability deferred (the runtime's setting), a rotation the batch
+/// triggers does not finalize inside `append`: the batch's rows only become
+/// durable at the next `append` or `poll_commit`, after the runtime has
+/// staged the rejects `append` returned.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deferred_durability_postpones_rotation_to_the_next_call() {
+    let rotation = RotationConfig {
+        max_bytes: None,
+        max_rows: Some(1),
+        max_age: None,
+    };
+    let fixture = ParquetFixture::new(&ONE, rotation, 4);
+    let ctx = fixture.ctx();
+    let mut sink = fixture.open_sink();
+    sink.recover(&ctx).await.unwrap();
+    sink.defer_durability(true);
+
+    append_frames(&mut sink, &ONE, 1, 1).await;
+    assert!(
+        fixture.ready_files().is_empty(),
+        "frame 1 is not durable yet"
+    );
+    append_frames(&mut sink, &ONE, 2, 2).await;
+    let files = fixture.ready_files();
+    assert_eq!(files.len(), 1, "the next append closes frame 1: {files:?}");
+    assert_eq!(files[0].2.last().get(), 1);
+    assert_eq!(sink.poll_commit().await.unwrap(), Some(WalPos::new(2)));
+    assert_eq!(fixture.ready_files().len(), 2);
+
+    // Without the request, the rotation stays inside `append`.
+    let fixture = ParquetFixture::new(&ONE, rotation, 4);
+    let ctx = fixture.ctx();
+    let mut sink = fixture.open_sink();
+    sink.recover(&ctx).await.unwrap();
+    append_frames(&mut sink, &ONE, 1, 1).await;
+    assert_eq!(fixture.ready_files().len(), 1);
+}
+
+/// A segment evicted at `max_open_files` that already holds the current
+/// batch's rows is closed later, not inside `append`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deferred_durability_postpones_eviction_of_the_current_batch() {
+    let two: [&str; 2] = ["alpha", "beta"];
+    let rotation = RotationConfig {
+        max_bytes: None,
+        max_rows: None,
+        max_age: None,
+    };
+    let fixture = ParquetFixture::new(&two, rotation, 1);
+    let ctx = fixture.ctx();
+    let mut sink = fixture.open_sink();
+    sink.recover(&ctx).await.unwrap();
+    sink.defer_durability(true);
+
+    // Frame 2 goes to alpha, frame 1 to beta.
+    append_frames(&mut sink, &two, 1, 2).await;
+    assert!(
+        fixture.ready_files().is_empty(),
+        "alpha holds this batch's rows and must not become durable inside append"
+    );
+    sink.poll_commit().await.unwrap();
+    assert_eq!(fixture.ready_files().len(), 1);
+    sink.finalize_all().await.unwrap();
+    let rows: usize = crate::tests::fixture::files_of(&fixture.dir.path().join("ready"))
+        .iter()
+        .map(|p| crate::tests::fixture::rows_of(p))
+        .sum();
+    assert_eq!(rows, 2, "both datasets' rows are written once");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rotation_by_bytes() {
     // 4 KiB file ceiling with 2 KiB row groups: byte estimates rotate the

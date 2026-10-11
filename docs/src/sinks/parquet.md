@@ -71,3 +71,5 @@ Unsigned values follow a per-sink unsigned policy: `Native` (default — `UInt8`
 ## Quarantine format
 
 The same segment machinery writes [quarantine](../concepts/per-sink-chains.md#quarantine) files with a fixed schema and their own disk budget (see [`quarantine`](../configuration/wal.md#quarantine)).
+
+A quarantine segment does not hold back the sink that owns it. Rejects are fsynced into a staging file first, which is what releases the sink's cursor; the quarantine segment then rotates on `quarantine.rotation` (default 5 minutes or 128 MiB) and ships on its own, and a reject staged but not yet in a durable segment at crash time is recovered into the next quarantine segment exactly once. A quarantine segment becomes eligible for shipping once both the sink's cursor and the quarantine's durable position have passed it.

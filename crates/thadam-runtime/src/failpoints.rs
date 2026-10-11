@@ -17,6 +17,12 @@ pub const SEGMENT_BEFORE_CURSOR_COMMIT: &str = "segment::before_cursor_commit";
 /// A segment driver "crashes" after the cursor commit and before the sink is
 /// told through `cursor_committed`.
 pub const SEGMENT_BEFORE_CURSOR_COMMITTED: &str = "segment::before_cursor_committed";
+/// A segment driver "crashes" after the sink's `append` returned (with sink
+/// rejects) and before those rejects are staged for quarantine.
+pub const SEGMENT_AFTER_APPEND_BEFORE_STAGE: &str = "segment::after_append_before_stage";
+/// A quarantine instance "crashes" after a push of rejects was fsynced into
+/// its staging file and before the rows reach the quarantine segment sink.
+pub const QUARANTINE_AFTER_STAGE: &str = "quarantine::after_stage";
 /// A batch driver "crashes" after persisting the in-flight range and before
 /// writing the batch.
 pub const BATCH_AFTER_INFLIGHT: &str = "batch::after_inflight_persist";

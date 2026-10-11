@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 axum = { workspace = true }
 bytes = { workspace = true }
+crc32c = { workspace = true }
 prometheus-client = { workspace = true }
 thadam-config = { path = "../thadam-config" }
 thadam-core = { workspace = true }

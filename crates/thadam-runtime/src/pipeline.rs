@@ -737,7 +737,13 @@ impl Pipeline {
                 )
                 .with_shared(shared.clone())
                 .with_metrics(connector_metrics(Arc::clone(&metrics)));
-                Quarantine::new(q, qctx, id.clone(), Arc::clone(&sink_c))
+                Quarantine::new(
+                    q,
+                    qctx,
+                    id.clone(),
+                    Arc::clone(&sink_c),
+                    opts.failpoints.clone(),
+                )
             });
             let cursor = cursor_name(&id);
             match conn {

@@ -201,20 +201,48 @@ async fn idle_source_segments_finalize_commit_and_ship() {
     }
 }
 
-/// The quarantine floor: while rejects wait for the quarantine segment to
-/// become durable, the owner sink's cursor may not pass them. Files keep
-/// finalizing on the age timer, the catalog watermark advances, but the
-/// commit cursor — and with it ship eligibility — stops at the floor.
+/// The quarantine instance's data directory for sink `pq`.
+fn quarantine_dir(root: &Path) -> PathBuf {
+    root.join("quarantine/pq")
+}
+
+/// Size of the quarantine staging file (a bare header, 8 bytes, when empty).
+fn staging_len(root: &Path) -> u64 {
+    std::fs::metadata(quarantine_dir(root).join("rejects.staging")).map_or(0, |m| m.len())
+}
+
+/// Total rows across the quarantine Parquet segments, from their footers.
+fn quarantine_rows(root: &Path) -> i64 {
+    parquet_files(&quarantine_dir(root).join("ready"))
+        .iter()
+        .map(|path| {
+            let file = std::fs::File::open(path).unwrap();
+            let metadata = parquet::file::metadata::ParquetMetaDataReader::new()
+                .parse_and_finish(&file)
+                .unwrap();
+            (0..metadata.num_row_groups())
+                .map(|i| metadata.row_group(i).num_rows())
+                .sum::<i64>()
+        })
+        .sum()
+}
+
+const BAD: Bytes = Bytes::from_static(b"this is not json");
+
+/// The `pq` sink alone (no shipper), 1s age rotation, default quarantine.
+const PQ_ONLY: &str = "  - id: pq\n    kind: parquet\n    config:\n      datasets: [d]\n      compression: none\n      rotation: { max_bytes: null, max_rows: null, max_age: 1 }";
+
+/// A reject releases its sink's cursor as soon as it is fsynced into the
+/// quarantine staging file. The quarantine segment keeps its own (default
+/// 300 second) rotation, so it is still open while the cursor passes the
+/// reject and the wave after it uploads; shutdown then builds the quarantine
+/// segment from staging, once, and empties staging.
 ///
-/// This encodes the edge-capture chaos observations: the simulator injects
-/// out-of-range telemetry at `out_of_range_rate` (validate: status bad →
-/// quarantine), so every demo run has rejects almost immediately; the
-/// quarantine sink's rotation is the fixed default (`max_age` 300 seconds),
-/// longer than any scenario, so nothing after the first reject is ever marked
-/// eligible within the run — no uploads, no shipper log lines — and the
-/// SIGTERM finalize is the first time the cursor catches up.
+/// This replaces the old "quarantine floor" behaviour, where one pending
+/// reject pinned the cursor, and with it every upload, until the quarantine
+/// segment rotated (the edge-capture chaos findings A and B).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn pending_rejects_cap_commits_and_shipping_at_the_quarantine_floor() {
+async fn a_pending_reject_does_not_hold_the_cursor_or_shipping() {
     init_logs();
     let dir = TempDataDir::new().unwrap();
     let kit = Kit::default();
@@ -227,63 +255,52 @@ async fn pending_rejects_cap_commits_and_shipping_at_the_quarantine_floor() {
     let shutdown = Shutdown::new();
     let run = tokio::spawn(p.run(shutdown.clone()));
 
-    // Wave 1: three rows land, age-rotate, commit, ship. (The idle path.)
     for n in 1..=3 {
         upstream.publish(json_n(n));
     }
     wait_until(&handle, |h| cursor(&h.status(), "pq") >= 1).await;
     wait_until(&handle, |_| ship.upload_count() >= 1).await;
+    let before = cursor(&handle.status(), "pq");
 
-    // Wave 2: one undecodable payload (a quarantined reject) plus good rows.
-    // The reject's WAL range opens a new segment; the quarantine floor is
-    // first(pending) - 1 = the current cursor, so commits must stop here.
-    upstream.publish(Bytes::from_static(b"this is not json"));
+    // Wave 2: an undecodable payload (a quarantined reject) plus good rows.
+    upstream.publish(BAD);
     for n in 4..=6 {
         upstream.publish(json_n(n));
     }
 
-    // Several rotation waves pass: wave-2's segment finalizes (rotation keeps
-    // working while the cursor is capped), but the cursor and the upload
-    // count must not move: file [floor+1..] is not eligible.
-    let ready_dir = dir.path().join("sinks/pq/ready");
-    wait_until(&handle, move |_| parquet_files(&ready_dir).len() >= 2).await;
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    // The cursor passes the reject and the wave-2 file uploads, while the
+    // quarantine segment is still open: nothing is in quarantine's `ready/`,
+    // the reject sits in staging.
+    wait_until(&handle, |_| ship.upload_count() >= 2).await;
     let status = handle.status();
-    assert_eq!(
-        cursor(&status, "pq"),
-        1,
-        "the quarantine floor caps the commit cursor: {:#?}",
+    assert!(
+        cursor(&status, "pq") > before,
+        "the cursor moved past the reject: {:#?}",
         status.cursors
     );
-    assert_eq!(
-        ship.upload_count(),
-        1,
-        "nothing past the floor is ship-eligible"
+    assert!(
+        parquet_files(&quarantine_dir(dir.path()).join("ready")).is_empty(),
+        "the quarantine segment is still open"
+    );
+    assert!(
+        staging_len(dir.path()) > 8,
+        "the reject is durable in staging"
     );
 
     shutdown.trigger();
     let report = finish(run).await;
-    // The forced finalize settles the pending reject and commits everything:
-    // exactly what the chaos helpers' "verify after SIGTERM is authoritative"
-    // comment records.
-    assert!(
-        cursor(&report.status, "pq") >= 2,
-        "shutdown commits past the settled floor: {:#?}",
-        report.status.cursors
-    );
     assert_eq!(report.exit, ExitStatus::Ok, "{:#?}", report.status);
+    assert_eq!(quarantine_rows(dir.path()), 1, "exactly one reject");
+    assert_eq!(staging_len(dir.path()), 8, "staging shrinks once durable");
 }
 
-/// The regression: with a short quarantine `max_age` (configurable via the
-/// pipeline spec), a quarantined reject pauses commits only until the
-/// quarantine segment rotates — seconds, not the 300-second default — and the
-/// shipper uploads the wave after the reject while the pipeline runs.
-///
-/// Fails before the fix: `quarantine.rotation` was not expressible, so the
-/// quarantine sink always took the default 300 seconds and the scenario
-/// window closed first (findings A and B).
+/// The quarantine segment rotates on its own cadence (`quarantine.rotation`),
+/// independent of the sink cursor: it appears after its `max_age`, staging
+/// shrinks to a bare header, and a later reject (after good rows, so the two
+/// rejects' WAL ranges have a gap between them) becomes a second quarantine
+/// segment rather than stalling the quarantine watermark.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn short_quarantine_rotation_resumes_commits_and_shipping_after_a_reject() {
+async fn quarantine_segments_rotate_on_their_own_cadence() {
     init_logs();
     let dir = TempDataDir::new().unwrap();
     let kit = Kit::default();
@@ -299,33 +316,154 @@ async fn short_quarantine_rotation_resumes_commits_and_shipping_after_a_reject()
     let handle = p.handle();
     let shutdown = Shutdown::new();
     let run = tokio::spawn(p.run(shutdown.clone()));
+    let root = dir.path().to_path_buf();
 
-    // Wave 1 ships, then a reject lands: the floor caps the cursor at 1.
     for n in 1..=3 {
         upstream.publish(json_n(n));
     }
     wait_until(&handle, |_| ship.upload_count() >= 1).await;
-    upstream.publish(Bytes::from_static(b"this is not json"));
+    upstream.publish(BAD);
     for n in 4..=6 {
         upstream.publish(json_n(n));
     }
-    wait_until(&handle, |h| {
-        cursor(&h.status(), "pq") == 1
-            && parquet_files(&dir.path().join("sinks/pq/ready")).len() >= 2
+    // Uploads do not wait for the quarantine segment...
+    wait_until(&handle, |_| ship.upload_count() >= 2).await;
+    // ...which then rotates by itself and frees its staged rows.
+    let r = root.clone();
+    wait_until(&handle, move |_| {
+        quarantine_rows(&r) == 1 && staging_len(&r) == 8
     })
     .await;
 
-    // The quarantine segment rotates two seconds after the reject: the floor
-    // clears, the cursor commits past it, and the wave-2 file ships — no
-    // shutdown involved.
-    wait_until(&handle, |_| ship.upload_count() >= 2).await;
-    assert!(
-        cursor(&handle.status(), "pq") >= 2,
-        "commits resumed after the quarantine segment rotated: {:#?}",
-        handle.status().cursors
-    );
+    // A second reject, after the first segment became durable.
+    for n in 7..=9 {
+        upstream.publish(json_n(n));
+    }
+    wait_until(&handle, |_| ship.upload_count() >= 3).await;
+    upstream.publish(BAD);
+    let r = root.clone();
+    wait_until(&handle, move |_| {
+        quarantine_rows(&r) == 2 && staging_len(&r) == 8
+    })
+    .await;
 
     shutdown.trigger();
     let report = finish(run).await;
     assert_eq!(report.exit, ExitStatus::Ok, "{:#?}", report.status);
+    assert_eq!(quarantine_rows(&root), 2);
+}
+
+/// Crash after the sink cursor passed a reject but before the quarantine
+/// segment rotated: the reject exists only in staging. The restart recovers
+/// it from staging into the next quarantine segment, exactly once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_crash_before_quarantine_rotation_recovers_the_reject_exactly_once() {
+    init_logs();
+    let dir = TempDataDir::new().unwrap();
+    let kit = Kit::default();
+    let upstream = kit.sources.memory("src", Default::default());
+    let ship = ShipKit::new();
+    let y = yaml(dir.path(), SINKS, "");
+    let opts = fast_opts();
+    let failpoints = opts.failpoints.clone();
+    let p = Pipeline::build(spec(&y), &ship.registry(&kit), opts)
+        .unwrap_or_else(|e| panic!("build: {e:?}"));
+    let handle = p.handle();
+    let shutdown = Shutdown::new();
+    let run = tokio::spawn(p.run(shutdown.clone()));
+
+    for n in 1..=3 {
+        upstream.publish(json_n(n));
+    }
+    wait_until(&handle, |_| ship.upload_count() >= 1).await;
+    let before = cursor(&handle.status(), "pq");
+    upstream.publish(BAD);
+    for n in 4..=6 {
+        upstream.publish(json_n(n));
+    }
+    wait_until(&handle, |_| ship.upload_count() >= 2).await;
+    assert!(cursor(&handle.status(), "pq") > before);
+    assert!(parquet_files(&quarantine_dir(dir.path()).join("ready")).is_empty());
+
+    // The next cursor commit "crashes" the sink driver, so its quarantine
+    // segment is never finalized.
+    failpoints.arm(thadam_runtime::failpoints::SEGMENT_BEFORE_CURSOR_COMMIT, 1);
+    upstream.publish(json_n(7));
+    wait_until(&handle, |_| {
+        !failpoints.is_armed(thadam_runtime::failpoints::SEGMENT_BEFORE_CURSOR_COMMIT)
+    })
+    .await;
+    shutdown.trigger();
+    let first = finish(run).await;
+    assert_eq!(
+        first.exit,
+        ExitStatus::RuntimeFailure,
+        "{:#?}",
+        first.status
+    );
+    assert_eq!(quarantine_rows(dir.path()), 0, "nothing was durable");
+    assert!(staging_len(dir.path()) > 8, "the reject is only in staging");
+
+    // Restart on the same data directory.
+    let upstream = kit.sources.memory("src", Default::default());
+    let p = Pipeline::build(spec(&y), &ship.registry(&kit), fast_opts())
+        .unwrap_or_else(|e| panic!("build: {e:?}"));
+    let handle = p.handle();
+    let shutdown = Shutdown::new();
+    let run = tokio::spawn(p.run(shutdown.clone()));
+    upstream.publish(json_n(8));
+    wait_until(&handle, |h| cursor(&h.status(), "pq") >= 1).await;
+    shutdown.trigger();
+    let second = finish(run).await;
+    assert_eq!(second.exit, ExitStatus::Ok, "{:#?}", second.status);
+    assert_eq!(quarantine_rows(dir.path()), 1, "the reject, exactly once");
+    assert_eq!(staging_len(dir.path()), 8);
+}
+
+/// Crash between the staging fsync and the quarantine segment append (the
+/// `quarantine::after_stage` failpoint). The owner's cursor never passed the
+/// reject, so the restart re-reads it from the WAL; staging already holds it,
+/// and the position lineage keeps the re-read from staging it twice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_crash_between_staging_and_the_segment_does_not_duplicate_the_reject() {
+    init_logs();
+    let dir = TempDataDir::new().unwrap();
+    let kit = Kit::default();
+    let ship = ShipKit::new();
+    let y = yaml(dir.path(), PQ_ONLY, "");
+    kit.sources
+        .scripted("src", [json_n(1), BAD, json_n(2), json_n(3)]);
+    let mut opts = fast_opts();
+    opts.stop_when_sources_finish = true;
+    let failpoints = opts.failpoints.clone();
+    failpoints.arm(thadam_runtime::failpoints::QUARANTINE_AFTER_STAGE, 1);
+    let p = Pipeline::build(spec(&y), &ship.registry(&kit), opts)
+        .unwrap_or_else(|e| panic!("build: {e:?}"));
+    let first = tokio::time::timeout(Duration::from_secs(60), p.run(Shutdown::new()))
+        .await
+        .expect("run timed out")
+        .expect("run failed to start");
+    assert_eq!(
+        first.exit,
+        ExitStatus::RuntimeFailure,
+        "{:#?}",
+        first.status
+    );
+    assert!(!failpoints.is_armed(thadam_runtime::failpoints::QUARANTINE_AFTER_STAGE));
+    assert_eq!(quarantine_rows(dir.path()), 0);
+    assert!(staging_len(dir.path()) > 8);
+
+    kit.sources.scripted("src", std::iter::empty());
+    let mut opts = fast_opts();
+    opts.stop_when_sources_finish = true;
+    let p = Pipeline::build(spec(&y), &ship.registry(&kit), opts)
+        .unwrap_or_else(|e| panic!("build: {e:?}"));
+    let second = tokio::time::timeout(Duration::from_secs(60), p.run(Shutdown::new()))
+        .await
+        .expect("run timed out")
+        .expect("run failed to start");
+    assert_eq!(second.exit, ExitStatus::Ok, "{:#?}", second.status);
+    assert_eq!(quarantine_rows(dir.path()), 1, "the reject, exactly once");
+    assert_eq!(staging_len(dir.path()), 8);
+    assert!(cursor(&second.status, "pq") >= 1);
 }

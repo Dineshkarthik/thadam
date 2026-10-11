@@ -145,7 +145,7 @@ impl SegmentDriver {
         sink_id: String,
         cursor: String,
         component: Arc<Component>,
-        sink: Box<dyn SegmentSink>,
+        mut sink: Box<dyn SegmentSink>,
         ctx: SinkContext,
         quarantine: Option<Quarantine>,
         wal: Wal,
@@ -157,6 +157,9 @@ impl SegmentDriver {
         stopping: Shutdown,
         force: Shutdown,
     ) -> Self {
+        // Rejects the sink returns from `append` are staged before the rows
+        // that produced them may become durable (see `on_batch`).
+        sink.defer_durability(true);
         SegmentDriver {
             sink_id,
             cursor,
@@ -306,10 +309,7 @@ impl SegmentDriver {
     }
 
     async fn maybe_commit(&mut self, force: bool) -> Result<(), ThadamError> {
-        let mut target = self.watermark.min(self.seen_through);
-        if let Some(floor) = self.quarantine.as_ref().and_then(Quarantine::floor) {
-            target = target.min(floor);
-        }
+        let target = self.watermark.min(self.seen_through);
         if target <= self.committed {
             return Ok(());
         }
@@ -375,6 +375,13 @@ impl SegmentDriver {
         let synced = batch.clock_synced;
         let (mut datasets, mut meta) = split(&mut batch);
         let rejects = std::mem::take(&mut batch.rejects);
+        // Ordering: sink rejects are only known once `append` returns, and
+        // they are fsynced into quarantine staging below. The sink was asked
+        // (`defer_durability`) not to make this batch's rows durable inside
+        // `append`, so no restart can see this batch as complete in the sink
+        // while its rejects are unstaged. The rows become durable at the next
+        // `append` or tick, after this function returned (rejects staged).
+        // Chain rejects need no such care: a re-read regenerates them.
         add(&self.component.counters.batches, 1);
 
         let mut sink_rejects = Vec::new();
@@ -428,6 +435,15 @@ impl SegmentDriver {
         }
         if !rejected.is_empty() {
             add(&self.component.counters.rejects, rejected.len() as u64);
+            if self
+                .opts
+                .failpoints
+                .hit(failpoints::SEGMENT_AFTER_APPEND_BEFORE_STAGE)
+            {
+                return Err(simulated_crash(
+                    failpoints::SEGMENT_AFTER_APPEND_BEFORE_STAGE,
+                ));
+            }
             match &mut self.quarantine {
                 Some(q) => match q.push(origin, synced, rejected).await {
                     Ok(()) => {}

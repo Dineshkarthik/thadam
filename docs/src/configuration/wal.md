@@ -55,6 +55,9 @@ quarantine:
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `format` | `parquet` or `ndjson` | `parquet` | The segment format for quarantine files. `ndjson` trades compactness for inspectability while debugging. |
-| `max_disk` | size | `256MiB` | The quarantine disk budget. Must be greater than zero. |
+| `max_disk` | size | `256MiB` | The quarantine disk budget. Must be greater than zero. It covers both the quarantine segments and the small staging file described below. |
+| `rotation` | `{ max_bytes, max_rows, max_age }` | `max_bytes: 128 MiB`, `max_age: 300` (seconds) | When the open quarantine segment is closed. This is the quarantine's own cadence: it does not delay the owning sink (see below). |
 
 Quarantine rows use a fixed schema (WAL position, source attributes, error domain/code/reason, and the raw payload truncated at 64 KiB) — see [quarantine](../concepts/per-sink-chains.md#quarantine).
+
+A reject releases its sink's WAL cursor as soon as it is fsynced into the quarantine instance's **staging file** (`quarantine/<sink>/rejects.staging`), not when the quarantine segment is written. The sink's cursor, and so its uploads, no longer wait for `rotation`; the quarantine segment is built from staging on its own cadence. A reject's frame can therefore leave the WAL (retention follows the cursor) while the reject is still only in staging: staging holds the full quarantine row, including the truncated raw bytes, so recovery never needs the WAL for it. The staging file is small (the open segment is closed early once about 8 MiB is staged or the quarantine budget is full) and is truncated once the quarantine segment covering its rows is durable.

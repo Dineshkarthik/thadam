@@ -168,6 +168,10 @@ struct Live {
     budget: Arc<DiskBudget>,
     sink_id: String,
     metrics: Arc<dyn MetricsRecorder>,
+    /// Open segments whose rotation is due but postponed (see
+    /// [`SegmentSink::defer_durability`]); finalized at the start of the next
+    /// `append`, `poll_commit`, or `finalize_all`.
+    deferred: Vec<String>,
 }
 
 enum State {
@@ -194,6 +198,8 @@ pub struct ParquetSegmentSink {
     engine: EngineConfig,
     state: State,
     failpoints: Failpoints,
+    /// Rotation triggered by an `append` waits for the next call.
+    defer_rotation: bool,
 }
 
 impl ParquetSegmentSink {
@@ -222,6 +228,7 @@ impl ParquetSegmentSink {
             },
             state: State::New,
             failpoints: Failpoints::default(),
+            defer_rotation: false,
         })
     }
 
@@ -232,6 +239,7 @@ impl ParquetSegmentSink {
             engine,
             state: State::New,
             failpoints: Failpoints::default(),
+            defer_rotation: false,
         }
     }
 
@@ -421,6 +429,22 @@ impl ParquetSegmentSink {
                 limit: usage.limit,
             }
             .into());
+        }
+        Ok(())
+    }
+
+    /// Finalizes the segments whose rotation `append` postponed. On a
+    /// failure the unprocessed names stay queued.
+    async fn drain_deferred(&mut self) -> Result<(), ThadamError> {
+        let mut names = std::mem::take(&mut self.live_mut()?.deferred);
+        names.reverse();
+        while let Some(name) = names.pop() {
+            if let Err(e) = self.finalize_one(&name).await {
+                if let State::Live(l) = &mut self.state {
+                    l.deferred.extend(names.into_iter().rev());
+                }
+                return Err(e);
+            }
         }
         Ok(())
     }
@@ -708,6 +732,7 @@ impl SegmentSink for ParquetSegmentSink {
             budget: Arc::clone(&ctx.budget),
             sink_id: ctx.sink_id.as_str().to_owned(),
             metrics: Arc::clone(&ctx.metrics),
+            deferred: Vec::new(),
         });
         self.report_segment_state();
         Ok(watermark)
@@ -730,9 +755,11 @@ impl SegmentSink for ParquetSegmentSink {
                 ));
             }
         }
+        self.drain_deferred().await?;
         let origin = batch.origin;
         let synced = batch.clock_synced;
         let rotation = self.engine.rotation;
+        let defer = self.defer_rotation;
         let mut rejects: Vec<Reject> = Vec::new();
         let mut base = 0usize;
 
@@ -748,12 +775,18 @@ impl SegmentSink for ParquetSegmentSink {
                         let l = self.live_mut()?;
                         l.open
                             .iter()
-                            .filter(|(n, _)| n.as_str() != name)
+                            .filter(|(n, _)| n.as_str() != name && !l.deferred.contains(*n))
                             .min_by_key(|(_, s)| s.last_write)
-                            .map(|(n, _)| n.clone())
+                            .map(|(n, s)| (n.clone(), s.last >= origin.first()))
                     };
-                    if let Some(victim) = victim {
-                        self.finalize_one(&victim).await?;
+                    // A victim already holding this batch's rows must not
+                    // become durable before the batch's rejects are returned.
+                    match victim {
+                        Some((victim, true)) if defer => {
+                            self.live_mut()?.deferred.push(victim);
+                        }
+                        Some((victim, _)) => self.finalize_one(&victim).await?,
+                        None => {}
                     }
                 }
                 let l = self.live_mut()?;
@@ -831,7 +864,11 @@ impl SegmentSink for ParquetSegmentSink {
                     })
                 };
                 if due {
-                    self.finalize_one(&name).await?;
+                    if defer {
+                        self.live_mut()?.deferred.push(name.clone());
+                    } else {
+                        self.finalize_one(&name).await?;
+                    }
                 }
             } else {
                 let l = self.live_mut()?;
@@ -849,11 +886,13 @@ impl SegmentSink for ParquetSegmentSink {
 
     async fn poll_commit(&mut self) -> Result<Option<WalPos>, ThadamError> {
         self.drain_eligible().await?;
+        self.drain_deferred().await?;
         self.commit_due().await
     }
 
     async fn finalize_all(&mut self) -> Result<Option<WalPos>, ThadamError> {
         self.drain_eligible().await?;
+        self.drain_deferred().await?;
         if self.engine.finalize_on_shutdown {
             let names: Vec<String> = {
                 let l = self.live_mut()?;
@@ -877,6 +916,10 @@ impl SegmentSink for ParquetSegmentSink {
         {
             l.pending_eligible = pos;
         }
+    }
+
+    fn defer_durability(&mut self, defer: bool) {
+        self.defer_rotation = defer;
     }
 }
 

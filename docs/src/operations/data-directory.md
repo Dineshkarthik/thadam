@@ -16,7 +16,7 @@ data_dir/
 │   ├── staging/         # *.inprogress — open segment files (deleted on startup)
 │   ├── ready/           # finalized, catalog-recorded segment files     (planned)
 │   └── catalog.log      # append-only segment catalog (CRC-checked)     (planned)
-├── quarantine/<sink>/   # each sink's quarantine instance (own budget)
+├── quarantine/<sink>/   # each sink's quarantine instance (own budget); rejects.staging holds rejects until their segment is durable
 ├── sources/<id>/        # source state (connectors decide)
 ├── services/<id>/       # service state (e.g. the shipper)
 └── replays/<id>/        # replay output — never the production directories (planned)

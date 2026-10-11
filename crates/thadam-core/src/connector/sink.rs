@@ -159,6 +159,20 @@ pub trait SegmentSink: Send + 'static {
     /// Tells the sink the runtime's cursor passed `pos`, so finalized files up
     /// to it become eligible for shipping.
     fn cursor_committed(&mut self, pos: WalPos);
+
+    /// Asks the sink not to make the rows of an `append` durable (finalize a
+    /// segment containing them) inside that same `append` call. With `defer`
+    /// set, a rotation that the batch triggers runs at the start of the next
+    /// `append`, `poll_commit`, or `finalize_all` instead.
+    ///
+    /// The runtime sets this because `append` also returns the events the sink
+    /// refused, and the runtime can only make those rejects durable (stage them
+    /// for quarantine) after `append` returns. If the batch's rows became
+    /// durable first, a crash in between would leave a sink position the
+    /// restart believes complete, with its rejects lost. A sink that refuses
+    /// events from `append` must honor this; the default does nothing, which is
+    /// right for sinks that never refuse events or never finalize in `append`.
+    fn defer_durability(&mut self, _defer: bool) {}
 }
 
 #[cfg(test)]
