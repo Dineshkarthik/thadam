@@ -38,12 +38,13 @@ Per ADR-0000, this ADR is Draft: options and evidence requirements are listed an
 - A `.msg` and IDL (interface definition language) parser plus a schema-driven CDR (Common Data Representation) decoder that produces `Record`s conforming to the dataset shape (ADR-0001). There is no `Ros2Msg` variant in the core model.
 - Decoders are keyed by **type name plus type hash** (RIHS01 from Iron onward **[V]**), not by name alone, because message definitions change across distributions.
 - Every live option below needs this crate. `roslibrust`'s compile-time code generation does not serve a generic data plane, and `cdr-encoding` 0.11.0 is typed serde only, not schema-driven.
-- Untrusted-input parser: a `cargo fuzz` target is required (ADR-0020). Golden fixtures come from real bags.
+- Untrusted-input parser: a `cargo fuzz` target is required (ADR-0020). Golden fixtures come from real bags. The `msg_parse` and `cdr_decode` fuzz targets exist (`fc37847`).
 
 ### Stage 2: MCAP and rosbag2 file source
 
 - Source built on `mcap` 0.25.0 (MIT, Foxglove, pure Rust, self-describing: message definitions are embedded in the file). It carries no live-middleware risk.
 - `thadam export --mcap` (D24) and `examples/ros2-mcap-to-parquet` ship with this stage.
+- **Status: complete.** The `mcap` source (`d60552b`), the exporter and `thadam export --mcap` (`edcdcc1`, `8c7ad90`), and the `examples/ros2-mcap-to-parquet` example (`e9e94f7`) have landed. The export format is recorded in ADR-0015 (Draft).
 
 ### Stage 3: spike S3, live-transport evaluation in this order
 
@@ -123,7 +124,9 @@ Spike S3 and the stage work must produce the following before this ADR can move 
 - [ ] **License files** for `ros2-client` and `r2r` **[V]**.
 - [ ] **REP-2000 Lyrical tiers** once published **[V]**.
 - [ ] **DDS-Security and SROS2** support in each pure-Rust option, and Zenoh TLS, mTLS, and access-control configuration specifics **[V]**.
-- [ ] **CDR decoder:** golden fixtures from real bags on each target distribution; type-hash keying confirmed for distributions from Iron onward **[V]**; which CDR encoding variants must be supported **[OPEN]**; fuzz target running in CI (ADR-0020).
+- [x] **Fuzz target exists:** `cargo fuzz` targets `msg_parse` (`.msg` parser) and `cdr_decode` (CDR decoder) in `crates/thadam-ros2-msg/fuzz` (`fc37847`).
+- [ ] **Fuzz target running in CI** (ADR-0020). The CI job is being added separately.
+- [ ] **CDR decoder:** golden fixtures from real bags on each target distribution; type-hash keying confirmed for distributions from Iron onward **[V]**; which CDR encoding variants must be supported **[OPEN]**.
 - [ ] **Drop accounting:** a best-effort topic under overload shows counted drops and a `Gap` marker, with no unbounded growth.
 - [ ] **Dependency weight:** `cargo tree` and build-time cost of the Zenoh feature on aarch64, behind the feature flag; `cargo deny` passes with the Apache-2.0 election.
 - [x] **Owner decision B2** recorded for ROS 2 placement: M2, not v0.1 (2026-10-07).

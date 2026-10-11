@@ -14,6 +14,8 @@ Where it stands today: config, WAL, transforms, MQTT, the runtime core, and the 
 
 Not in v0.1 (owner decision). Order: `thadam-ros2-msg` (schema-driven CDR decode) → **MCAP/rosbag2 offline ingestion** and `thadam export --mcap` (both done) → spike S3 chooses the live transport (Zenoh-native via `roslibrust`/`zenoh` first, `zenoh-bridge-ros2dds` sidecar for DDS robots second, `r2r` as the rcl fallback; pure-Rust DDS deferred) → live ROS 2 source.
 
+Where it stands today: M2-A (`thadam-ros2-msg` decoder, `decode: ros2` in chains, schema store) and M2-B (MCAP source, `thadam export --mcap`, `examples/ros2-mcap-to-parquet`) are done. The ROS 2 fuzz targets exist (`fc37847`) and run in the `fuzz-smoke` CI job (`cb7b6bc`). Spike S3 is in progress. The live ROS 2 source is not started.
+
 ### M3 — ClickHouse (P1)
 
 Starts only after the M1 gate: the B8 HTTP-vs-native benchmark, `thadam-clickhouse` (startup dedup probe, deterministic batch IDs, never creates tables), and the `edge-analytics` example. Deferral rule: if capacity tightens, the whole block moves out — nothing in M1 depends on it ([ClickHouse design](sinks/clickhouse.md)).

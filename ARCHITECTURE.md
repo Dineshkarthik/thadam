@@ -794,7 +794,7 @@ Places where the current plans disagreed and how this document resolves them.
 
 This replaces the implementation plan's PR list (itself a revision of the original plan's PR list) with the demo `[IMPL]` items and the maturity-review changes folded in. PR numbers follow the implementation plan, because the readiness gate refers to them. Spikes are throwaway work whose reports live in `docs/design/spikes/`.
 
-### Status (updated for wave 3, 2026-10-08)
+### Status (updated 2026-10-11, through `e9e94f7`)
 
 | Work | Status | Commit |
 |---|---|---|
@@ -828,6 +828,16 @@ This replaces the implementation plan's PR list (itself a revision of the origin
 | SocketCAN source | Done | `2bdc25d` (vcan tests run in the `can-vcan` CI job) |
 | Connector registration and CI | Done | `f2d10ce` |
 | MQTT publish sink | Done | `d0570b1` |
+| MCAP exporter and `thadam export --mcap` (ADR-0015, Draft) | Done | `edcdcc1`, `8c7ad90`, `bf9d874`, `592c3ba` |
+| ROS 2 fuzz targets (`msg_parse`, `cdr_decode`) | Done (CI job pending) | `fc37847` |
+| WAL hardware bench script and runbook | Done (tooling; ADR-0004 hardware runs pending) | `e4e8bd6` |
+| Quarantine staging: quarantine no longer holds the sink cursor | Done | `6a56578` |
+| `pose` and `joint_state` steps, `INVALID` quality flag, robotics conventions | Done | `b29abfd` |
+| `time` from a message attribute (`time.attr`) | Done | `63760de` |
+| ROS 2 chain decode (`decode: ros2`) and data-directory schema store | Done | `ae87272` |
+| Dotted dataset field names and validate-time `pose` checks | Done | `f2d7af5` |
+| Export resolves schema text from the schema store | Done | `592c3ba` |
+| `examples/ros2-mcap-to-parquet` and `thadam run --exit-when-sources-finish` | Done | `e9e94f7` |
 
 A test-only follow-up, `4857bcc` ("Gate WAL crash-loop kills on child readiness"), stabilizes the `thadam-wal` crash-loop test. `f2c2282` ("Group segment-sink appends by dataset and add sink consumer policies") is PR10's follow-up; it also settled the per-sink consumer-policy keys in `thadam-config` (section 15) and the `SegmentSink::append` signature (section 5).
 
@@ -874,8 +884,11 @@ READY requires: the docs baseline (PR2) committed with ADRs 0001, 0002, 0003, 00
 These items do not use PR numbers 19 to 21, which belong to ClickHouse. Order follows the maturity review.
 
 - **M2-A: `thadam-ros2-msg`.** A schema-driven CDR decoder and `.msg` and IDL parser, keyed by type name plus type hash (RIHS01 from Iron onward **[V]**). Golden fixtures from real bags. Fuzz target (ADR-0020). Required by every live option, because compile-time code generation does not serve a generic data plane.
+  - **Status: done** (decoder `4eb9230`; fuzz targets `fc37847`, CI job pending). Golden fixtures from real bags are not yet in place.
 - **M2-B: MCAP and rosbag2 file source, `thadam export --mcap`, and an `examples/ros2-mcap-to-parquet` example.** Offline ingestion has no live-middleware risk.
+  - **Status: done** (source `d60552b`; exporter and `thadam export --mcap` `edcdcc1`, `8c7ad90`; schema store `ae87272`; export schema resolution `592c3ba`; example `e9e94f7`).
 - **Spike S3 (ADR-0007), live-transport order:** (a) Zenoh-native, via `roslibrust` with `hiroz` or raw `zenoh` against `rmw_zenoh`, for Lyrical (LTS to 2031) and Kilted; (b) `zenoh-bridge-ros2dds` sidecar for DDS robots (Humble and Jazzy on Fast DDS or Cyclone), which needs a second key mapping; (c) `r2r` as the in-process rcl fallback; (d) RustDDS and `ros2-client` deferred. Wrap the transport behind Thadam's own trait and pin versions. No production claim on `hiroz`, which describes itself as experimental.
+  - **Status: in progress.**
 - **M2-C: live ROS 2 source** per ADR-0007 after S3.
 
 ### M3: ClickHouse (P1, only after the M1 gate)
