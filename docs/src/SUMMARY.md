@@ -16,6 +16,7 @@
 - [Per-sink chains](concepts/per-sink-chains.md)
 - [Delivery guarantees](concepts/delivery-guarantees.md)
 - [Backpressure and disk budgets](concepts/backpressure-and-disk-budgets.md)
+- [Robotics conventions](concepts/robotics-conventions.md)
 
 # Configuration reference
 

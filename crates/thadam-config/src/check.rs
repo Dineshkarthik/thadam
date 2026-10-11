@@ -34,7 +34,7 @@ pub(crate) const SECTIONS: [&str; 10] = [
     "observability",
 ];
 
-const TRANSFORM_KINDS: [&str; 8] = [
+const TRANSFORM_KINDS: [&str; 10] = [
     "validate",
     "on_change",
     "filter",
@@ -43,6 +43,8 @@ const TRANSFORM_KINDS: [&str; 8] = [
     "rename",
     "project",
     "cast",
+    "pose",
+    "joint_state",
 ];
 const PREDICATE_KEYS: [&str; 14] = [
     "all", "any", "not", "field", "eq", "ne", "lt", "le", "gt", "ge", "in", "min", "max", "null",
@@ -625,6 +627,38 @@ struct CastRaw {
     fields: BTreeMap<String, FieldTypeSpec>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PoseRaw {
+    dataset: String,
+    #[serde(default)]
+    sinks: Option<Vec<String>>,
+    #[serde(default)]
+    prefix: Option<String>,
+    /// An explicit `frame_field: null` reads as `None`, indistinguishable
+    /// from an absent key; the parse arm tells the two apart by the key.
+    #[serde(default)]
+    frame_field: Option<String>,
+    #[serde(default)]
+    quaternion_tolerance: Option<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JointStateRaw {
+    dataset: String,
+    #[serde(default)]
+    sinks: Option<Vec<String>>,
+    #[serde(default)]
+    name_field: Option<String>,
+    #[serde(default)]
+    position_field: Option<String>,
+    #[serde(default)]
+    velocity_field: Option<String>,
+    #[serde(default)]
+    effort_field: Option<String>,
+}
+
 fn parse_transforms(items: &[Value], ctx: &mut Ctx<'_>) -> Section<TransformSpec> {
     let base = Vec::new().key("transforms");
     let mut out = Vec::with_capacity(items.len());
@@ -750,6 +784,39 @@ fn parse_transform(item: &Value, base: &PathVec, ctx: &mut Ctx<'_>) -> Option<Tr
                 dataset: raw.dataset,
                 sinks: raw.sinks,
                 fields: raw.fields,
+            })
+        }
+        "pose" => {
+            let raw = typed::<PoseRaw>(&rest, base, ctx)?;
+            Some(TransformSpec::Pose {
+                dataset: raw.dataset,
+                sinks: raw.sinks,
+                prefix: raw.prefix.unwrap_or_else(crate::spec::default_pose_prefix),
+                // An absent key keeps the engine default (`header.frame_id`);
+                // an explicit `null` skips the frame check.
+                frame_field: obj.contains_key("frame_field").then_some(raw.frame_field),
+                quaternion_tolerance: raw
+                    .quaternion_tolerance
+                    .unwrap_or(crate::spec::DEFAULT_QUATERNION_TOLERANCE),
+            })
+        }
+        "joint_state" => {
+            let raw = typed::<JointStateRaw>(&rest, base, ctx)?;
+            Some(TransformSpec::JointState {
+                dataset: raw.dataset,
+                sinks: raw.sinks,
+                name_field: raw
+                    .name_field
+                    .unwrap_or_else(crate::spec::default_joint_name_field),
+                position_field: raw
+                    .position_field
+                    .unwrap_or_else(crate::spec::default_joint_position_field),
+                velocity_field: raw
+                    .velocity_field
+                    .unwrap_or_else(crate::spec::default_joint_velocity_field),
+                effort_field: raw
+                    .effort_field
+                    .unwrap_or_else(crate::spec::default_joint_effort_field),
             })
         }
         other => {

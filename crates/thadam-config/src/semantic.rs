@@ -1043,6 +1043,99 @@ impl<'p> Checker<'p, '_, '_> {
             TransformSpec::Rename { fields, .. } => self.rename(base, fields, names),
             TransformSpec::Project { fields, .. } => self.project(base, fields, names),
             TransformSpec::Cast { fields, .. } => self.cast(base, fields, names),
+            TransformSpec::Pose {
+                prefix,
+                frame_field,
+                quaternion_tolerance,
+                ..
+            } => {
+                // The flattened fields a pose step reads (`<prefix>.position.x`,
+                // `<prefix>.orientation.w`, the frame field) come from the ROS 2
+                // decoder's dotted shape and so cannot be declared fields today;
+                // like an `enrich` table, they are resolved when the transform
+                // chain compiles, not here.
+                if prefix.is_empty() {
+                    self.ctx.invalid(
+                        &base.key("prefix"),
+                        Anchor::Value,
+                        "`prefix` must not be empty",
+                    );
+                }
+                if !(*quaternion_tolerance > 0.0 && *quaternion_tolerance < 1.0) {
+                    self.ctx.invalid(
+                        &base.key("quaternion_tolerance"),
+                        Anchor::Value,
+                        "`quaternion_tolerance` must be greater than 0 and less than 1",
+                    );
+                }
+                if let Some(Some(field)) = frame_field
+                    && field.is_empty()
+                {
+                    self.ctx.invalid(
+                        &base.key("frame_field"),
+                        Anchor::Value,
+                        "`frame_field` must not be empty",
+                    );
+                }
+            }
+            TransformSpec::JointState {
+                name_field,
+                position_field,
+                velocity_field,
+                effort_field,
+                ..
+            } => {
+                for (key, name, floats) in [
+                    ("name_field", name_field, false),
+                    ("position_field", position_field, true),
+                    ("velocity_field", velocity_field, true),
+                    ("effort_field", effort_field, true),
+                ] {
+                    self.joint_state_field(base, key, name, floats, names);
+                }
+            }
+        }
+    }
+
+    /// One `joint_state` array field: non-empty, a declared field, and a list
+    /// of the right element type — the engine's checks, mirrored.
+    fn joint_state_field(
+        &mut self,
+        base: &PathVec,
+        key: &str,
+        name: &str,
+        floats: bool,
+        names: &Names,
+    ) {
+        let p = base.key(key);
+        if name.is_empty() {
+            self.ctx
+                .invalid(&p, Anchor::Value, format!("`{key}` must not be empty"));
+            return;
+        }
+        let Some(ty) = names.fields.get(name) else {
+            self.unknown_step_field(&p, Anchor::Value, name, names);
+            return;
+        };
+        let ok = match ty {
+            FieldType::List(inner) if floats => matches!(**inner, FieldType::F32 | FieldType::F64),
+            FieldType::List(inner) => matches!(**inner, FieldType::Str),
+            _ => false,
+        };
+        if !ok {
+            let want = if floats {
+                "a list<f32> or list<f64>"
+            } else {
+                "a list<str>"
+            };
+            self.ctx.invalid(
+                &p,
+                Anchor::Value,
+                format!(
+                    "`{key}` must name {want} field, but `{name}` is `{}`",
+                    type_label(ty)
+                ),
+            );
         }
     }
 

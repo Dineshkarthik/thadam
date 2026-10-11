@@ -17,6 +17,10 @@ datasets:
       - { id: 1000, name: temp, type: f32, from: /temp }
       - { id: 1001, name: level, type: str, from: /level }
       - { id: 1002, name: count, type: i32, from: /count }
+      - { id: 1003, name: name, type: 'list<str>', from: /name }
+      - { id: 1004, name: position, type: 'list<f64>', from: /position }
+      - { id: 1005, name: velocity, type: 'list<f64>', from: /velocity }
+      - { id: 1006, name: effort, type: 'list<f64>', from: /effort }
 transforms:
   - kind: on_change
     dataset: readings
@@ -38,6 +42,10 @@ transforms:
       - { name: installed, type: ts, unit: rfc3339, column: installed_at }
     on_miss: reject
   - { kind: cast, dataset: readings, fields: { temp: f64, count: i64 } }
+  # pose fields come from the ROS 2 decoder, so `thadam validate` defers them
+  # to the chain compile; an explicit `null` frame_field skips the frame check
+  - { kind: pose, dataset: readings, prefix: tool_pose, frame_field: null, quaternion_tolerance: 0.01 }
+  - { kind: joint_state, dataset: readings }
   - { kind: rename, dataset: readings, fields: { level: severity, model: robot_model } }
   - { kind: project, dataset: readings, fields: [temp, severity, robot_model, count, installed] }
 sinks:

@@ -86,6 +86,8 @@ fn transform_kinds_are_listed() {
         "rename",
         "project",
         "cast",
+        "pose",
+        "joint_state",
     ] {
         assert!(text.contains(kind), "{kind}");
     }

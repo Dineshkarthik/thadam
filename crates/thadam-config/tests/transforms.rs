@@ -1,4 +1,4 @@
-//! The eight transform kinds, the `null` test, `on_change` deadbands, and RFC 3339
+//! The ten transform kinds, the `null` test, `on_change` deadbands, and RFC 3339
 //! time: how they parse, what they check, and the form they serialize to (which
 //! is what `thadam-transform` reads).
 
@@ -24,13 +24,14 @@ fn check(yaml: &str) -> Checked {
     check_str(yaml, &MapEnv::new(), &CheckOptions::new())
 }
 
-/// `minimal.yaml` plus an `i64` and a `list<f32>` field, a second sink, and
-/// the given `transforms:` lines (one step per entry).
+/// `minimal.yaml` plus extra fields, a second sink, and the given
+/// `transforms:` lines (one step per entry). The `name`, `position`,
+/// `velocity`, and `effort` fields give `joint_state` its defaults.
 fn with_steps(steps: &[&str]) -> String {
     let base = minimal()
         .replacen(
             "      - { id: 1001, name: level, type: str, from: /level }\n",
-            "      - { id: 1001, name: level, type: str, from: /level }\n      - { id: 1002, name: count, type: i64, from: /count }\n      - { id: 1003, name: wave, type: list<f32>, from: /wave }\n      - { id: 1004, name: narrow, type: i32, from: /narrow }\n",
+            "      - { id: 1001, name: level, type: str, from: /level }\n      - { id: 1002, name: count, type: i64, from: /count }\n      - { id: 1003, name: wave, type: list<f32>, from: /wave }\n      - { id: 1004, name: narrow, type: i32, from: /narrow }\n      - { id: 1005, name: name, type: list<str>, from: /name }\n      - { id: 1006, name: position, type: list<f64>, from: /position }\n      - { id: 1007, name: velocity, type: list<f64>, from: /velocity }\n      - { id: 1008, name: effort, type: list<f64>, from: /effort }\n",
             1,
         )
         .replacen(
@@ -90,8 +91,10 @@ mod serialization {
             "{ kind: sample, dataset: readings, every_n: 10k, min_interval: 100ms }",
             "{ kind: enrich, dataset: readings, file: t.csv, format: csv, key: { field: device, column: id }, add: [{ name: model, type: str, column: m, unit: x }], on_miss: drop }",
             "{ kind: rename, dataset: readings, fields: { temp: temp_c } }",
-            "{ kind: project, dataset: readings, fields: [temp_c, level] }",
             "{ kind: cast, dataset: readings, fields: { temp_c: f64, level: str } }",
+            "{ kind: pose, dataset: readings, prefix: tool_pose, frame_field: null, quaternion_tolerance: 0.01 }",
+            "{ kind: joint_state, dataset: readings, velocity_field: wave }",
+            "{ kind: project, dataset: readings, fields: [temp_c, level] }",
         ]);
         assert_eq!(
             out,
@@ -104,8 +107,25 @@ mod serialization {
                     "on_miss": "drop"
                 }),
                 json!({ "kind": "rename", "dataset": "readings", "fields": { "temp": "temp_c" } }),
-                json!({ "kind": "project", "dataset": "readings", "fields": ["temp_c", "level"] }),
                 json!({ "kind": "cast", "dataset": "readings", "fields": { "temp_c": "f64", "level": "str" } }),
+                json!({ "kind": "pose", "dataset": "readings", "prefix": "tool_pose", "frame_field": null, "quaternion_tolerance": 0.01 }),
+                json!({ "kind": "joint_state", "dataset": "readings", "velocity_field": "wave" }),
+                json!({ "kind": "project", "dataset": "readings", "fields": ["temp_c", "level"] }),
+            ]
+        );
+    }
+
+    #[test]
+    fn pose_and_joint_state_defaults_are_omitted_from_the_engine_form() {
+        let out = steps_json(&[
+            "{ kind: pose, dataset: readings, prefix: pose, quaternion_tolerance: 0.001 }",
+            "{ kind: joint_state, dataset: readings, name_field: name, position_field: position, velocity_field: velocity, effort_field: effort }",
+        ]);
+        assert_eq!(
+            out,
+            [
+                json!({ "kind": "pose", "dataset": "readings" }),
+                json!({ "kind": "joint_state", "dataset": "readings" }),
             ]
         );
     }
@@ -812,7 +832,7 @@ fn the_valid_fixture_round_trips_through_its_serialized_form() {
     let first = check(&yaml);
     assert!(first.report.errors.is_empty(), "{}", first.report);
     let spec = first.spec.unwrap();
-    assert_eq!(spec.transforms.len(), 7);
+    assert_eq!(spec.transforms.len(), 9);
     let again = check(&serde_json::to_string(&spec).unwrap());
     assert!(again.report.errors.is_empty(), "{}", again.report);
     let again = again.spec.unwrap();
@@ -820,8 +840,174 @@ fn the_valid_fixture_round_trips_through_its_serialized_form() {
     assert_eq!(again.config_hash(), spec.config_hash());
 }
 
+mod pose {
+    use super::*;
+
+    #[test]
+    fn a_default_step_loads_and_an_explicit_null_skips_the_frame_check() {
+        assert_ok(&["{ kind: pose, dataset: readings }"]);
+        assert_ok(&["{ kind: pose, dataset: readings, frame_field: null }"]);
+        assert_ok(&[
+            "{ kind: pose, dataset: readings, sinks: [local], prefix: tool_pose, frame_field: header.frame_id, quaternion_tolerance: 0.01 }",
+        ]);
+    }
+
+    #[test]
+    fn the_typed_spec_keeps_the_three_states_of_frame_field() {
+        let c = check(&with_steps(&[
+            "{ kind: pose, dataset: readings, frame_field: null }",
+        ]));
+        let spec = c.spec.unwrap();
+        let TransformSpec::Pose { frame_field, .. } = &spec.transforms[0] else {
+            panic!("{:?}", spec.transforms[0])
+        };
+        assert_eq!(*frame_field, Some(None));
+
+        let c = check(&with_steps(&["{ kind: pose, dataset: readings }"]));
+        let spec = c.spec.unwrap();
+        let TransformSpec::Pose {
+            prefix,
+            frame_field,
+            quaternion_tolerance,
+            ..
+        } = &spec.transforms[0]
+        else {
+            panic!("{:?}", spec.transforms[0])
+        };
+        assert_eq!(prefix, "pose");
+        assert_eq!(*frame_field, None);
+        assert_eq!(*quaternion_tolerance, 1e-3);
+        assert_eq!(spec.transforms[0].kind(), "pose");
+        assert_eq!(spec.transforms[0].dataset(), "readings");
+    }
+
+    #[test]
+    fn scalar_options_mirror_the_engine_config_errors() {
+        for tol in ["0", "1", "-0.5", "2"] {
+            assert_one_error(
+                &[&format!(
+                    "{{ kind: pose, dataset: readings, quaternion_tolerance: {tol} }}"
+                )],
+                "transforms[0].quaternion_tolerance",
+                "greater than 0 and less than 1",
+            );
+        }
+        assert_one_error(
+            &["{ kind: pose, dataset: readings, prefix: '' }"],
+            "transforms[0].prefix",
+            "`prefix` must not be empty",
+        );
+        assert_one_error(
+            &["{ kind: pose, dataset: readings, frame_field: '' }"],
+            "transforms[0].frame_field",
+            "`frame_field` must not be empty",
+        );
+    }
+
+    #[test]
+    fn unknown_keys_are_refused() {
+        assert_one_error(
+            &["{ kind: pose, dataset: readings, toleranc: 1 }"],
+            "transforms[0].toleranc",
+            "unknown key `toleranc`",
+        );
+    }
+
+    #[test]
+    fn pose_fields_are_not_checked_against_the_dataset() {
+        // The dotted fields a pose step reads come from the ROS 2 decoder's
+        // shape; they cannot be declared fields today, so validation defers
+        // them to the chain compile the way `enrich` defers its table.
+        assert_ok(&["{ kind: pose, dataset: readings, prefix: no_such_prefix }"]);
+        assert_ok(&["{ kind: pose, dataset: readings, frame_field: nope.frame }"]);
+    }
+}
+
+mod joint_state {
+    use super::*;
+
+    #[test]
+    fn defaults_and_custom_field_names_load() {
+        assert_ok(&["{ kind: joint_state, dataset: readings }"]);
+        assert_ok(&[
+            "{ kind: joint_state, dataset: readings, sinks: [other], name_field: name, position_field: position, velocity_field: wave, effort_field: effort }",
+        ]);
+    }
+
+    #[test]
+    fn the_typed_spec_exposes_what_was_written() {
+        let c = check(&with_steps(&[
+            "{ kind: joint_state, dataset: readings, velocity_field: wave }",
+        ]));
+        let spec = c.spec.unwrap();
+        let TransformSpec::JointState {
+            name_field,
+            velocity_field,
+            ..
+        } = &spec.transforms[0]
+        else {
+            panic!("{:?}", spec.transforms[0])
+        };
+        assert_eq!(name_field, "name");
+        assert_eq!(velocity_field, "wave");
+        assert_eq!(spec.transforms[0].kind(), "joint_state");
+        assert_eq!(spec.transforms[0].dataset(), "readings");
+    }
+
+    #[test]
+    fn fields_must_be_declared_and_of_the_right_shape() {
+        assert_one_error(
+            &["{ kind: joint_state, dataset: readings, position_field: boring }"],
+            "transforms[0].position_field",
+            "not a declared field",
+        );
+        assert_one_error(
+            &["{ kind: joint_state, dataset: readings, name_field: position }"],
+            "transforms[0].name_field",
+            "must name a list<str> field",
+        );
+        assert_one_error(
+            &["{ kind: joint_state, dataset: readings, velocity_field: level }"],
+            "transforms[0].velocity_field",
+            "must name a list<f32> or list<f64> field",
+        );
+        assert_one_error(
+            &["{ kind: joint_state, dataset: readings, effort_field: count }"],
+            "transforms[0].effort_field",
+            "must name a list<f32> or list<f64> field",
+        );
+    }
+
+    #[test]
+    fn field_names_must_not_be_empty_and_unknown_keys_are_refused() {
+        assert_one_error(
+            &["{ kind: joint_state, dataset: readings, name_field: '' }"],
+            "transforms[0].name_field",
+            "`name_field` must not be empty",
+        );
+        assert_one_error(
+            &["{ kind: joint_state, dataset: readings, effort_field: '' }"],
+            "transforms[0].effort_field",
+            "`effort_field` must not be empty",
+        );
+        assert_one_error(
+            &["{ kind: joint_state, dataset: readings, names: name }"],
+            "transforms[0].names",
+            "unknown key `names`",
+        );
+    }
+
+    #[test]
+    fn later_steps_see_the_fields_joint_state_kept() {
+        assert_ok(&[
+            "{ kind: joint_state, dataset: readings, velocity_field: wave }",
+            "{ kind: filter, dataset: readings, where: { field: position, null: false } }",
+        ]);
+    }
+}
+
 #[test]
-fn unknown_kinds_list_all_eight() {
+fn unknown_kinds_list_all_ten() {
     let c = check(&with_steps(&["{ kind: sampel, dataset: readings }"]));
     let d = &c.report.errors[0];
     for kind in [
@@ -833,6 +1019,8 @@ fn unknown_kinds_list_all_eight() {
         "rename",
         "project",
         "cast",
+        "pose",
+        "joint_state",
     ] {
         assert!(d.message.contains(&format!("`{kind}`")), "{}", d.message);
     }

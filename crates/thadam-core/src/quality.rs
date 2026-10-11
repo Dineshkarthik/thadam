@@ -59,6 +59,10 @@ bitflags! {
         const SEQUENCE_GAP = 1 << 6;
         /// The payload was only partly decoded.
         const DECODE_ERROR = 1 << 7;
+        /// A validation step found the data itself unusable: a value that is
+        /// missing, of the wrong kind, not finite, or inconsistent with its
+        /// siblings (product.md section 22's `invalid`).
+        const INVALID = 1 << 8;
     }
 }
 

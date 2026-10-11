@@ -2,7 +2,7 @@
 
 The `transforms:` list applies quality, projection, and filtering steps to datasets, in listed order, per sink chain. Every step takes a `dataset` selector and an optional `sinks` restriction.
 
-**Config version 1 accepts all eight kinds** the transform engine implements: `validate`, `on_change`, `filter`, `sample`, `enrich`, `rename`, `project`, and `cast`. See also the [transform reference](../transforms/index.md).
+**Config version 1 accepts all ten kinds** the transform engine implements: `validate`, `on_change`, `filter`, `sample`, `enrich`, `rename`, `project`, `cast`, `pose`, and `joint_state`. See also the [transform reference](../transforms/index.md).
 
 Each step is checked against the dataset's fields **as left by the earlier steps** for that dataset (and for the sinks the step applies to). After `rename`, `project`, `cast`, or `enrich`, later steps use the new names and types.
 
@@ -10,7 +10,7 @@ Each step is checked against the dataset's fields **as left by the earlier steps
 
 ```yaml
 transforms:
-  - kind: validate | on_change | filter | sample | enrich | rename | project | cast
+  - kind: validate | on_change | filter | sample | enrich | rename | project | cast | pose | joint_state
     dataset: telemetry            # the dataset the step applies to (required, single id)
     sinks: [local]                # optional: restrict the step to these sink ids
     ...                           # kind-specific keys
@@ -18,7 +18,7 @@ transforms:
 
 | Key | Type | Required | Description |
 |---|---|---|---|
-| `kind` | `validate`, `on_change`, `filter`, `sample`, `enrich`, `rename`, `project`, `cast` | yes | The step type. Unknown kinds are configuration errors. |
+| `kind` | `validate`, `on_change`, `filter`, `sample`, `enrich`, `rename`, `project`, `cast`, `pose`, `joint_state` | yes | The step type. Unknown kinds are configuration errors. |
 | `dataset` | string | yes | The dataset id. Unknown ids are errors. |
 | `sinks` | list of sink ids | no | Restricts the step to these sinks; absent means **every sink**. An empty list is an error; unknown sink ids are errors. |
 
@@ -45,7 +45,7 @@ Each rule:
 | `field` | string | yes | A numeric (or `list<numeric>`) field of the dataset. Unknown names are errors. On a list, every element must be in range. |
 | `min` | number | no | Inclusive lower bound. |
 | `max` | number | no | Inclusive upper bound. |
-| `flag` | quality flag | yes | The flag raised on violation, from the known set: `OUT_OF_RANGE`, `CLOCK_SKEW`, `MISSING_TIME`, `OUT_OF_ORDER`, `DUPLICATE`, `STALE`, `SEQUENCE_GAP`, `DECODE_ERROR`. Unknown flags are errors. |
+| `flag` | quality flag | yes | The flag raised on violation, from the known set: `OUT_OF_RANGE`, `CLOCK_SKEW`, `MISSING_TIME`, `OUT_OF_ORDER`, `DUPLICATE`, `STALE`, `SEQUENCE_GAP`, `DECODE_ERROR`, `INVALID`. Unknown flags are errors. |
 | `status` | `good`, `uncertain`, `bad` | yes | The quality status assigned on violation. |
 
 A null field is not checked. Status and flag land in the `_quality_status`, `_quality_flags`, and `_quality_reason` columns.
@@ -250,6 +250,67 @@ Allowed casts:
 - A cast to the field's current type is allowed and does nothing.
 
 Anything else is a `config.invalid` error: narrowing (`f64` → `f32`, `i64` → `i32`), integer to float, and anything involving `str`, `bool`, `ts`, or `bytes`. The engine reports the same condition at chain-compile time as `schema.narrowing`.
+
+## `kind: pose` {#pose}
+
+Flags malformed flattened poses — the dotted fields the ROS 2 decoder writes for `geometry_msgs/PoseStamped` and cousins (see [robotics conventions](../concepts/robotics-conventions.md)). Events are **flagged, not dropped** — quality is data.
+
+```yaml
+- kind: pose
+  dataset: poses
+  # prefix: pose                 # the default
+  # frame_field: header.frame_id # the default; an explicit null skips the frame check
+  # quaternion_tolerance: 0.001  # the default
+```
+
+With `prefix: pose` the step reads `pose.position.{x,y,z}` and `pose.orientation.{x,y,z,w}`, each an `f32` or `f64` field.
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `prefix` | string | no (default `pose`) | The flattened-pose prefix. Must not be empty. |
+| `frame_field` | string or `null` | no (default `header.frame_id`) | The string field holding the frame id. An explicit `null` skips the frame check. Must not be empty when set. |
+| `quaternion_tolerance` | number | no (default `0.001`) | How far the quaternion norm may drift from 1; greater than 0 and less than 1. |
+
+| Signal | Flag and status | Reason |
+|---|---|---|
+| A component is null or not a number | `INVALID`, bad | `pose_missing_field` |
+| A component is NaN or infinite | `INVALID`, bad | `pose_not_finite` |
+| \|\|q\| − 1\| exceeds the tolerance | `OUT_OF_RANGE`, bad | `quaternion_not_unit` |
+| The frame id is empty or missing | `INVALID`, bad | `missing_frame_id` |
+
+The norm is only computed when all four quaternion components are finite numbers. An event violating several rules raises every flag; the reason is the first violation (an upstream reason is kept), and everything lands in `_quality_status`, `_quality_flags`, and `_quality_reason` as usual.
+
+The flattened fields usually come from the ROS 2 decoder's shape rather than declared dataset fields, so — like `enrich`'s table file — they are resolved when the transform chain compiles at pipeline startup, not by `thadam validate`. Validation does check the scalar options: `prefix` non-empty, the tolerance range, a non-empty `frame_field`.
+
+## `kind: joint_state` {#joint_state}
+
+Flags malformed joint-state arrays, following `sensor_msgs/JointState` semantics (see [robotics conventions](../concepts/robotics-conventions.md)). Events are **flagged, not dropped** — quality is data.
+
+```yaml
+- kind: joint_state
+  dataset: joints
+  # name_field: name         # the default
+  # position_field: position # the default
+  # velocity_field: velocity # the default
+  # effort_field: effort     # the default
+```
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `name_field` | `list<str>` field | no (default `name`) | The joint names. Must not be empty. |
+| `position_field` | float-array field | no (default `position`) | Joint positions. Must not be empty. |
+| `velocity_field` | float-array field | no (default `velocity`) | Joint velocities. Must not be empty. |
+| `effort_field` | float-array field | no (default `effort`) | Joint efforts. Must not be empty. |
+
+Array fields accept `list<f32>` and `list<f64>` (generic lists of floats decode as either); a null array reads as an empty one. `thadam validate` resolves all four fields against the dataset as left by earlier steps — unknown names and wrong element types are configuration errors — and the engine re-checks against the actual record shape when the chain compiles at startup.
+
+| Signal | Flag and status | Reason |
+|---|---|---|
+| A non-empty array's length differs from the name count | `INVALID`, bad | `joint_state_length_mismatch` |
+| A joint name repeats | `INVALID`, bad | `duplicate_joint_name` |
+| A value is NaN, infinite, or a null element in a generic list | `INVALID`, bad | `joint_state_not_finite` |
+
+Several violations at once settle on the first reason in this order; flags accumulate.
 
 ## Execution position
 

@@ -1,6 +1,6 @@
 # Transform reference
 
-Transforms are the synchronous, pure steps a [per-sink chain](../concepts/per-sink-chains.md) runs between decode and delivery. This page covers **every step kind implemented in `thadam-transform`**, with its options and examples. All eight kinds are accepted in the top-level `transforms:` list of config version 1.
+Transforms are the synchronous, pure steps a [per-sink chain](../concepts/per-sink-chains.md) runs between decode and delivery. This page covers **every step kind implemented in `thadam-transform`**, with its options and examples. All ten kinds are accepted in the top-level `transforms:` list of config version 1.
 
 See also the [configuration reference](../configuration/transforms.md), which has the same information organized by config key.
 
@@ -110,6 +110,25 @@ Tests: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `min`, `max`, and `null` (`null
 - kind: cast
   dataset: telemetry
   fields: { soc_pct: f64 }
+```
+
+## `pose` — flattened-pose checks
+
+**Config: accepted.** Flags a flattened pose (default prefix `pose`, the ROS `geometry_msgs/PoseStamped` layout) whose components are missing (`pose_missing_field`) or non-finite (`pose_not_finite`), whose quaternion norm drifts past `quaternion_tolerance` (`quaternion_not_unit`, `OUT_OF_RANGE`), or whose frame id (`frame_field`, default `header.frame_id`, explicit `null` skips) is empty (`missing_frame_id`). Flagged, not dropped; see [robotics conventions](../concepts/robotics-conventions.md). Full key table: [`kind: pose`](../configuration/transforms.md#pose).
+
+```yaml
+- kind: pose
+  dataset: poses
+  quaternion_tolerance: 0.01
+```
+
+## `joint_state` — joint-array checks
+
+**Config: accepted.** Flags a joint-state record (ROS `sensor_msgs/JointState` semantics) whose `position`/`velocity`/`effort` arrays are neither empty nor as long as `name` (`joint_state_length_mismatch`), whose names repeat (`duplicate_joint_name`), or with non-finite values (`joint_state_not_finite`). Field names are configurable (`name_field`, `position_field`, `velocity_field`, `effort_field`). Full key table: [`kind: joint_state`](../configuration/transforms.md#joint_state).
+
+```yaml
+- kind: joint_state
+  dataset: joints
 ```
 
 ## Fixed-position behaviors (not `transforms:` steps)

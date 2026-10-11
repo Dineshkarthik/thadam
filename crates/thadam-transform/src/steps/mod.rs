@@ -12,7 +12,9 @@ use crate::spec::TransformSpec;
 mod enrich;
 mod fieldops;
 mod filter;
+mod joint_state;
 mod on_change;
+mod pose;
 mod sample;
 mod state;
 mod validate;
@@ -83,6 +85,8 @@ pub(crate) fn compile(
         TransformSpec::Rename(s) => fieldops::compile_rename(s, ctx, input, path),
         TransformSpec::Project(s) => fieldops::compile_project(s, ctx, input, path),
         TransformSpec::Cast(s) => fieldops::compile_cast(s, ctx, input, path),
+        TransformSpec::Pose(s) => pose::compile(s, ctx, input, path),
+        TransformSpec::JointState(s) => joint_state::compile(s, ctx, input, path),
     }
 }
 

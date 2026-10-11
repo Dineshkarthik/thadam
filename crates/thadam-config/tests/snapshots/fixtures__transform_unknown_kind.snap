@@ -2,7 +2,7 @@
 source: crates/thadam-config/tests/fixtures.rs
 expression: "checked.report.render(&format!(\"{name}.yaml\"))"
 ---
-error[config.invalid]: unknown transform kind `filtr`, expected one of `validate`, `on_change`, `filter`, `sample`, `enrich`, `rename`, `project`, `cast`
+error[config.invalid]: unknown transform kind `filtr`, expected one of `validate`, `on_change`, `filter`, `sample`, `enrich`, `rename`, `project`, `cast`, `pose`, `joint_state`
   --> transform_unknown_kind.yaml:19:13 (transforms[0].kind)
   = hint: did you mean `filter`?
 1 error, 0 warnings

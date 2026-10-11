@@ -466,6 +466,89 @@ pub struct ValidateSpec {
     pub rules: Vec<RuleSpec>,
 }
 
+fn default_pose_prefix() -> String {
+    "pose".to_owned()
+}
+
+fn default_frame_field() -> Option<String> {
+    Some("header.frame_id".to_owned())
+}
+
+fn default_quaternion_tolerance() -> f64 {
+    1e-3
+}
+
+/// `pose`: flags malformed poses — missing or non-finite components, a
+/// quaternion whose norm drifts from 1, or an absent frame id. The pose is
+/// read from the flattened dotted fields the ROS 2 decoder writes, following
+/// the robotics conventions (`docs/concepts/robotics-conventions.md`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct PoseSpec {
+    /// The datasets it applies to.
+    #[serde(default)]
+    pub dataset: DatasetSelector,
+    /// The runtime's sink selector; ignored by the chain.
+    #[serde(default)]
+    pub sinks: Option<Vec<String>>,
+    /// The prefix of the flattened pose: the step reads `<prefix>.position.{x,y,z}`
+    /// and `<prefix>.orientation.{x,y,z,w}`.
+    #[serde(default = "default_pose_prefix")]
+    pub prefix: String,
+    /// The field holding the frame id. Setting it to `null` skips the frame
+    /// check; omitting it checks `header.frame_id`.
+    #[serde(default = "default_frame_field")]
+    pub frame_field: Option<String>,
+    /// How far the quaternion norm may drift from 1 before the pose is
+    /// flagged `OUT_OF_RANGE`; greater than 0 and less than 1.
+    #[serde(default = "default_quaternion_tolerance")]
+    pub quaternion_tolerance: f64,
+}
+
+fn default_name_field() -> String {
+    "name".to_owned()
+}
+
+fn default_position_field() -> String {
+    "position".to_owned()
+}
+
+fn default_velocity_field() -> String {
+    "velocity".to_owned()
+}
+
+fn default_effort_field() -> String {
+    "effort".to_owned()
+}
+
+/// `joint_state`: flags malformed joint-state arrays — a length mismatch
+/// against the joint names, duplicate names, or non-finite values. Reads the
+/// flattened fields the ROS 2 decoder writes for `sensor_msgs/JointState`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct JointStateSpec {
+    /// The datasets it applies to.
+    #[serde(default)]
+    pub dataset: DatasetSelector,
+    /// The runtime's sink selector; ignored by the chain.
+    #[serde(default)]
+    pub sinks: Option<Vec<String>>,
+    /// The list-of-strings field holding the joint names.
+    #[serde(default = "default_name_field")]
+    pub name_field: String,
+    /// The float-array field holding the joint positions.
+    #[serde(default = "default_position_field")]
+    pub position_field: String,
+    /// The float-array field holding the joint velocities.
+    #[serde(default = "default_velocity_field")]
+    pub velocity_field: String,
+    /// The float-array field holding the joint efforts.
+    #[serde(default = "default_effort_field")]
+    pub effort_field: String,
+}
+
 /// A field `on_change` watches, with an optional absolute deadband.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WatchSpec {
@@ -698,6 +781,10 @@ pub enum TransformSpec {
     Project(ProjectSpec),
     /// Widens field types.
     Cast(CastSpec),
+    /// Flags malformed flattened poses.
+    Pose(PoseSpec),
+    /// Flags malformed joint-state arrays.
+    JointState(JointStateSpec),
 }
 
 impl TransformSpec {
@@ -711,6 +798,8 @@ impl TransformSpec {
             TransformSpec::Rename(s) => &s.dataset,
             TransformSpec::Project(s) => &s.dataset,
             TransformSpec::Cast(s) => &s.dataset,
+            TransformSpec::Pose(s) => &s.dataset,
+            TransformSpec::JointState(s) => &s.dataset,
         }
     }
 
@@ -725,6 +814,8 @@ impl TransformSpec {
             TransformSpec::Rename(_) => "rename",
             TransformSpec::Project(_) => "project",
             TransformSpec::Cast(_) => "cast",
+            TransformSpec::Pose(_) => "pose",
+            TransformSpec::JointState(_) => "joint_state",
         }
     }
 }
@@ -833,6 +924,51 @@ mod tests {
             "transforms": [{ "kind": "filter", "where": { "fild": "x" } }]
         }));
         assert!(e.is_err());
+    }
+
+    #[test]
+    fn pose_and_joint_state_deserialize_with_defaults() {
+        let pose: TransformSpec =
+            serde_json::from_value(json!({ "kind": "pose", "dataset": "poses" })).unwrap();
+        assert_eq!(pose.kind(), "pose");
+        let TransformSpec::Pose(p) = &pose else {
+            panic!("{pose:?}")
+        };
+        assert_eq!(p.prefix, "pose");
+        assert_eq!(p.frame_field.as_deref(), Some("header.frame_id"));
+        assert_eq!(p.quaternion_tolerance, 1e-3);
+
+        let pose: TransformSpec = serde_json::from_value(
+            json!({ "kind": "pose", "frame_field": null, "prefix": "base_pose" }),
+        )
+        .unwrap();
+        let TransformSpec::Pose(p) = &pose else {
+            panic!("{pose:?}")
+        };
+        assert_eq!(p.prefix, "base_pose");
+        assert_eq!(
+            p.frame_field, None,
+            "an explicit null skips the frame check"
+        );
+
+        let js: TransformSpec =
+            serde_json::from_value(json!({ "kind": "joint_state", "dataset": "joints" })).unwrap();
+        assert_eq!(js.kind(), "joint_state");
+        let TransformSpec::JointState(j) = &js else {
+            panic!("{js:?}")
+        };
+        assert_eq!(j.name_field, "name");
+        assert_eq!(j.position_field, "position");
+        assert_eq!(j.velocity_field, "velocity");
+        assert_eq!(j.effort_field, "effort");
+
+        assert!(
+            serde_json::from_value::<TransformSpec>(json!({ "kind": "pose", "bogus": 1 })).is_err()
+        );
+        assert!(
+            serde_json::from_value::<TransformSpec>(json!({ "kind": "joint_state", "bogus": 1 }))
+                .is_err()
+        );
     }
 
     #[test]

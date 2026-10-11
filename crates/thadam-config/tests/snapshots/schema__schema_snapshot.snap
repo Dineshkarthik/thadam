@@ -1352,6 +1352,96 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
             "fields"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Flags malformed flattened poses (missing or non-finite components, a\nquaternion whose norm drifts from 1, an absent frame id). Follows the\nrobotics conventions (`docs/concepts/robotics-conventions.md`);\nthe dotted fields usually come from the ROS 2 decoder.",
+          "properties": {
+            "dataset": {
+              "description": "The dataset the step applies to.",
+              "type": "string"
+            },
+            "frame_field": {
+              "description": "The field holding the frame id. Omitted checks `header.frame_id`;\nwritten as an explicit `null` it skips the frame check and\nround-trips as `null`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "pose",
+              "type": "string"
+            },
+            "prefix": {
+              "description": "The prefix of the flattened pose: the step reads\n`<prefix>.position.{x,y,z}` and `<prefix>.orientation.{x,y,z,w}`.",
+              "type": "string"
+            },
+            "quaternion_tolerance": {
+              "description": "How far the quaternion norm may drift from 1 before the pose is\nflagged; greater than 0 and less than 1, `0.001` when absent.",
+              "format": "double",
+              "type": "number"
+            },
+            "sinks": {
+              "description": "Restricts the step to these sink ids.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "dataset"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Flags malformed joint-state arrays (a length mismatch against the\njoint names, duplicate names, non-finite values), following ROS\n`sensor_msgs/JointState` semantics.",
+          "properties": {
+            "dataset": {
+              "description": "The dataset the step applies to.",
+              "type": "string"
+            },
+            "effort_field": {
+              "description": "The float-array field holding the joint efforts.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "joint_state",
+              "type": "string"
+            },
+            "name_field": {
+              "description": "The list-of-strings field holding the joint names.",
+              "type": "string"
+            },
+            "position_field": {
+              "description": "The float-array field holding the joint positions.",
+              "type": "string"
+            },
+            "sinks": {
+              "description": "Restricts the step to these sink ids.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "velocity_field": {
+              "description": "The float-array field holding the joint velocities.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "dataset"
+          ],
+          "type": "object"
         }
       ]
     },

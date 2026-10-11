@@ -1224,6 +1224,120 @@ pub enum TransformSpec {
         /// Field name to the wider type.
         fields: BTreeMap<String, FieldTypeSpec>,
     },
+    /// Flags malformed flattened poses (missing or non-finite components, a
+    /// quaternion whose norm drifts from 1, an absent frame id). Follows the
+    /// robotics conventions (`docs/concepts/robotics-conventions.md`);
+    /// the dotted fields usually come from the ROS 2 decoder.
+    Pose {
+        /// The dataset the step applies to.
+        dataset: String,
+        /// Restricts the step to these sink ids.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sinks: Option<Vec<String>>,
+        /// The prefix of the flattened pose: the step reads
+        /// `<prefix>.position.{x,y,z}` and `<prefix>.orientation.{x,y,z,w}`.
+        #[serde(
+            default = "default_pose_prefix",
+            skip_serializing_if = "is_default_pose_prefix"
+        )]
+        prefix: String,
+        /// The field holding the frame id. Omitted checks `header.frame_id`;
+        /// written as an explicit `null` it skips the frame check and
+        /// round-trips as `null`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frame_field: Option<Option<String>>,
+        /// How far the quaternion norm may drift from 1 before the pose is
+        /// flagged; greater than 0 and less than 1, `0.001` when absent.
+        #[serde(
+            default = "default_quaternion_tolerance",
+            skip_serializing_if = "is_default_quaternion_tolerance"
+        )]
+        quaternion_tolerance: f64,
+    },
+    /// Flags malformed joint-state arrays (a length mismatch against the
+    /// joint names, duplicate names, non-finite values), following ROS
+    /// `sensor_msgs/JointState` semantics.
+    JointState {
+        /// The dataset the step applies to.
+        dataset: String,
+        /// Restricts the step to these sink ids.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sinks: Option<Vec<String>>,
+        /// The list-of-strings field holding the joint names.
+        #[serde(
+            default = "default_joint_name_field",
+            skip_serializing_if = "is_default_joint_name_field"
+        )]
+        name_field: String,
+        /// The float-array field holding the joint positions.
+        #[serde(
+            default = "default_joint_position_field",
+            skip_serializing_if = "is_default_joint_position_field"
+        )]
+        position_field: String,
+        /// The float-array field holding the joint velocities.
+        #[serde(
+            default = "default_joint_velocity_field",
+            skip_serializing_if = "is_default_joint_velocity_field"
+        )]
+        velocity_field: String,
+        /// The float-array field holding the joint efforts.
+        #[serde(
+            default = "default_joint_effort_field",
+            skip_serializing_if = "is_default_joint_effort_field"
+        )]
+        effort_field: String,
+    },
+}
+
+pub(crate) fn default_pose_prefix() -> String {
+    "pose".to_owned()
+}
+
+fn is_default_pose_prefix(s: &str) -> bool {
+    s == "pose"
+}
+
+pub(crate) const DEFAULT_QUATERNION_TOLERANCE: f64 = 1e-3;
+
+fn default_quaternion_tolerance() -> f64 {
+    DEFAULT_QUATERNION_TOLERANCE
+}
+
+fn is_default_quaternion_tolerance(t: &f64) -> bool {
+    *t == DEFAULT_QUATERNION_TOLERANCE
+}
+
+pub(crate) fn default_joint_name_field() -> String {
+    "name".to_owned()
+}
+
+fn is_default_joint_name_field(s: &str) -> bool {
+    s == "name"
+}
+
+pub(crate) fn default_joint_position_field() -> String {
+    "position".to_owned()
+}
+
+fn is_default_joint_position_field(s: &str) -> bool {
+    s == "position"
+}
+
+pub(crate) fn default_joint_velocity_field() -> String {
+    "velocity".to_owned()
+}
+
+fn is_default_joint_velocity_field(s: &str) -> bool {
+    s == "velocity"
+}
+
+pub(crate) fn default_joint_effort_field() -> String {
+    "effort".to_owned()
+}
+
+fn is_default_joint_effort_field(s: &str) -> bool {
+    s == "effort"
 }
 
 impl TransformSpec {
@@ -1237,7 +1351,9 @@ impl TransformSpec {
             | TransformSpec::Enrich { dataset, .. }
             | TransformSpec::Rename { dataset, .. }
             | TransformSpec::Project { dataset, .. }
-            | TransformSpec::Cast { dataset, .. } => dataset,
+            | TransformSpec::Cast { dataset, .. }
+            | TransformSpec::Pose { dataset, .. }
+            | TransformSpec::JointState { dataset, .. } => dataset,
         }
     }
 
@@ -1251,7 +1367,9 @@ impl TransformSpec {
             | TransformSpec::Enrich { sinks, .. }
             | TransformSpec::Rename { sinks, .. }
             | TransformSpec::Project { sinks, .. }
-            | TransformSpec::Cast { sinks, .. } => sinks.as_deref(),
+            | TransformSpec::Cast { sinks, .. }
+            | TransformSpec::Pose { sinks, .. }
+            | TransformSpec::JointState { sinks, .. } => sinks.as_deref(),
         }
     }
 
@@ -1266,6 +1384,8 @@ impl TransformSpec {
             TransformSpec::Rename { .. } => "rename",
             TransformSpec::Project { .. } => "project",
             TransformSpec::Cast { .. } => "cast",
+            TransformSpec::Pose { .. } => "pose",
+            TransformSpec::JointState { .. } => "joint_state",
         }
     }
 }

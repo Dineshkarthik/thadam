@@ -36,6 +36,7 @@ Every event carries event-level quality: a status (`good` = 0, `uncertain` = 1, 
 | `STALE` | The value is older than its freshness bound. |
 | `SEQUENCE_GAP` | A gap in the source sequence precedes this event. |
 | `DECODE_ERROR` | The payload was only partly decoded. |
+| `INVALID` | A validation step found the data itself unusable: a value missing, of the wrong kind, not finite, or inconsistent with its siblings (raised by `pose`, `joint_state`, and `validate` rules). |
 
 Events that cannot be processed (decode, schema, transform, quality failures) become rejects routed to [quarantine](per-sink-chains.md#quarantine) with their raw bytes retained. The pipeline never aborts on a bad event.
 
