@@ -412,6 +412,9 @@ async fn a_topic_with_two_encodings_fails_and_leaves_no_file() {
     let stderr = text(&out.stderr);
     assert!(stderr.contains("/x"), "{stderr}");
     assert!(stderr.contains("disagree"), "{stderr}");
+    assert!(stderr.contains("hint:"), "{stderr}");
+    assert!(stderr.contains("--from/--to"), "{stderr}");
+    assert!(stderr.contains("--source"), "{stderr}");
     assert!(!out_path.exists());
     assert!(!f.out("conflict.mcap.tmp").exists());
 }

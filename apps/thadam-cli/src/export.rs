@@ -8,7 +8,7 @@
 //! interrupted export never leaves a partial file under the final name.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions, TryLockError};
+use std::fs::{self, File};
 use std::io::{self, BufWriter, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -30,8 +30,6 @@ use crate::schemas;
 const READ_BYTES: usize = 1 << 20;
 /// The reader's cursor name. Never committed, so production cursors are untouched.
 const READER_NAME: &str = "export";
-/// The data-directory lock file, the same one `thadam run` and `thadam replay` hold.
-const LOCK_FILE: &str = "LOCK";
 
 /// Arguments of `thadam export`.
 #[derive(Args)]
@@ -137,7 +135,7 @@ fn export(
 
     let root = spec.pipeline.data_dir.as_path();
     let wal_dir = data_dir::wal_dir(root).map_err(Failure::usage)?;
-    let _lock = lock_data_dir(root)?;
+    let _lock = thadam_runtime::lock_data_dir(root).map_err(|e| Failure::data_dir(e.to_string()))?;
     check_pipeline(root, &spec.pipeline.name)?;
     let inspection = thadam_wal::inspect(&wal_dir).map_err(|e| wal_failure(&wal_dir, &e))?;
     let node_id = inspection
@@ -307,27 +305,6 @@ fn temp_path(out: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// Holds `LOCK` in the data directory for the rest of the export. The lock is
-/// the same `flock` the runtime takes, so a running pipeline is refused.
-fn lock_data_dir(root: &Path) -> Result<File, Failure> {
-    let path = root.join(LOCK_FILE);
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&path)
-        .map_err(|e| io_failure("open", &path, &e))?;
-    match file.try_lock() {
-        Ok(()) => Ok(file),
-        Err(TryLockError::WouldBlock) => Err(Failure::data_dir(format!(
-            "data directory {} is locked by another thadam process",
-            root.display()
-        ))),
-        Err(TryLockError::Error(e)) => Err(io_failure("lock", &path, &e)),
-    }
-}
-
 fn check_pipeline(root: &Path, pipeline: &str) -> Result<(), Failure> {
     match thadam_runtime::read_thadam_json(root) {
         Ok(Some(meta)) if meta.pipeline != pipeline => Err(Failure::data_dir(format!(
@@ -352,7 +329,15 @@ fn io_failure(op: &str, path: &Path, e: &io::Error) -> Failure {
 }
 
 fn export_failure(e: McapError) -> Failure {
-    Failure::runtime(format!("export failed: {e}"))
+    let message = match &e {
+        McapError::Export { detail: _ } => {
+            format!(
+                "export failed: {e}\nhint: export the ranges separately with --from/--to, or select sources with --source"
+            )
+        }
+        _ => format!("export failed: {e}"),
+    };
+    Failure::runtime(message)
 }
 
 /// The inputs of one write: the exporter's options, where to read frames from,

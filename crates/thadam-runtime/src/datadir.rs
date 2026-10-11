@@ -89,8 +89,8 @@ pub struct WalBinding {
 
 /// Holds `data_dir/LOCK` for as long as it lives.
 #[derive(Debug)]
-pub(crate) struct DataDirLock {
-    _file: File,
+pub struct DataDirLock {
+    pub(crate) _file: File,
 }
 
 fn data_dir_error(message: String) -> ThadamError {
@@ -107,7 +107,11 @@ fn io_error(op: &str, path: &Path, e: &io::Error) -> ThadamError {
 
 /// Creates `root` if needed and takes its lock, failing fast if another
 /// process holds it.
-pub(crate) fn lock(root: &Path) -> Result<DataDirLock, ThadamError> {
+///
+/// This is the data-directory lock used by `thadam run` and `thadam replay` to
+/// prevent concurrent access. An export must also take this lock to refuse
+/// running while a pipeline holds the directory.
+pub fn lock(root: &Path) -> Result<DataDirLock, ThadamError> {
     fs::create_dir_all(root).map_err(|e| io_error("create data directory", root, &e))?;
     let path = root.join(LOCK_FILE);
     let file = OpenOptions::new()
