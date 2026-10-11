@@ -16,6 +16,7 @@ Commands:
   run       Run a pipeline configuration
   status    Check the admin server status
   replay    Re-run a sink's chain over a retained WAL range into a separate directory
+  export    Export a retained WAL range to one MCAP file
   inspect   Read-only views of a data directory: WAL, cursors, segments, samples
   help      Print this message or the help of the given subcommand(s)
 
@@ -124,6 +125,10 @@ Fetches `<admin-url>/status` and pretty-prints the JSON [status snapshot](../ope
 
 Re-runs one sink's chain over the retained WAL range between `--from` and `--to` (a WAL position, a duration such as `-45m`, or an RFC 3339 time) into a separate output directory, and prints the replay id and output path. Full usage, output format, and exit codes: [`thadam replay`](replay.md).
 
+## `thadam export`
+
+Exports a retained WAL range to one MCAP file, with the channels, encodings, schemas, gaps, and provenance described in [`thadam export`](export.md). Full usage, output format, and exit codes: [`thadam export`](export.md).
+
 ## `thadam inspect`
 
 Read-only views of a data directory: `wal`, `cursors`, `segments --sink`, and `sample`, each with `--json`. Safe to run while `thadam run` holds the data directory. Full usage: [`thadam inspect`](inspect.md).
@@ -134,4 +139,4 @@ Prints the same help as `--help` for the binary or a subcommand (`thadam help ru
 
 ## Roadmap subcommands (planned)
 
-`product.md` and ARCHITECTURE.md section 21 sketch additional subcommands as later PRs, **not implemented today**: `--suggest-schema` on `thadam inspect`, `thadam export --mcap` (M2), and benchmark tooling (`tools/thadam-bench`, not a CLI subcommand). This page will grow with them.
+`product.md` and ARCHITECTURE.md section 21 sketch additional subcommands as later PRs, **not implemented today**: `--suggest-schema` on `thadam inspect`, and benchmark tooling (`tools/thadam-bench`, not a CLI subcommand). This page will grow with them.

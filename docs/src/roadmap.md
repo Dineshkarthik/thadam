@@ -12,7 +12,7 @@ Where it stands today: config, WAL, transforms, MQTT, the runtime core, and the 
 
 ### M2 — Robotics: ROS 2
 
-Not in v0.1 (owner decision). Order: `thadam-ros2-msg` (schema-driven CDR decode) → **MCAP/rosbag2 offline ingestion** and `thadam export --mcap` → spike S3 chooses the live transport (Zenoh-native via `roslibrust`/`zenoh` first, `zenoh-bridge-ros2dds` sidecar for DDS robots second, `r2r` as the rcl fallback; pure-Rust DDS deferred) → live ROS 2 source.
+Not in v0.1 (owner decision). Order: `thadam-ros2-msg` (schema-driven CDR decode) → **MCAP/rosbag2 offline ingestion** and `thadam export --mcap` (both done) → spike S3 chooses the live transport (Zenoh-native via `roslibrust`/`zenoh` first, `zenoh-bridge-ros2dds` sidecar for DDS robots second, `r2r` as the rcl fallback; pure-Rust DDS deferred) → live ROS 2 source.
 
 ### M3 — ClickHouse (P1)
 

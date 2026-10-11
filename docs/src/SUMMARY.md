@@ -67,6 +67,7 @@
 
 - [CLI reference](cli/index.md)
 - [`thadam replay`](cli/replay.md)
+- [`thadam export`](cli/export.md)
 - [`thadam inspect`](cli/inspect.md)
 - [Design and decisions](design/index.md)
 - [Roadmap](roadmap.md)

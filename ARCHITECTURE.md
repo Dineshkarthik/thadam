@@ -123,7 +123,7 @@ Each decision has an ID (D1 to D24) from the architecture review. A decision is 
 - **D21 Memory claim wording (ADR-0011).** Thadam-owned buffers are bounded by configuration; total RSS is measured and published per workload.
 - **D22 `serde_json::Value` at the connector configuration boundary (ADR-0012).** The YAML crate is `serde-saphyr` with `strict_booleans: true`, and `serde_norway` is the documented fallback (owner decision 2026-10-07, B7).
 - **D23 Single MQTT connection in the MVP (ADR-0006).** Shared subscriptions are a documented future option with an ordering caveat.
-- **D24 Replay uses the WAL retention window (ADR-0003).** MCAP is an export and import format only, not a recording tap. ADR-0015 (not yet written) records the format.
+- **D24 Replay uses the WAL retention window (ADR-0003).** MCAP is an export and import format only, not a recording tap. ADR-0015 (Draft) records the export format.
 
 ---
 
@@ -688,7 +688,7 @@ All ADRs are in `docs/design/adr/`. Process and template: `0000-adr-process.md` 
 - ADR-0012 Config format and YAML crate: **Accepted** (owner, 2026-10-07): `serde-saphyr` with `strict_booleans: true`, MSRV 1.89, `serde_norway` as the documented fallback. Remaining details were PR5 implementation details, now recorded in ADR-0012 "PR5 outcomes" (parse budget 50,000 nodes and depth 32, anchors and merge keys rejected, `--allow-unresolved`, `thadam schema`, identity levels as an ordered list).
 - ADR-0013 Parquet segment layout: **Accepted** (owner, 2026-10-07). PR13 closed O4 and O5 and the unsigned default (ADR-0013 "PR13 implementation decisions").
 - ADR-0014 Time and clock semantics: Reserved. Content is folded into ADR-0001 (D15) and ADR-0013 (D14, D16).
-- ADR-0015 Recording and replay format: Reserved (D24).
+- ADR-0015 Recording and replay format: Draft (2026-10-10). Records the owner's export decisions; `thadam export --mcap` implements it.
 - ADR-0016 Naming and publishing: Reserved. Name clearance is tracked but not blocking while crates are `publish = false`.
 - ADR-0017 Plugin mechanism: Reserved. Compile-time features now; out-of-process later; Rust dynamic libraries rejected because Rust has no stable ABI.
 - ADR-0018 Filter and expression language: **Accepted** (owner, 2026-10-07): structured YAML predicates for the MVP, CEL reserved for a future ADR. Remaining details are PR9 implementation details.
@@ -722,7 +722,7 @@ Each entry gives what was decided, what replaced it, and where.
 ### In the original MVP plan (`thadam_mvp_architecture_plan`)
 
 - **WAL after transforms ("post-transform WAL").** Replaced by a capture-first raw WAL with per-sink chains (D1, ADR-0003, ADR-0004). Reason: format coupled to the model, transform bugs lose data, and a second recording mechanism was needed.
-- **Optional raw MCAP tap.** Replaced by the WAL retention window plus `thadam export --mcap` and MCAP import (D24, ADR-0015 reserved).
+- **Optional raw MCAP tap.** Replaced by the WAL retention window plus `thadam export --mcap` and MCAP import (D24, ADR-0015).
 - **WAL frames as prost-encoded `EventBatch`; frame layout `[magic u16][len u32][crc32c u32][type u8][payload]`.** Replaced by raw frames with the 24-byte header in section 6 (the S1 layout; frozen when ADR-0004 is accepted).
 - **Push-style `Source::run(ctx)` with an `Emitter`.** Replaced by pull `next_batch` plus a liveness clause (D5, ADR-0002).
 - **Single `Sink` trait with `open/write/flush/close`.** Replaced by `BatchSink` and `SegmentSink` (D6, ADR-0002).

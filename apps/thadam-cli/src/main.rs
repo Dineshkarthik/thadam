@@ -17,10 +17,13 @@
 
 mod data_dir;
 mod exit;
+mod export;
 mod inspect;
+mod point;
 mod registry;
 mod replay;
 mod run;
+mod schemas;
 mod status;
 mod validate;
 
@@ -55,6 +58,8 @@ enum Command {
     Status(StatusArgs),
     /// Re-run a sink's chain over a retained WAL range into a separate directory.
     Replay(replay::ReplayArgs),
+    /// Export a retained WAL range to one MCAP file.
+    Export(export::ExportArgs),
     /// Read-only views of a data directory: WAL, cursors, segments, samples.
     Inspect(inspect::InspectArgs),
 }
@@ -201,6 +206,7 @@ fn main() -> ExitCode {
             &mut err,
         ),
         Command::Replay(args) => replay::run(&args, &mut out, &mut err),
+        Command::Export(args) => export::run(&args, &mut out, &mut err),
         Command::Inspect(args) => inspect::run(&args, &mut out, &mut err),
     };
     exit.into()

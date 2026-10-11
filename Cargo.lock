@@ -3417,6 +3417,7 @@ dependencies = [
  "axum",
  "bytes",
  "clap",
+ "mcap",
  "parquet 60.0.0",
  "thadam-can",
  "thadam-clickhouse",
