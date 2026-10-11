@@ -37,6 +37,7 @@ fn run_help_lists_flags() {
     assert!(stdout.contains("--log-level"), "{stdout}");
     assert!(stdout.contains("--admin-bind"), "{stdout}");
     assert!(stdout.contains("--admin-token-file"), "{stdout}");
+    assert!(stdout.contains("--exit-when-sources-finish"), "{stdout}");
 }
 
 #[test]

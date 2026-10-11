@@ -97,10 +97,14 @@ Options:
                                  (e.g., `127.0.0.1:9464`)
       --admin-token-file <PATH>  Path to a file containing the admin server
                                  bearer token
+      --exit-when-sources-finish Exit once every source has reached end of
+                                 stream, after draining and finalizing. For
+                                 finite inputs such as a recording; live sources
+                                 never end, so leave this off for them
   -h, --help                     Print help
 ```
 
-Builds and runs the pipeline from the config file, handling SIGINT/SIGTERM for graceful shutdown ([lifecycle](../operations/crash-recovery.md#graceful-shutdown)). The CLI flags override the matching `observability` config keys for that run. With `--admin-bind`, the [admin API](../operations/admin-api.md) serves for the duration of the run.
+Builds and runs the pipeline from the config file, handling SIGINT/SIGTERM for graceful shutdown ([lifecycle](../operations/crash-recovery.md#graceful-shutdown)). The CLI flags override the matching `observability` config keys for that run. With `--admin-bind`, the [admin API](../operations/admin-api.md) serves for the duration of the run. With `--exit-when-sources-finish`, the run ends by itself once every source is drained, which is how the [ROS 2 MCAP example](https://github.com/Dineshkarthik/thadam/tree/main/examples/ros2-mcap-to-parquet) completes; without it, the pipeline runs until SIGINT/SIGTERM.
 
 > At this stage of the build-out `thadam run` fails the pipeline build once a config contains a sink, because the registered sink factories are placeholders ([status](../introduction.md#project-status)).
 

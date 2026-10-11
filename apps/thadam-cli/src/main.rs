@@ -97,6 +97,11 @@ struct RunArgs {
     /// Path to a file containing the admin server bearer token.
     #[arg(long, value_name = "PATH")]
     admin_token_file: Option<PathBuf>,
+    /// Exit once every source has reached end of stream, after draining and
+    /// finalizing. For finite inputs such as a recording; live sources never
+    /// end, so leave this off for them.
+    #[arg(long)]
+    exit_when_sources_finish: bool,
 }
 
 #[derive(Args)]
@@ -190,15 +195,7 @@ fn main() -> ExitCode {
                 Exit::RuntimeFailure
             }
         },
-        Command::Run(args) => run::run(
-            &args.path,
-            args.repair,
-            args.log_format.map(LogFormatArg::into_runtime_format),
-            &args.log_level,
-            args.admin_bind.as_deref(),
-            args.admin_token_file.as_deref(),
-            &mut err,
-        ),
+        Command::Run(args) => run::run(&args, &mut err),
         Command::Status(args) => status::run(
             args.admin_url.as_deref(),
             args.token_file.as_deref(),

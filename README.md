@@ -166,6 +166,8 @@ make down        # (make clean also wipes ./data and the volumes)
 
 The full walkthrough, including publishing test messages and checking a config without secrets (`--allow-unresolved`), is in the book's [getting-started pages](docs/src/getting-started/first-pipeline.md). A larger example with six datasets, transforms, and an S3 target lives in [examples/edge-capture/thadam/pipeline.yaml](examples/edge-capture/thadam/pipeline.yaml) — the demo's README walks both levels (local Parquet, then S3).
 
+For ROS 2 recordings, [`examples/ros2-mcap-to-parquet`](examples/ros2-mcap-to-parquet) replays a generated MCAP file of `sensor_msgs/JointState` and `geometry_msgs/PoseStamped` messages, decodes and validates them into local Parquet, and exports the recording back to MCAP. It needs no Docker.
+
 ## Delivery guarantees
 
 Thadam's claims discipline is [ADR-0011](docs/design/adr/0011-delivery-guarantees-and-claims-register.md): no README, benchmark post, release note, or demo may state a guarantee that is not in the claims register, and each row needs its evidence attached before it is published. The summary:

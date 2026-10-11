@@ -12,7 +12,7 @@ use thadam_runtime::{
 use tokio::runtime::Builder;
 
 use crate::exit::Exit;
-use crate::registry;
+use crate::{LogFormatArg, RunArgs, registry};
 
 /// Run a pipeline configuration.
 ///
@@ -22,19 +22,12 @@ use crate::registry;
 /// 3. Initializes logging
 /// 4. Builds a Tokio multi-thread runtime
 /// 5. Builds and runs the pipeline with signal handling
-pub fn run(
-    path: &Path,
-    repair: bool,
-    log_format: Option<thadam_runtime::LogFormat>,
-    log_level: &str,
-    admin_bind: Option<&str>,
-    admin_token_file: Option<&Path>,
-    err: &mut dyn Write,
-) -> Exit {
+pub fn run(args: &RunArgs, err: &mut dyn Write) -> Exit {
     // 1. Build the registry
     let registry = registry::build_registry();
 
     // 2. Load the configuration file
+    let path = args.path.as_path();
     let spec = match load_file(path, &ProcessEnv) {
         Ok(spec) => spec,
         Err(report) => {
@@ -45,13 +38,16 @@ pub fn run(
 
     // 3. Initialize logging. The `--log-format` flag wins; without it the
     // config's `observability.logs.format` applies.
-    let log_format = log_format.unwrap_or(match spec.observability.logs.format {
-        thadam_config::LogFormat::Json => thadam_runtime::LogFormat::Json,
-        _ => thadam_runtime::LogFormat::Pretty,
-    });
+    let log_format = args
+        .log_format
+        .map(LogFormatArg::into_runtime_format)
+        .unwrap_or(match spec.observability.logs.format {
+            thadam_config::LogFormat::Json => thadam_runtime::LogFormat::Json,
+            _ => thadam_runtime::LogFormat::Pretty,
+        });
     // The guard must stay alive until the run ends: dropping it closes the
     // non-blocking writer's channel and every later record is lost.
-    let _logging_guard = match init_logging(log_format, log_level) {
+    let _logging_guard = match init_logging(log_format, &args.log_level) {
         Ok(guard) => guard,
         Err(e) => {
             let _ = writeln!(err, "failed to initialize logging: {e}");
@@ -86,7 +82,15 @@ pub fn run(
 
     // 5. Run the pipeline inside the Tokio runtime
     runtime.block_on(async {
-        run_pipeline(&registry, spec, repair, admin_bind, admin_token_file).await
+        run_pipeline(
+            &registry,
+            spec,
+            args.repair,
+            args.admin_bind.as_deref(),
+            args.admin_token_file.as_deref(),
+            args.exit_when_sources_finish,
+        )
+        .await
     })
 }
 
@@ -96,10 +100,12 @@ async fn run_pipeline(
     repair: bool,
     admin_bind: Option<&str>,
     admin_token_file: Option<&Path>,
+    exit_when_sources_finish: bool,
 ) -> Exit {
     // Build the pipeline - use a mutable options object
     let mut opts = RuntimeOptions::default();
     opts.repair = repair;
+    opts.stop_when_sources_finish = exit_when_sources_finish;
     let metrics = Arc::new(PrometheusMetrics::new());
     opts.metrics = metrics.clone();
 

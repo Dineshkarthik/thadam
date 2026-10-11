@@ -1,0 +1,77 @@
+# ROS 2 recording to local Parquet: an MCAP file is replayed as a finite
+# source, decoded with the ROS 2 CDR decoder, validated by the `joint_state`
+# and `pose` steps, and written as Parquet. Paths are relative to this
+# directory, so run every command from examples/ros2-mcap-to-parquet
+# (see README.md).
+#
+#   thadam validate pipeline.yaml
+#   thadam run pipeline.yaml --exit-when-sources-finish
+version: 1
+
+pipeline:
+  name: ros2-mcap-to-parquet
+  node_id: ros2-01
+  data_dir: ./data/thadam
+
+sources:
+  - id: bag
+    kind: mcap
+    config:
+      paths: [./data/sample.mcap]
+      pace: max
+      decode: ros2
+
+wal:
+  max_disk: 256MiB
+  segment_bytes: 8MiB
+  fsync: { interval: 50ms }
+  on_full: block
+  retain_for: 1d
+
+datasets:
+  - id: joint_states
+    match: { source: bag, topic: /joint_states }
+    decode: ros2
+    time: { field: /header.stamp, unit: ns, domain: utc }
+    fields:
+      - { id: 1000, name: header.stamp,    type: ts, unit: ns, required: true }
+      - { id: 1001, name: header.frame_id, type: str, required: true }
+      - { id: 1002, name: name,            type: "list<str>" }
+      - { id: 1003, name: position,        type: "list<f64>" }
+      - { id: 1004, name: velocity,        type: "list<f64>" }
+      - { id: 1005, name: effort,          type: "list<f64>" }
+
+  - id: poses
+    match: { source: bag, topic: /robot_pose }
+    decode: ros2
+    time: { field: /header.stamp, unit: ns, domain: utc }
+    fields:
+      - { id: 1000, name: header.stamp,         type: ts, unit: ns, required: true }
+      - { id: 1001, name: header.frame_id,      type: str, required: true }
+      - { id: 1002, name: pose.position.x,      type: f64 }
+      - { id: 1003, name: pose.position.y,      type: f64 }
+      - { id: 1004, name: pose.position.z,      type: f64 }
+      - { id: 1005, name: pose.orientation.x,   type: f64 }
+      - { id: 1006, name: pose.orientation.y,   type: f64 }
+      - { id: 1007, name: pose.orientation.z,   type: f64 }
+      - { id: 1008, name: pose.orientation.w,   type: f64 }
+
+transforms:
+  - { kind: joint_state, dataset: joint_states }
+  - { kind: pose, dataset: poses }
+
+sinks:
+  - id: local
+    kind: parquet
+    config:
+      datasets: [joint_states, poses]
+      compression: zstd
+      row_group_bytes: 1048576
+      rotation: { max_bytes: 67108864, max_age: 60 }
+      max_open_files: 4
+      max_disk: 1073741824
+      timestamp_unit: nanos
+      finalize_on_shutdown: true
+
+observability:
+  logs: { format: pretty, level: info }
