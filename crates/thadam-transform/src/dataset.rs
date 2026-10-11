@@ -449,7 +449,7 @@ impl Dataset {
             None => None,
             Some(t) => {
                 let tpath = format!("{path}.time");
-                if t.field.starts_with('^') && !exploded {
+                if t.field.as_deref().is_some_and(|f| f.starts_with('^')) && !exploded {
                     errs.push(config_error(
                         &format!("{tpath}.field"),
                         "`^/` reads the parent message, which only exists in an exploded dataset",
@@ -817,7 +817,7 @@ impl Dataset {
         };
 
         let (times, flags) = match &self.time {
-            Some(plan) => match plan.extract(scope, msg.root) {
+            Some(plan) => match plan.extract(scope, msg.root, view.attrs) {
                 Ok(source) => plan.times(view.ingest_time, source),
                 Err(e) => return self.reject(view, sample, e, rejects),
             },

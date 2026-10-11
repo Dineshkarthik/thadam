@@ -1,13 +1,15 @@
 //! Source-time extraction: units, domains, and skew flagging.
 
-use thadam_core::{ErrorDomain, QualityFlags, ThadamError, TimeDomain, Times, Timestamp, codes};
+use thadam_core::{
+    Attributes, ErrorDomain, QualityFlags, ThadamError, TimeDomain, Times, Timestamp, codes,
+};
 use serde_json::Value as Json;
 
 use crate::paths::FieldPath;
 use crate::spec::TimeSpec;
 use crate::timeparse::{EpochUnit, TimeParseError, UtcOffset, parse_rfc3339};
 
-/// Reads one JSON value as nanoseconds since the epoch.
+/// Reads one JSON value, or one attribute's text, as nanoseconds since the epoch.
 #[derive(Clone, Debug)]
 pub(crate) enum TimeParser {
     Epoch(EpochUnit),
@@ -19,6 +21,7 @@ pub(crate) enum TimeIssue {
     Type(&'static str),
     Range,
     Text(TimeParseError),
+    Number,
 }
 
 impl TimeIssue {
@@ -27,6 +30,7 @@ impl TimeIssue {
             TimeIssue::Type(found) => format!("expected a time value, found {found}"),
             TimeIssue::Range => "time is outside the representable range".to_owned(),
             TimeIssue::Text(e) => e.to_string(),
+            TimeIssue::Number => "expected a whole number of the time unit".to_owned(),
         };
         ThadamError::permanent(
             ErrorDomain::Decode,
@@ -82,12 +86,29 @@ impl TimeParser {
             (_, other) => Err(TimeIssue::Type(json_kind(other))),
         }
     }
+
+    /// Reads an attribute's text. Epoch units take a whole decimal number.
+    pub(crate) fn parse_text(&self, text: &str) -> Result<i64, TimeIssue> {
+        match self {
+            TimeParser::Epoch(unit) => {
+                let i = text.parse::<i64>().map_err(|_| TimeIssue::Number)?;
+                unit.int_to_nanos(i).ok_or(TimeIssue::Range)
+            }
+            TimeParser::Rfc3339(offset) => parse_rfc3339(text, *offset).map_err(TimeIssue::Text),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum TimeSource {
+    Field(FieldPath),
+    Attr(String),
 }
 
 /// A dataset's time extraction.
 #[derive(Clone, Debug)]
 pub(crate) struct TimePlan {
-    path: FieldPath,
+    source: TimeSource,
     parser: TimeParser,
     domain: TimeDomain,
     max_skew_ns: Option<i128>,
@@ -100,9 +121,24 @@ pub(crate) fn parse_domain(s: &str) -> Option<TimeDomain> {
 impl TimePlan {
     pub(crate) fn compile(spec: &TimeSpec) -> Result<TimePlan, Vec<(&'static str, String)>> {
         let mut errs = Vec::new();
-        let path = FieldPath::parse(&spec.field)
-            .map_err(|e| errs.push(("field", e.to_string())))
-            .ok();
+        let source = match (&spec.field, &spec.attr) {
+            (Some(field), None) => FieldPath::parse(field)
+                .map(TimeSource::Field)
+                .map_err(|e| errs.push(("field", e.to_string())))
+                .ok(),
+            (None, Some(attr)) if !attr.is_empty() => Some(TimeSource::Attr(attr.clone())),
+            (None, Some(_)) => {
+                errs.push(("attr", "`attr` must name a message attribute".to_owned()));
+                None
+            }
+            _ => {
+                errs.push((
+                    "field",
+                    "`time` needs exactly one of `field` or `attr`".to_owned(),
+                ));
+                None
+            }
+        };
         let parser = TimeParser::compile(&spec.unit, spec.default_offset.as_deref())
             .map_err(|e| errs.push(("unit", e)))
             .ok();
@@ -116,9 +152,9 @@ impl TimePlan {
                 None
             }),
         };
-        match (path, parser, domain) {
-            (Some(path), Some(parser), Some(domain)) if errs.is_empty() => Ok(TimePlan {
-                path,
+        match (source, parser, domain) {
+            (Some(source), Some(parser), Some(domain)) if errs.is_empty() => Ok(TimePlan {
+                source,
                 parser,
                 domain,
                 max_skew_ns: spec.max_skew.map(|d| d.0.as_nanos() as i128),
@@ -131,20 +167,32 @@ impl TimePlan {
         self.domain
     }
 
-    /// The source time in `scope`, or `None` if the message carries none.
+    /// The source time, or `None` if the message carries none. A payload
+    /// field is read from `scope`; an attribute is read from `attrs`. Absent
+    /// or null is `None`; a present value that does not parse is an error.
     pub(crate) fn extract(
         &self,
         scope: &Json,
         root: &Json,
+        attrs: &Attributes,
     ) -> Result<Option<Timestamp>, ThadamError> {
-        match self.path.resolve(scope, root) {
-            None | Some(Json::Null) => Ok(None),
-            Some(j) => self
-                .parser
-                .parse(j)
-                .map(|ns| Some(Timestamp::from_nanos(ns)))
-                .map_err(|issue| issue.into_error("time field")),
-        }
+        let parsed = match &self.source {
+            TimeSource::Field(path) => match path.resolve(scope, root) {
+                None | Some(Json::Null) => return Ok(None),
+                Some(j) => self
+                    .parser
+                    .parse(j)
+                    .map_err(|issue| issue.into_error("time field")),
+            },
+            TimeSource::Attr(key) => match attrs.get(key) {
+                None => return Ok(None),
+                Some(text) => self
+                    .parser
+                    .parse_text(text)
+                    .map_err(|issue| issue.into_error(&format!("time attribute `{key}`"))),
+            },
+        };
+        parsed.map(|ns| Some(Timestamp::from_nanos(ns)))
     }
 
     /// The times and quality flags for an event received at `ingest`.
@@ -193,16 +241,21 @@ mod tests {
     fn microseconds_become_nanoseconds() {
         let plan = TimePlan::compile(&spec("us", Some("utc"), None)).unwrap();
         let root = json!({ "t": 1_791_369_600_123_456i64 });
-        let ts = plan.extract(&root, &root).unwrap().unwrap();
+        let ts = plan
+            .extract(&root, &root, &Attributes::new())
+            .unwrap()
+            .unwrap();
         assert_eq!(ts.as_nanos(), 1_791_369_600_123_456_000);
     }
 
     #[test]
     fn absent_and_null_are_missing_not_errors() {
         let plan = TimePlan::compile(&spec("ms", Some("utc"), None)).unwrap();
-        assert_eq!(plan.extract(&json!({}), &json!({})).unwrap(), None);
+        let none = Attributes::new();
+        assert_eq!(plan.extract(&json!({}), &json!({}), &none).unwrap(), None);
         assert_eq!(
-            plan.extract(&json!({ "t": null }), &json!({})).unwrap(),
+            plan.extract(&json!({ "t": null }), &json!({}), &none)
+                .unwrap(),
             None
         );
         let (_, flags) = plan.times(Timestamp::from_nanos(5), None);
@@ -220,7 +273,9 @@ mod tests {
             json!(u64::MAX),
             json!(1e30),
         ] {
-            let err = plan.extract(&json!({ "t": bad }), &json!({})).unwrap_err();
+            let err = plan
+                .extract(&json!({ "t": bad }), &json!({}), &Attributes::new())
+                .unwrap_err();
             assert_eq!(err.code, codes::DECODE_INVALID_TIME);
         }
     }
@@ -260,11 +315,14 @@ mod tests {
         let plan = TimePlan::compile(&s).unwrap();
         let ok = json!({ "t": "1970-01-01T00:00:01Z" });
         assert_eq!(
-            plan.extract(&ok, &ok).unwrap().unwrap().as_nanos(),
+            plan.extract(&ok, &ok, &Attributes::new())
+                .unwrap()
+                .unwrap()
+                .as_nanos(),
             1_000_000_000
         );
         let naive = json!({ "t": "1970-01-01T00:00:01" });
-        assert!(plan.extract(&naive, &naive).is_err());
+        assert!(plan.extract(&naive, &naive, &Attributes::new()).is_err());
 
         let s: TimeSpec = serde_json::from_value(json!({
             "field": "/t", "unit": "rfc3339", "domain": "utc", "default_offset": "+01:00"
@@ -272,7 +330,10 @@ mod tests {
         .unwrap();
         let plan = TimePlan::compile(&s).unwrap();
         assert_eq!(
-            plan.extract(&naive, &naive).unwrap().unwrap().as_nanos(),
+            plan.extract(&naive, &naive, &Attributes::new())
+                .unwrap()
+                .unwrap()
+                .as_nanos(),
             -3_599_000_000_000
         );
     }
@@ -299,8 +360,149 @@ mod tests {
         let root = json!({ "base": 9, "samples": [{ "x": 1 }] });
         let sample = &root["samples"][0];
         assert_eq!(
-            plan.extract(sample, &root).unwrap().unwrap().as_nanos(),
+            plan.extract(sample, &root, &Attributes::new())
+                .unwrap()
+                .unwrap()
+                .as_nanos(),
             9_000_000_000
         );
+    }
+
+    fn with_attr(attr: &str, unit: &str, skew: Option<u64>) -> TimePlan {
+        let mut v = json!({ "attr": attr, "unit": unit, "domain": "utc" });
+        if let Some(s) = skew {
+            v["max_skew"] = json!(format!("{s}s"));
+        }
+        TimePlan::compile(&serde_json::from_value(v).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn ros_stamp_nanoseconds_read_without_conversion() {
+        let stamp = 1_758_000_000_123_456_789i64;
+        let s: TimeSpec = serde_json::from_value(json!({
+            "field": "/header.stamp", "unit": "ns", "domain": "utc"
+        }))
+        .unwrap();
+        let plan_flat = TimePlan::compile(&s).unwrap();
+        let flat = json!({ "header.stamp": stamp, "header.frame_id": "base" });
+        assert_eq!(
+            plan_flat
+                .extract(&flat, &flat, &Attributes::new())
+                .unwrap()
+                .unwrap()
+                .as_nanos(),
+            stamp
+        );
+        let nested = json!({ "header": { "stamp": stamp } });
+        let s: TimeSpec = serde_json::from_value(json!({
+            "field": "/header/stamp", "unit": "ns", "domain": "utc"
+        }))
+        .unwrap();
+        let plan_nested = TimePlan::compile(&s).unwrap();
+        assert_eq!(
+            plan_nested
+                .extract(&nested, &nested, &Attributes::new())
+                .unwrap()
+                .unwrap()
+                .as_nanos(),
+            stamp
+        );
+    }
+
+    #[test]
+    fn attribute_time_reads_decimal_text_in_its_unit() {
+        let plan = with_attr("mcap.publish_time", "ns", Some(5));
+        let mut attrs = Attributes::new();
+        attrs.insert("mcap.publish_time", "1791369600123456789");
+        let root = json!({ "payload": "ignored" });
+        let ts = plan.extract(&root, &root, &attrs).unwrap().unwrap();
+        assert_eq!(ts.as_nanos(), 1_791_369_600_123_456_789);
+
+        let us = with_attr("mcap.log_time", "us", None);
+        let mut attrs = Attributes::new();
+        attrs.insert("mcap.log_time", "1791369600123456");
+        assert_eq!(
+            us.extract(&root, &root, &attrs)
+                .unwrap()
+                .unwrap()
+                .as_nanos(),
+            1_791_369_600_123_456_000
+        );
+    }
+
+    #[test]
+    fn attribute_time_flags_skew_like_payload_time() {
+        let plan = with_attr("mcap.publish_time", "s", Some(5));
+        let ingest = Timestamp::from_secs(1_000).unwrap();
+        let mut near = Attributes::new();
+        near.insert("mcap.publish_time", "1004");
+        let mut far = Attributes::new();
+        far.insert("mcap.publish_time", "1006");
+        let root = json!({});
+        let src = plan.extract(&root, &root, &near).unwrap();
+        assert_eq!(plan.times(ingest, src).1, QualityFlags::empty());
+        let src = plan.extract(&root, &root, &far).unwrap();
+        assert_eq!(plan.times(ingest, src).1, QualityFlags::CLOCK_SKEW);
+    }
+
+    #[test]
+    fn absent_attribute_is_missing_and_unparseable_is_a_reject() {
+        let plan = with_attr("mcap.publish_time", "ns", None);
+        let root = json!({});
+        assert_eq!(
+            plan.extract(&root, &root, &Attributes::new()).unwrap(),
+            None
+        );
+        let (_, flags) = plan.times(Timestamp::from_nanos(5), None);
+        assert_eq!(flags, QualityFlags::MISSING_TIME);
+
+        for bad in ["", "12.5", "abc", "99999999999999999999"] {
+            let mut attrs = Attributes::new();
+            attrs.insert("mcap.publish_time", bad);
+            let err = plan.extract(&root, &root, &attrs).unwrap_err();
+            assert_eq!(err.code, codes::DECODE_INVALID_TIME, "{bad:?}");
+            assert!(err.to_string().contains("mcap.publish_time"));
+        }
+    }
+
+    #[test]
+    fn attribute_rfc3339_needs_an_offset_like_payload_text() {
+        let s: TimeSpec = serde_json::from_value(json!({
+            "attr": "mcap.log_time", "unit": "rfc3339", "domain": "utc"
+        }))
+        .unwrap();
+        let plan = TimePlan::compile(&s).unwrap();
+        let mut attrs = Attributes::new();
+        attrs.insert("mcap.log_time", "1970-01-01T00:00:01");
+        assert!(plan.extract(&json!({}), &json!({}), &attrs).is_err());
+        let mut attrs = Attributes::new();
+        attrs.insert("mcap.log_time", "1970-01-01T00:00:01Z");
+        assert_eq!(
+            plan.extract(&json!({}), &json!({}), &attrs)
+                .unwrap()
+                .unwrap()
+                .as_nanos(),
+            1_000_000_000
+        );
+    }
+
+    #[test]
+    fn exactly_one_of_field_or_attr() {
+        let both: TimeSpec = serde_json::from_value(json!({
+            "field": "/t", "attr": "mcap.log_time", "unit": "s"
+        }))
+        .unwrap();
+        let errs = TimePlan::compile(&both).unwrap_err();
+        assert_eq!(errs[0].0, "field");
+        assert!(errs[0].1.contains("exactly one"));
+
+        let neither: TimeSpec = serde_json::from_value(json!({ "unit": "s" })).unwrap();
+        let errs = TimePlan::compile(&neither).unwrap_err();
+        assert_eq!(errs[0].0, "field");
+        assert!(errs[0].1.contains("exactly one"));
+
+        let empty: TimeSpec = serde_json::from_value(json!({ "attr": "", "unit": "s" })).unwrap();
+        let errs = TimePlan::compile(&empty).unwrap_err();
+        assert_eq!(errs[0].0, "attr");
     }
 }

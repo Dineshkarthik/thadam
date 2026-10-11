@@ -1,5 +1,6 @@
 ---
 source: crates/thadam-config/tests/schema.rs
+assertion_line: 10
 expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
 ---
 {
@@ -927,6 +928,13 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
       "additionalProperties": false,
       "description": "How the source timestamp is read.",
       "properties": {
+        "attr": {
+          "description": "A message attribute holding the timestamp as decimal text, such as\n`mcap.publish_time`. Exactly one of `field` or `attr` is required.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "default_offset": {
           "description": "The UTC offset assumed for `rfc3339` text that carries none, such as\n`+02:00`. Only valid with `unit: rfc3339`; without it, offset-less text\nis a runtime reject.",
           "type": [
@@ -939,8 +947,11 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
           "description": "The clock the device's time is on."
         },
         "field": {
-          "description": "A JSON Pointer to the timestamp.",
-          "type": "string"
+          "description": "A JSON Pointer to the timestamp in the payload, such as `/ts_us` or\n`/header.stamp` for a flattened ROS 2 field. Exactly one of `field` or\n`attr` is required.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "max_skew": {
           "description": "Beyond this distance from ingest time, the event is flagged `CLOCK_SKEW`.",
@@ -956,11 +967,10 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
         },
         "unit": {
           "$ref": "#/$defs/TimeUnit",
-          "description": "The unit of the number, or `rfc3339` for text."
+          "description": "The unit of the number, or `rfc3339` for text. Integers in `attr`\ntext are read in this unit too."
         }
       },
       "required": [
-        "field",
         "unit",
         "domain"
       ],

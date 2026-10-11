@@ -127,6 +127,15 @@ Each MCAP message becomes one raw message with these attributes:
 | `mcap.publish_time` | The MCAP publish time, nanoseconds, decimal. |
 | `mcap.ros2.fields` | With `decode: ros2` only, and only on channels with a `ros2msg` schema: the comma-separated flattened field names of the compiled shape (for example `header.stamp.sec,header.stamp.nanosec,header.stamp,header.frame_id,name,position,velocity,effort`). |
 
+### Timestamps
+
+ROS 2 has two clocks you can choose from in `time`:
+
+- Publisher time, from the message: `header.stamp` (a `builtin_interfaces/Time`, decoded to unix nanoseconds). Use `field: /header.stamp, unit: ns`. The dotted name is one JSON Pointer token, because the decoded field is the flattened key `header.stamp`.
+- Recorder time, from MCAP: `attr: mcap.log_time, unit: ns`. Publish time is also available as `attr: mcap.publish_time, unit: ns`.
+
+Today the transform chain reads JSON payloads. `decode: ros2` records (`decode_ros2`) are not yet fed to the transform step, so `/header.stamp` applies to JSON messages that carry that key. For CDR messages, use `attr: mcap.publish_time` or `attr: mcap.log_time`.
+
 The source is finite: it ends with `None` once the inputs are drained. Acks are no-ops (`ack_mode: none`) and stay ordered trivially, because files are re-readable: replay is idempotent from the input, so after a crash or restart the source simply reads the files again from the start and nothing is skipped or acknowledged early.
 
 ### Performance note

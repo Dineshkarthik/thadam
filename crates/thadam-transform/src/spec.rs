@@ -231,8 +231,14 @@ pub struct ExplodeSpec {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct TimeSpec {
-    /// JSON Pointer to the time; `^/` reads from the parent message.
-    pub field: String,
+    /// JSON Pointer to the time; `^/` reads from the parent message. Exactly
+    /// one of `field` or `attr` is set.
+    #[serde(default)]
+    pub field: Option<String>,
+    /// Message attribute holding the time as text. Exactly one of `field` or
+    /// `attr` is set.
+    #[serde(default)]
+    pub attr: Option<String>,
     /// `s`, `ms`, `us`, `ns` for epoch numbers, or `rfc3339` for text.
     pub unit: String,
     /// `utc`, `tai`, `monotonic`, `sim`, or `unknown`. Only `utc` becomes the

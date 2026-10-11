@@ -416,6 +416,69 @@ mod time {
             assert!(c.report.errors.is_empty(), "{good}: {}", c.report);
         }
     }
+
+    #[test]
+    fn field_form_serializes_without_attr() {
+        let c = with_time("{ field: /header.stamp, unit: ns, domain: utc }");
+        assert!(c.report.errors.is_empty(), "{}", c.report);
+        let spec = c.spec.unwrap();
+        let value = serde_json::to_value(&spec.datasets[0]).unwrap();
+        assert_eq!(value["time"]["field"], "/header.stamp");
+        assert!(value["time"].get("attr").is_none());
+    }
+
+    #[test]
+    fn attr_form_parses_and_round_trips() {
+        let c = with_time("{ attr: mcap.publish_time, unit: ns, domain: utc, max_skew: 5s }");
+        assert!(c.report.errors.is_empty(), "{}", c.report);
+        let spec = c.spec.unwrap();
+        let t = spec.datasets[0].time.as_ref().unwrap();
+        assert_eq!(t.attr.as_deref(), Some("mcap.publish_time"));
+        assert_eq!(t.field, None);
+        let value = serde_json::to_value(&spec.datasets[0]).unwrap();
+        assert_eq!(value["time"]["attr"], "mcap.publish_time");
+        assert!(value["time"].get("field").is_none());
+    }
+
+    #[test]
+    fn field_and_attr_are_mutually_exclusive() {
+        for time in [
+            "{ field: /ts, attr: mcap.log_time, unit: ms, domain: utc }",
+            "{ unit: ms, domain: utc }",
+        ] {
+            let c = with_time(time);
+            assert_eq!(c.report.errors.len(), 1, "{time}: {}", c.report);
+            assert_eq!(c.report.errors[0].path, "datasets[0].time");
+            assert!(
+                c.report.errors[0]
+                    .message
+                    .contains("exactly one of `field` or `attr`"),
+                "{}",
+                c.report
+            );
+        }
+    }
+
+    #[test]
+    fn empty_attr_is_refused() {
+        let c = with_time(r#"{ attr: "", unit: ms, domain: utc }"#);
+        assert_eq!(c.report.errors.len(), 1, "{}", c.report);
+        assert_eq!(c.report.errors[0].path, "datasets[0].time.attr");
+    }
+
+    #[test]
+    fn unknown_time_unit_is_refused_for_attr_form() {
+        let c = with_time("{ attr: mcap.log_time, unit: fortnights, domain: utc }");
+        assert!(c.spec.is_none());
+        assert!(
+            c.report
+                .errors
+                .iter()
+                .any(|d| d.message.contains("fortnights")),
+            "{}",
+            c.report
+        );
+    }
 }
 
 mod dedup {

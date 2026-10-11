@@ -257,7 +257,12 @@ fn dataset_value(d: &DatasetSpec, path: &str) -> Result<Value, ThadamError> {
     }
     if let Some(t) = &d.time {
         let mut tm = Map::new();
-        tm.insert("field".into(), json!(t.field));
+        if let Some(field) = &t.field {
+            tm.insert("field".into(), json!(field));
+        }
+        if let Some(attr) = &t.attr {
+            tm.insert("attr".into(), json!(attr));
+        }
         tm.insert("unit".into(), json!(t.unit.as_str()));
         tm.insert("domain".into(), json!(t.domain.domain().as_str()));
         if let Some(s) = t.max_skew {

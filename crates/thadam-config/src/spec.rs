@@ -767,9 +767,17 @@ impl TimeUnit {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct TimeSpec {
-    /// A JSON Pointer to the timestamp.
-    pub field: String,
-    /// The unit of the number, or `rfc3339` for text.
+    /// A JSON Pointer to the timestamp in the payload, such as `/ts_us` or
+    /// `/header.stamp` for a flattened ROS 2 field. Exactly one of `field` or
+    /// `attr` is required.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    /// A message attribute holding the timestamp as decimal text, such as
+    /// `mcap.publish_time`. Exactly one of `field` or `attr` is required.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attr: Option<String>,
+    /// The unit of the number, or `rfc3339` for text. Integers in `attr`
+    /// text are read in this unit too.
     pub unit: TimeUnit,
     /// The clock the device's time is on.
     pub domain: TimeDomainSpec,

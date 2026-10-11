@@ -765,9 +765,28 @@ impl<'p> Checker<'p, '_, '_> {
     fn dataset_options(&mut self, base: &PathVec, ds: &DatasetSpec) {
         let exploded = ds.explode.is_some();
         if let Some(t) = &ds.time {
-            if let Err(msg) = check_pointer(&t.field, exploded) {
-                self.ctx
-                    .invalid(&base.key("time").key("field"), Anchor::Value, msg);
+            match (&t.field, &t.attr) {
+                (Some(field), None) => {
+                    if let Err(msg) = check_pointer(field, exploded) {
+                        self.ctx
+                            .invalid(&base.key("time").key("field"), Anchor::Value, msg);
+                    }
+                }
+                (None, Some(attr)) => {
+                    if attr.is_empty() {
+                        self.ctx.invalid(
+                            &base.key("time").key("attr"),
+                            Anchor::Value,
+                            "`attr` must name a message attribute",
+                        );
+                    }
+                }
+                _ => self.ctx.invalid_hint(
+                    &base.key("time"),
+                    Anchor::Key,
+                    "`time` needs exactly one of `field` or `attr`",
+                    "use `field: /pointer` to read the payload, or `attr: mcap.publish_time` to read a message attribute",
+                ),
             }
             if t.max_skew.is_some_and(|d| d.get().is_zero()) {
                 self.ctx.invalid(

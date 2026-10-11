@@ -103,10 +103,13 @@ Inside an exploded dataset, a field's `from` may use `^/` to read from the **par
 time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
 ```
 
+Exactly one of `field` (read the payload) or `attr` (read a message attribute) is required; giving both or neither is a config error.
+
 | Key | Type | Required | Description |
 |---|---|---|---|
-| `field` | JSON Pointer | yes | Where the source timestamp lives. `^/` reads it from the parent message of an exploded sample. |
-| `unit` | `s`, `ms`, `us`, `ns`, `rfc3339` | yes | `s`, `ms`, `us`, `ns` are the unit of a numeric epoch timestamp. `rfc3339` means the field is RFC 3339 text rather than an epoch number. |
+| `field` | JSON Pointer | one of `field`/`attr` | Where the payload holds the timestamp. `^/` reads it from the parent message of an exploded sample. A dotted ROS 2 name is one token: `/header.stamp` (a flattened key). A nested JSON object uses separate tokens: `/header/stamp`. |
+| `attr` | attribute name | one of `field`/`attr` | A message attribute holding the timestamp as decimal text, such as `mcap.publish_time`. The text is parsed in `unit`. `^` does not apply. |
+| `unit` | `s`, `ms`, `us`, `ns`, `rfc3339` | yes | `s`, `ms`, `us`, `ns` are the unit of a numeric epoch timestamp, in the payload or in the attribute text. `rfc3339` means RFC 3339 text rather than an epoch number. A ROS 2 `Ts` value is unix nanoseconds, so use `unit: ns` with no conversion. |
 | `default_offset` | UTC offset | no | The offset assumed for RFC 3339 text that carries none. Forms: `+HH:MM`, `-HH:MM`, `+HHMM`, `+HH`, and `Z`/`UTC`; hours ≤ 23, minutes ≤ 59. Only valid with `unit: rfc3339` — a config error otherwise. |
 | `domain` | time domain | yes | `utc`, `tai`, `monotonic`, `sim`, or `unknown`. Only `utc` becomes the materialized `event_time`; explicitness is the point ([event model](../concepts/event-model.md#time-three-clocks-never-silently-merged)). |
 | `max_skew` | duration | no | When a `utc` source time differs from ingest time by more than this, the event is flagged `CLOCK_SKEW` (never corrected). Must be > 0. |
@@ -116,6 +119,23 @@ time: { field: /ts, unit: rfc3339, default_offset: "+02:00", domain: utc }
 ```
 
 Without `default_offset`, RFC 3339 text that carries no offset is a runtime reject (the message is quarantined).
+
+Examples for the attribute and ROS 2 forms:
+
+```yaml
+# ROS 2 builtin_interfaces/Time (header.stamp), already unix nanoseconds
+time: { field: /header.stamp, unit: ns, domain: utc, max_skew: 5s }
+
+# MCAP publisher clock, attached by the source
+time: { attr: mcap.publish_time, unit: ns, domain: utc, max_skew: 5s }
+
+# MCAP recorder clock
+time: { attr: mcap.log_time, unit: ns, domain: utc }
+```
+
+`mcap.log_time` is recorder time: when the recorder wrote the message. `mcap.publish_time` and `header.stamp` are publisher time: the clock of the node that produced the message, which can drift from the recorder or the host. Neither is corrected; `max_skew` flags a gap against ingest time.
+
+For `attr`, a missing attribute is the same as an absent payload field: the event is flagged `MISSING_TIME`. Attribute text that does not parse in `unit` is a reject (`decode.invalid_time`), the same as an unparseable payload timestamp.
 
 ### `fields` {#fields}
 
