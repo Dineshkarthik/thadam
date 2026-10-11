@@ -939,12 +939,14 @@ async fn a_schema_mismatch_is_a_config_error_and_nothing_is_created_or_altered()
     assert_eq!(tables().await, tables_before, "no table was created");
     assert_eq!(ddl().await, ddl_before, "no table was altered");
 
-    // An explicit mapping can bridge differently named columns.
+    // An explicit mapping can bridge differently named columns — including a
+    // dotted table column, which backticking keeps one literal identifier.
     exec(
         &admin,
         "CREATE TABLE telemetry.mapped (
             temperature Nullable(Float64), remark Nullable(String), n Int64, cnt UInt32,
-            readings Array(Float32), seen DateTime64(6, 'UTC'), event_id UUID
+            readings Array(Float32), seen DateTime64(6, 'UTC'), event_id UUID,
+            `pose.position.x` Nullable(Float64)
         ) ENGINE = MergeTree ORDER BY n",
     )
     .await;
@@ -952,7 +954,7 @@ async fn a_schema_mismatch_is_a_config_error_and_nothing_is_created_or_altered()
         &server,
         "mapped",
         serde_json::json!({ "columns": {
-            "temp": "temperature", "note": "remark", "n": "n", "counter": "cnt",
+            "temp": "pose.position.x", "note": "remark", "n": "n", "counter": "cnt",
             "samples": "readings", "seen": "seen", "_event_id": "event_id"
         }}),
     );
@@ -960,7 +962,7 @@ async fn a_schema_mismatch_is_a_config_error_and_nothing_is_created_or_altered()
     mapped.write(&batch(1, 3)).await.expect("mapped write");
     let got = rows(
         &admin,
-        "SELECT toString(event_id), ifNull(toString(temperature), 'NULL'), toString(cnt) FROM telemetry.mapped ORDER BY n",
+        "SELECT toString(event_id), ifNull(toString(`pose.position.x`), 'NULL'), toString(cnt) FROM telemetry.mapped ORDER BY n",
     )
     .await;
     assert_eq!(

@@ -125,7 +125,7 @@ datasets:
 
 The chain resolves the schema text from the store by the message's `mcap.schema_hash` (compiled messages are cached per hash), decodes the CDR payload with `thadam-ros2-msg`, and bridges the decoded **record** into the payload keys the pipeline reads: each flattened dotted field name is *one* key, so `/header.stamp` is a single JSON Pointer token. Failures are quarantined rejects with classified codes, never silent drops, and error text never contains payload bytes: a missing `mcap.schema_hash` is `decode.schema_ref_missing`, a hash the store does not hold is `decode.unknown_schema`, and schema or CDR problems are the `schema.*`/`decode.*` codes the decoder already classifies.
 
-Declaring the decoder's dotted names *as dataset fields* (typed by the decode itself, without the JSON bridge) is a later step; datasets today declare simple field names and reach the dotted keys through `from:` and `time.field`, as above, or consume them in the `pose`/`joint_state` steps.
+Dotted names may be declared as dataset fields: each is one literal flat column (`pose.position.x`), and an omitted `from` defaults to `/<name>` as a single JSON Pointer token — see [dataset fields](../configuration/datasets.md#fields). Declaring them *typed by the decode itself* (no JSON bridge) remains a later step. The [robotics conventions](../concepts/robotics-conventions.md) page has a complete `PoseStamped` dataset example.
 
 ### Ordering, timing, and replay determinism
 

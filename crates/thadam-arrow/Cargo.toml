@@ -19,6 +19,7 @@ arrow-ipc = { workspace = true }
 bytes = { workspace = true }
 criterion = { workspace = true, features = ["cargo_bench_support"] }
 insta = { workspace = true }
+parquet = { workspace = true }
 proptest = { workspace = true }
 
 [[bench]]

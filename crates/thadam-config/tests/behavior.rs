@@ -511,7 +511,7 @@ mod structure {
     fn exploded_datasets_may_read_parent_fields() {
         let demo = load_str(&demo(), &demo_env()).unwrap();
         assert!(demo.datasets[1].explode.is_some());
-        assert_eq!(demo.datasets[1].fields[0].from, "^/seq");
+        assert_eq!(demo.datasets[1].fields[0].from.as_deref(), Some("^/seq"));
     }
 
     #[test]
@@ -521,6 +521,45 @@ mod structure {
             spec.datasets[0].dedup.as_ref().unwrap().max_keys.get(),
             500_000
         );
+    }
+
+    #[test]
+    fn dotted_field_names_are_one_flat_column() {
+        // A dotted name is one literal column: `from` may be omitted and then
+        // defaults to `/<name>`, a single JSON Pointer token that reads the
+        // decoder's flattened key.
+        let yaml = edit(
+            &minimal(),
+            "- { id: 1001, name: level, type: str, from: /level }",
+            "- { id: 1001, name: level, type: str, from: /level }\n      - { id: 1002, name: pose.position.x, type: f64 }\n      - { id: 1003, name: header.frame_id, type: str, from: /header.frame_id }",
+        );
+        let spec =
+            load_str(&yaml, &MapEnv::new()).unwrap_or_else(|r| panic!("{}", r.render(&yaml)));
+        let fields = &spec.datasets[0].fields;
+        let dotted = fields
+            .iter()
+            .find(|f| f.name == "pose.position.x")
+            .expect("the dotted field");
+        assert_eq!(dotted.from, None);
+        let frame = fields
+            .iter()
+            .find(|f| f.name == "header.frame_id")
+            .expect("the frame field");
+        assert_eq!(frame.from.as_deref(), Some("/header.frame_id"));
+    }
+
+    #[test]
+    fn dotted_field_names_reject_bad_segments() {
+        for bad in [".pose.x", "pose.x.", "pose..x", "a.1b", "_bad.x", "bad.-"] {
+            let yaml = edit(&minimal(), "name: level", &format!("name: {bad}"));
+            let errs = errors(&yaml);
+            assert_eq!(errs.len(), 1, "{bad}: {errs:?}");
+            assert!(
+                errs[0].starts_with("datasets[0].fields[1].name: ")
+                    && errs[0].contains("is not a valid field name"),
+                "{bad}: {errs:?}"
+            );
+        }
     }
 }
 

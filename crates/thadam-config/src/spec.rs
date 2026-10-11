@@ -811,8 +811,12 @@ pub struct FieldSpec {
     /// The declared type.
     #[serde(rename = "type")]
     pub ty: FieldTypeSpec,
-    /// A JSON Pointer into the payload; `^/` reads from the parent message of an exploded sample.
-    pub from: String,
+    /// A JSON Pointer into the payload; `^/` reads from the parent message of
+    /// an exploded sample. Absent, the field reads `/<name>`: one pointer
+    /// token, so a dotted name reads the decoder's flattened key
+    /// (`pose.position.x`) as `/pose.position.x` — never as nesting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
     /// Reject the event when the field is missing or null.
     #[serde(default)]
     pub required: bool,

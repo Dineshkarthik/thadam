@@ -26,7 +26,7 @@ datasets:
 |---|---|---|---|
 | `id` | string | yes | Unique. Used in paths, object keys, and metric labels. Same character rules as connector ids. |
 | `match` | mapping | yes | Which messages feed the dataset. |
-| `decode` | `json` | yes | The payload decoder. JSON is the only decoder in config version 1. |
+| `decode` | `json` or `ros2` | yes | The payload decoder. `ros2` decodes ROS 2 CDR payloads from an [MCAP source](../sources/ros2.md) through the schema store; its flattened dotted field names become the payload keys. |
 | `identity` | mapping | no | The asset-path levels, **in the order written**. Order matters: it is the hierarchy and part of the config hash. |
 | `event_id` | mapping | no | Content-derived event IDs; see [below](#event_id). |
 | `dedup` | mapping | no | Message-level deduplication; see [below](#dedup). |
@@ -143,10 +143,10 @@ Each entry declares one column:
 
 | Key | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | The column name: starts with a letter, then letters/digits/`_`; ≤ 63 characters. Must not collide with an identity level or the `explode.index_field`. |
+| `name` | string | yes | The column name: starts with a letter, then letters/digits/`_`; ≤ 63 characters. **Single dots are allowed between segments** — `pose.position.x` is *one literal flat column*, never nesting: each segment follows the same rule, so leading/trailing dots, empty segments (`a..b`), and digit-first segments are refused. Dotted names exist for the ROS 2 decoder's flattened shape, for example `header.frame_id`. Must not collide with an identity level or the `explode.index_field`. |
 | `id` | integer 1000–4,194,303 | yes | The stable Parquet field ID. Unique within the dataset. **Never reuse the ID of a removed field** — IDs are part of the config hash and of long-term schema identity ([field IDs](#field-ids)). |
 | `type` | field type | yes | `bool`, `i8`…`i64`, `u8`…`u64`, `f32`, `f64`, `str`, `bytes`, `ts`, or `list<T>` (nesting ≤ 3). `record` is not supported in config version 1. |
-| `from` | JSON Pointer | yes | Where to read the value in the decoded payload; `^/` reads the parent message of an exploded sample. |
+| `from` | JSON Pointer | no (default `/<name>`) | Where to read the value in the decoded payload; `^/` reads the parent message of an exploded sample. When omitted, the pointer is `/<name>` as **one pointer token**, so a dotted name reads the decoder's flattened key: a field named `pose.position.x` reads the payload key `pose.position.x` (not a nested `pose` object), consistent with the `ros2` bridge. |
 | `required` | boolean | no (default `false`) | Reject the message when the field is missing or null. |
 | `unit` | UCUM code | no | The unit of the **source** value (for example `mV`). |
 | `convert_to` | UCUM code | no | Convert to this unit; the stored column carries the converted value and unit. Requires `unit`, and a numeric type (scalars and typed lists; conversion is element-wise on lists). Unknown or dimensionally incompatible units are rejects. |

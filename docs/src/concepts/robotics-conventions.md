@@ -19,6 +19,38 @@ Frames form a tree of rigid transforms, conventionally rooted at `map` (the worl
 
 The `thadam-ros2-msg` compiler builds one Thadam `Shape` per message type. Nested scalar messages flatten to **dotted field names**, so `geometry_msgs/PoseStamped` becomes `header.stamp` (a `Ts`), `header.frame_id` (`str`), `pose.position.x/y/z` (`f64`), and `pose.orientation.x/y/z/w` (`f64`); `sensor_msgs/JointState` becomes `header.stamp`, `header.frame_id`, `name` (`list<str>`), and `position`/`velocity`/`effort` (`list<f64>` typed arrays). The full type mapping — scalar widening, array bound forms, the `builtin_interfaces/Time` triple — is documented in the [type-mapping section of `crates/thadam-ros2-msg/src/lib.rs`](https://docs.rs/thadam-ros2-msg) and mirrored on the [ROS 2 source page](../sources/ros2.md#type-mapping).
 
+### Declaring one as a dataset {#declaring-one-as-a-dataset}
+
+Dotted names are first-class declared fields: each is **one literal flat column**, with every dot-separated segment following the usual name rules (at most 63 characters, starts with a letter, then letters, digits, and `_` — so no leading, trailing, or doubled dots). When a field's `from` is omitted it defaults to `/<name>` as a single JSON Pointer token, which reads exactly the flattened key the decoder writes — so a complete `PoseStamped` dataset needs no explicit pointers at all:
+
+```yaml
+datasets:
+  - id: poses
+    match: { source: bag }
+    decode: ros2
+    time: { field: /header.stamp, unit: ns, domain: utc, max_skew: 5s }
+    fields:
+      - { id: 1000, name: header.stamp, type: ts, unit: ns, required: true }
+      - { id: 1001, name: header.frame_id, type: str, required: true }
+      - { id: 1002, name: pose.position.x, type: f64 }
+      - { id: 1003, name: pose.position.y, type: f64 }
+      - { id: 1004, name: pose.position.z, type: f64 }
+      - { id: 1005, name: pose.orientation.x, type: f64 }
+      - { id: 1006, name: pose.orientation.y, type: f64 }
+      - { id: 1007, name: pose.orientation.z, type: f64 }
+      - { id: 1008, name: pose.orientation.w, type: f64 }
+
+transforms:
+  - { kind: pose, dataset: poses }
+
+sinks:
+  - id: local
+    kind: parquet
+    config: { datasets: [poses] }
+```
+
+Payload keys the dataset does not declare (here `header.stamp.sec` and `header.stamp.nanosec`, the raw integers beside the `Ts`) are simply not projected. Every downstream consumer treats the names as opaque: Parquet columns carry them verbatim with their field IDs, and the [ClickHouse sink](../sinks/clickhouse.md) backticks them in SQL. `thadam validate` resolves the `pose` step's fields against this declaration — a missing `pose.orientation.w` is a `config.invalid` at `transforms[0].prefix`, without waiting for a chain compile at startup.
+
 ## Poses
 
 A pose is a position and a unit quaternion in a named frame:

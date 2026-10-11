@@ -75,6 +75,23 @@ SETTINGS non_replicated_deduplication_window = 1000;   -- 0 (the default) means 
 
 `open` reports **every** problem it finds in one `Config` error (permanent, so the pipeline fails fast with the list), including a missing table or database and the server's own explanation.
 
+### Names are quoted, dots included
+
+Every identifier in the SQL the sink generates is backticked (the `DESCRIBE TABLE` probe quotes database and table; ClickHouse backticks), and everywhere names are *matched* — the `DESCRIBE` rows and the server's Native-block column matching on insert — they compare verbatim. That means a flattened ROS 2 column such as `pose.position.x` is one literal column throughout. Dots inside a backticked name are carried literally, never read as ClickHouse's nested-column syntax. Declare such columns backticked in your own DDL:
+
+```sql
+CREATE TABLE telemetry.poses
+(
+    `header.frame_id`    LowCardinality(String),
+    `pose.position.x`    Nullable(Float64),
+    `pose.orientation.w` Nullable(Float64)
+)
+ENGINE = MergeTree
+ORDER BY _ingest_time;
+```
+
+The same holds for the `columns` mapping: keys are dataset column names and values are table column names, both compared exactly, so a mapping entry can point a dotted dataset field at any table column (or vice versa).
+
 ### Type mapping
 
 | Dataset / envelope Arrow type | Accepted table type |

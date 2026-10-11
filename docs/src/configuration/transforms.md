@@ -280,7 +280,7 @@ With `prefix: pose` the step reads `pose.position.{x,y,z}` and `pose.orientation
 
 The norm is only computed when all four quaternion components are finite numbers. An event violating several rules raises every flag; the reason is the first violation (an upstream reason is kept), and everything lands in `_quality_status`, `_quality_flags`, and `_quality_reason` as usual.
 
-The flattened fields usually come from the ROS 2 decoder's shape rather than declared dataset fields, so — like `enrich`'s table file — they are resolved when the transform chain compiles at pipeline startup, not by `thadam validate`. Validation does check the scalar options: `prefix` non-empty, the tolerance range, a non-empty `frame_field`.
+The flattened fields are declared as ordinary (dotted) dataset fields, so `thadam validate` checks them here: every `<prefix>.position.{x,y,z}` and `<prefix>.orientation.{x,y,z,w}` must exist as an `f32` or `f64` field, and the frame field — `header.frame_id` by default — as a `str` field. Each missing or mistyped one is its own error at `transforms[…].prefix` or `transforms[…].frame_field`, and the scalar options are checked too (`prefix` non-empty, the tolerance range, a non-empty `frame_field`). The engine re-checks against the actual record shape when the transform chain compiles at pipeline startup.
 
 ## `kind: joint_state` {#joint_state}
 

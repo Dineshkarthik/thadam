@@ -443,3 +443,84 @@ fn field_ids_survive_the_ipc_round_trip() {
     let rec = back.schema().field_with_name("rec").unwrap().clone();
     assert_eq!(field_id(&rec), Some(1011));
 }
+
+/// A declared field whose name contains dots is one literal column, never
+/// nesting: names, types, values, and field IDs survive the Parquet
+/// write↔read round trip (e.g. the ROS 2 flattened shape, `pose.position.x`).
+#[test]
+fn dotted_column_names_round_trip_through_parquet() {
+    let fields = vec![
+        FieldDef::new("header.frame_id", FieldType::Str).with_field_id(1000),
+        FieldDef::new("pose.position.x", FieldType::F64).with_field_id(1001),
+        FieldDef::new("pose.orientation.w", FieldType::F64).with_field_id(1002),
+    ];
+    let schema = Arc::new(
+        DatasetSchema::builder("poses")
+            .fields(fields.clone())
+            .options(ArrowOptions::default())
+            .build()
+            .unwrap(),
+    );
+    let mut enc = BatchEncoder::new(Arc::clone(&schema), 4);
+    let ev = Event::builder(
+        EventId::from_u128(7),
+        WalPos::new(1),
+        Times::new(
+            Timestamp::from_nanos(1_700_000_000_000_000_000),
+            TimeDomain::Utc,
+        ),
+    )
+    .asset(AssetPath::empty())
+    .payload(
+        Record::new(
+            shape(fields),
+            vec![Value::str("base_link"), Value::F64(1.5), Value::F64(1.0)],
+        )
+        .unwrap(),
+    )
+    .build()
+    .unwrap();
+    enc.push(&ev).unwrap();
+    let batch = enc.finish();
+
+    let mut buf = Vec::new();
+    {
+        let mut w = parquet::arrow::ArrowWriter::try_new(&mut buf, batch.schema(), None).unwrap();
+        w.write(&batch).unwrap();
+        w.close().unwrap();
+    }
+    let builder =
+        parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(Bytes::from(buf))
+            .unwrap();
+    let read_schema = builder.schema();
+
+    for name in ["header.frame_id", "pose.position.x", "pose.orientation.w"] {
+        let field = read_schema
+            .field_with_name(name)
+            .unwrap_or_else(|_| panic!("column {name}"));
+        assert!(
+            !matches!(field.data_type(), arrow_schema::DataType::Struct(_)),
+            "{name} stayed flat"
+        );
+    }
+    let by_name = |n: &str| read_schema.field_with_name(n).unwrap().clone();
+    assert_eq!(field_id(&by_name("header.frame_id")), Some(1000));
+    assert_eq!(field_id(&by_name("pose.position.x")), Some(1001));
+    assert_eq!(field_id(&by_name("pose.orientation.w")), Some(1002));
+
+    let batches: Vec<_> = builder.build().unwrap().collect::<Result<_, _>>().unwrap();
+    assert_eq!(batches.len(), 1);
+    let back = &batches[0];
+    assert_eq!(
+        column(back, "header.frame_id"),
+        vec![Cell::Str("base_link".into())]
+    );
+    assert_eq!(
+        column(back, "pose.position.x"),
+        vec![cell_of(&Value::F64(1.5), 1_000)]
+    );
+    assert_eq!(
+        column(back, "pose.orientation.w"),
+        vec![cell_of(&Value::F64(1.0), 1_000)]
+    );
+}

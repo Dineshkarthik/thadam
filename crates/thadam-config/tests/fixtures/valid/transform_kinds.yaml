@@ -21,6 +21,15 @@ datasets:
       - { id: 1004, name: position, type: 'list<f64>', from: /position }
       - { id: 1005, name: velocity, type: 'list<f64>', from: /velocity }
       - { id: 1006, name: effort, type: 'list<f64>', from: /effort }
+      # flattened pose columns, named by the ROS 2 decoder's dotted shape and
+      # read through the default pointer (each name is one JSON Pointer token)
+      - { id: 1007, name: tool_pose.position.x, type: f64 }
+      - { id: 1008, name: tool_pose.position.y, type: f64 }
+      - { id: 1009, name: tool_pose.position.z, type: f64 }
+      - { id: 1010, name: tool_pose.orientation.x, type: f64 }
+      - { id: 1011, name: tool_pose.orientation.y, type: f64 }
+      - { id: 1012, name: tool_pose.orientation.z, type: f64 }
+      - { id: 1013, name: tool_pose.orientation.w, type: f64 }
 transforms:
   - kind: on_change
     dataset: readings
@@ -42,8 +51,9 @@ transforms:
       - { name: installed, type: ts, unit: rfc3339, column: installed_at }
     on_miss: reject
   - { kind: cast, dataset: readings, fields: { temp: f64, count: i64 } }
-  # pose fields come from the ROS 2 decoder, so `thadam validate` defers them
-  # to the chain compile; an explicit `null` frame_field skips the frame check
+  # the pose step's `<prefix>.position.*` / `<prefix>.orientation.*` fields are
+  # declared above as dotted columns, so `thadam validate` checks them here;
+  # an explicit `null` frame_field skips the frame check
   - { kind: pose, dataset: readings, prefix: tool_pose, frame_field: null, quaternion_tolerance: 0.01 }
   - { kind: joint_state, dataset: readings }
   - { kind: rename, dataset: readings, fields: { level: severity, model: robot_model } }

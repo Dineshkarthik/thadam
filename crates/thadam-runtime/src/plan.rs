@@ -281,7 +281,12 @@ fn dataset_value(d: &DatasetSpec, path: &str) -> Result<Value, ThadamError> {
             let mut fm = Map::new();
             fm.insert("name".into(), json!(f.name));
             fm.insert("type".into(), json!(f.ty.canonical()));
-            fm.insert("from".into(), json!(f.from));
+            // Absent `from` stays absent: the engine defaults it to `/<name>`,
+            // one pointer token, which for a dotted name reads the decoder's
+            // flattened key.
+            if let Some(from) = &f.from {
+                fm.insert("from".into(), json!(from));
+            }
             fm.insert("required".into(), json!(f.required));
             if let Some(u) = &f.unit {
                 fm.insert("unit".into(), json!(u));

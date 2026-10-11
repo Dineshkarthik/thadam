@@ -48,6 +48,41 @@ fn with_steps(steps: &[&str]) -> String {
     format!("{base}  - id: other\n    kind: parquet\n    config: {{ datasets: [readings] }}\n")
 }
 
+/// `with_steps` plus the flattened pose fields on `readings`: `header.stamp`
+/// (`ts`), `header.frame_id` (`str`), and `pose.*` / `tool_pose.*`
+/// position/orientation (`f64`), declared under their dotted names without
+/// `from` (the default pointer reads the flattened key), so `pose` steps
+/// validate.
+fn with_pose_fields(steps: &[&str]) -> String {
+    let mut lines = vec![
+        "      - { id: 1020, name: header.stamp, type: ts, unit: ns }".to_owned(),
+        "      - { id: 1021, name: header.frame_id, type: str }".to_owned(),
+    ];
+    let parts = [
+        ("position", "x"),
+        ("position", "y"),
+        ("position", "z"),
+        ("orientation", "x"),
+        ("orientation", "y"),
+        ("orientation", "z"),
+        ("orientation", "w"),
+    ];
+    for (i, prefix) in ["pose", "tool_pose"].into_iter().enumerate() {
+        for (j, (group, axis)) in parts.iter().enumerate() {
+            lines.push(format!(
+                "      - {{ id: {}, name: {prefix}.{group}.{axis}, type: f64 }}",
+                1022 + i * 7 + j
+            ));
+        }
+    }
+    let extra = lines.join("\n") + "\n";
+    with_steps(steps).replacen(
+        "      - { id: 1008, name: effort, type: list<f64>, from: /effort }\n",
+        &format!("      - {{ id: 1008, name: effort, type: list<f64>, from: /effort }}\n{extra}"),
+        1,
+    )
+}
+
 fn errors(steps: &[&str]) -> Vec<String> {
     check(&with_steps(steps))
         .report
@@ -73,7 +108,7 @@ fn assert_one_error(steps: &[&str], path: &str, contains: &str) {
 }
 
 fn steps_json(steps: &[&str]) -> Vec<Value> {
-    let c = check(&with_steps(steps));
+    let c = check(&with_pose_fields(steps));
     assert!(c.report.errors.is_empty(), "{}", c.report);
     let spec = c.spec.unwrap();
     spec.transforms
@@ -906,18 +941,42 @@ fn the_valid_fixture_round_trips_through_its_serialized_form() {
 mod pose {
     use super::*;
 
+    fn errs(steps: &[&str]) -> Vec<String> {
+        check(&with_pose_fields(steps))
+            .report
+            .errors
+            .iter()
+            .map(|d| format!("{}: {}", d.path, d.message))
+            .collect()
+    }
+
+    fn assert_ok_pose(steps: &[&str]) {
+        let c = check(&with_pose_fields(steps));
+        assert!(c.report.errors.is_empty(), "{}", c.report);
+        assert!(c.report.warnings.is_empty(), "{}", c.report);
+    }
+
+    fn assert_one_pose_error(steps: &[&str], path: &str, contains: &str) {
+        let errs = errs(steps);
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(
+            errs[0].starts_with(&format!("{path}: ")) && errs[0].contains(contains),
+            "{errs:?}"
+        );
+    }
+
     #[test]
     fn a_default_step_loads_and_an_explicit_null_skips_the_frame_check() {
-        assert_ok(&["{ kind: pose, dataset: readings }"]);
-        assert_ok(&["{ kind: pose, dataset: readings, frame_field: null }"]);
-        assert_ok(&[
+        assert_ok_pose(&["{ kind: pose, dataset: readings }"]);
+        assert_ok_pose(&["{ kind: pose, dataset: readings, frame_field: null }"]);
+        assert_ok_pose(&[
             "{ kind: pose, dataset: readings, sinks: [local], prefix: tool_pose, frame_field: header.frame_id, quaternion_tolerance: 0.01 }",
         ]);
     }
 
     #[test]
     fn the_typed_spec_keeps_the_three_states_of_frame_field() {
-        let c = check(&with_steps(&[
+        let c = check(&with_pose_fields(&[
             "{ kind: pose, dataset: readings, frame_field: null }",
         ]));
         let spec = c.spec.unwrap();
@@ -926,7 +985,7 @@ mod pose {
         };
         assert_eq!(*frame_field, Some(None));
 
-        let c = check(&with_steps(&["{ kind: pose, dataset: readings }"]));
+        let c = check(&with_pose_fields(&["{ kind: pose, dataset: readings }"]));
         let spec = c.spec.unwrap();
         let TransformSpec::Pose {
             prefix,
@@ -947,7 +1006,7 @@ mod pose {
     #[test]
     fn scalar_options_mirror_the_engine_config_errors() {
         for tol in ["0", "1", "-0.5", "2"] {
-            assert_one_error(
+            assert_one_pose_error(
                 &[&format!(
                     "{{ kind: pose, dataset: readings, quaternion_tolerance: {tol} }}"
                 )],
@@ -955,15 +1014,25 @@ mod pose {
                 "greater than 0 and less than 1",
             );
         }
-        assert_one_error(
-            &["{ kind: pose, dataset: readings, prefix: '' }"],
-            "transforms[0].prefix",
-            "`prefix` must not be empty",
-        );
-        assert_one_error(
+        assert_one_pose_error(
             &["{ kind: pose, dataset: readings, frame_field: '' }"],
             "transforms[0].frame_field",
             "`frame_field` must not be empty",
+        );
+    }
+
+    #[test]
+    fn an_empty_prefix_reports_the_prefix_and_each_unknown_component() {
+        let errs = errs(&["{ kind: pose, dataset: readings, prefix: '' }"]);
+        assert_eq!(errs.len(), 8, "{errs:?}");
+        assert!(
+            errs[0].starts_with("transforms[0].prefix: ")
+                && errs[0].contains("`prefix` must not be empty"),
+            "{errs:?}"
+        );
+        assert!(
+            errs[1].contains("`.position.x` is not a declared field"),
+            "{errs:?}"
         );
     }
 
@@ -977,12 +1046,71 @@ mod pose {
     }
 
     #[test]
-    fn pose_fields_are_not_checked_against_the_dataset() {
-        // The dotted fields a pose step reads come from the ROS 2 decoder's
-        // shape; they cannot be declared fields today, so validation defers
-        // them to the chain compile the way `enrich` defers its table.
-        assert_ok(&["{ kind: pose, dataset: readings, prefix: no_such_prefix }"]);
-        assert_ok(&["{ kind: pose, dataset: readings, frame_field: nope.frame }"]);
+    fn every_missing_component_is_reported_at_the_prefix() {
+        let errs = errs(&["{ kind: pose, dataset: readings, prefix: no_such }"]);
+        assert_eq!(errs.len(), 7, "{errs:?}");
+        for (group, axes) in [
+            ("position", &["x", "y", "z"][..]),
+            ("orientation", &["x", "y", "z", "w"][..]),
+        ] {
+            for axis in axes {
+                let want = format!(
+                    "transforms[0].prefix: `no_such.{group}.{axis}` is not a declared field of dataset `readings`"
+                );
+                assert!(errs.contains(&want), "{want} in {errs:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_missing_frame_field_is_reported_at_the_frame_field_key() {
+        assert_one_pose_error(
+            &["{ kind: pose, dataset: readings, frame_field: nope.frame }"],
+            "transforms[0].frame_field",
+            "`nope.frame` is not a declared field of dataset `readings`",
+        );
+    }
+
+    #[test]
+    fn component_and_frame_types_are_checked() {
+        let bad_axis = with_pose_fields(&["{ kind: pose, dataset: readings, prefix: tool_pose }"])
+            .replacen(
+                "name: tool_pose.position.x, type: f64",
+                "name: tool_pose.position.x, type: i64",
+                1,
+            );
+        let errs: Vec<String> = check(&bad_axis)
+            .report
+            .errors
+            .iter()
+            .map(|d| format!("{}: {}", d.path, d.message))
+            .collect();
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(
+            errs[0].starts_with("transforms[0].prefix: ")
+                && errs[0].contains("`tool_pose.position.x` must be f32 or f64")
+                && errs[0].contains("`i64`"),
+            "{errs:?}"
+        );
+
+        let bad_frame = with_pose_fields(&["{ kind: pose, dataset: readings }"]).replacen(
+            "name: header.frame_id, type: str",
+            "name: header.frame_id, type: f64",
+            1,
+        );
+        let errs: Vec<String> = check(&bad_frame)
+            .report
+            .errors
+            .iter()
+            .map(|d| format!("{}: {}", d.path, d.message))
+            .collect();
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(
+            errs[0].starts_with("transforms[0].frame_field: ")
+                && errs[0].contains("`frame_field` must name a str field")
+                && errs[0].contains("`header.frame_id` is `f64`"),
+            "{errs:?}"
+        );
     }
 }
 

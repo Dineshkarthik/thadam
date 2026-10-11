@@ -64,6 +64,13 @@ fn lit(name: &str) -> String {
     format!("'{name}'")
 }
 
+/// The `DESCRIBE TABLE` probe statement. Backticked identifiers carry dots
+/// literally: `` `poses.v2` `` is one table name, never `poses` database
+/// `v2` table.
+fn describe_sql(database: &str, table: &str) -> String {
+    format!("DESCRIBE TABLE {}.{}", ident(database), ident(table))
+}
+
 /// The dedup token, per ADR-0008: `{epoch}-{sink}-{first}-{last}`. It is a
 /// pure function of the batch id and the sink id: the driver persists the
 /// in-flight range before sending and retries with the same `BatchId`, so the
@@ -219,11 +226,7 @@ impl ClickHouseSink {
     }
 
     async fn describe_table(&self) -> Result<Vec<TableCol>, ThadamError> {
-        let sql = format!(
-            "DESCRIBE TABLE {}.{}",
-            ident(&self.cfg.database),
-            ident(&self.cfg.table),
-        );
+        let sql = describe_sql(&self.cfg.database, &self.cfg.table);
         let rows = self
             .query_strings("describe", &sql, &["name", "type", "default_type"])
             .await?;
@@ -480,6 +483,18 @@ mod tests {
     fn identifiers_and_literals_are_quoted() {
         assert_eq!(ident("imu"), "`imu`");
         assert_eq!(lit("telemetry"), "'telemetry'");
+    }
+
+    #[test]
+    fn describe_sql_backticks_identifiers_with_dots() {
+        // A dotted name is one quoted identifier, never nested or
+        // database-qualified.
+        assert_eq!(
+            describe_sql("telemetry", "poses.v2"),
+            "DESCRIBE TABLE `telemetry`.`poses.v2`"
+        );
+        assert_eq!(ident("pose.position.x"), "`pose.position.x`");
+        assert_eq!(ident("a.b.c"), "`a.b.c`");
     }
 
     #[test]

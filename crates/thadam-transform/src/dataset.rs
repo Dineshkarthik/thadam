@@ -882,3 +882,35 @@ struct Msg<'a> {
     id: Option<EventId>,
     asset: &'a AssetPath,
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn an_omitted_from_reads_the_flattened_dotted_key() {
+        // The default pointer is `/<name>`: one JSON Pointer token, so a
+        // dotted name reads the decoder's flattened key as the ros2 bridge
+        // writes it, never a nested path.
+        let spec = FieldSpec {
+            name: "pose.position.x".to_owned(),
+            ty: "f64".to_owned(),
+            from: None,
+            required: false,
+            unit: None,
+            convert_to: None,
+        };
+        let mut errs = Vec::new();
+        let compiled = compile_field(&spec, "datasets[0].fields[0]", false, &mut errs)
+            .expect("the field compiles");
+        assert!(errs.is_empty(), "{errs:?}");
+        assert_eq!(compiled.plan.path.as_str(), "/pose.position.x");
+
+        let flat = json!({ "pose.position.x": 1.5 });
+        assert_eq!(compiled.plan.path.resolve(&flat, &flat), Some(&json!(1.5)));
+        let nested = json!({ "pose": { "position": { "x": 1.5 } } });
+        assert_eq!(compiled.plan.path.resolve(&nested, &nested), None);
+    }
+}

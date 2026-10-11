@@ -118,6 +118,14 @@ fn name_ok(s: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// A declared field's name: one literal flat column, which may be a
+/// dot-joined name such as `pose.position.x` (the ROS 2 decoder's flattened
+/// spelling). Each segment follows `name_ok`, so leading or trailing dots,
+/// empty segments (`a..b`), and digit-first segments are refused.
+fn field_name_ok(s: &str) -> bool {
+    s.len() <= 63 && s.split('.').all(name_ok)
+}
+
 fn label_ok(s: &str) -> bool {
     let mut chars = s.chars();
     s.len() <= 64
@@ -722,15 +730,17 @@ impl<'p> Checker<'p, '_, '_> {
     }
 
     fn field(&mut self, p: &PathVec, f: &FieldSpec, exploded: bool) {
-        if !name_ok(&f.name) {
+        if !field_name_ok(&f.name) {
             self.ctx.invalid_hint(
                 &p.key("name"),
                 Anchor::Value,
                 format!("`{}` is not a valid field name", f.name),
-                "names start with a letter and use letters, digits, and `_`; a leading `_` is reserved for Thadam columns",
+                "names start with a letter and use letters, digits, `_`, and single dots between segments (`pose.position.x`); a leading `_` is reserved for Thadam columns",
             );
         }
-        if let Err(msg) = check_pointer(&f.from, exploded) {
+        if let Some(from) = &f.from
+            && let Err(msg) = check_pointer(from, exploded)
+        {
             self.ctx.invalid(&p.key("from"), Anchor::Value, msg);
         }
         if f.convert_to.is_some() && f.unit.is_none() {
@@ -1067,36 +1077,7 @@ impl<'p> Checker<'p, '_, '_> {
                 frame_field,
                 quaternion_tolerance,
                 ..
-            } => {
-                // The flattened fields a pose step reads (`<prefix>.position.x`,
-                // `<prefix>.orientation.w`, the frame field) come from the ROS 2
-                // decoder's dotted shape and so cannot be declared fields today;
-                // like an `enrich` table, they are resolved when the transform
-                // chain compiles, not here.
-                if prefix.is_empty() {
-                    self.ctx.invalid(
-                        &base.key("prefix"),
-                        Anchor::Value,
-                        "`prefix` must not be empty",
-                    );
-                }
-                if !(*quaternion_tolerance > 0.0 && *quaternion_tolerance < 1.0) {
-                    self.ctx.invalid(
-                        &base.key("quaternion_tolerance"),
-                        Anchor::Value,
-                        "`quaternion_tolerance` must be greater than 0 and less than 1",
-                    );
-                }
-                if let Some(Some(field)) = frame_field
-                    && field.is_empty()
-                {
-                    self.ctx.invalid(
-                        &base.key("frame_field"),
-                        Anchor::Value,
-                        "`frame_field` must not be empty",
-                    );
-                }
-            }
+            } => self.pose(base, prefix, frame_field, *quaternion_tolerance, names),
             TransformSpec::JointState {
                 name_field,
                 position_field,
@@ -1113,6 +1094,98 @@ impl<'p> Checker<'p, '_, '_> {
                     self.joint_state_field(base, key, name, floats, names);
                 }
             }
+        }
+    }
+
+    /// The `pose` step's derived fields, mirroring the engine's compile: the
+    /// flattened `<prefix>.position.{x,y,z}` and `<prefix>.orientation.{x,y,z,w}`
+    /// must be declared f32/f64 fields, and the frame field (explicit
+    /// `frame_field: null` skips it, otherwise `header.frame_id` by default) a
+    /// declared `str` field. Each problem is one diagnostic.
+    fn pose(
+        &mut self,
+        base: &PathVec,
+        prefix: &str,
+        frame_field: &Option<Option<String>>,
+        quaternion_tolerance: f64,
+        names: &Names,
+    ) {
+        if prefix.is_empty() {
+            self.ctx.invalid(
+                &base.key("prefix"),
+                Anchor::Value,
+                "`prefix` must not be empty",
+            );
+        }
+        if !(quaternion_tolerance > 0.0 && quaternion_tolerance < 1.0) {
+            self.ctx.invalid(
+                &base.key("quaternion_tolerance"),
+                Anchor::Value,
+                "`quaternion_tolerance` must be greater than 0 and less than 1",
+            );
+        }
+        let prefix_path = base.key("prefix");
+        for axis in ["x", "y", "z"] {
+            self.pose_component(&prefix_path, prefix, "position", axis, names);
+        }
+        for axis in ["x", "y", "z", "w"] {
+            self.pose_component(&prefix_path, prefix, "orientation", axis, names);
+        }
+
+        let frame_path = base.key("frame_field");
+        let target = match frame_field {
+            // An explicit `null` skips the frame check.
+            Some(None) => None,
+            Some(Some(name)) => Some(name.as_str()),
+            // An absent key checks the engine's default `header.frame_id`.
+            None => Some("header.frame_id"),
+        };
+        if let Some(name) = target {
+            if name.is_empty() {
+                self.ctx.invalid(
+                    &frame_path,
+                    Anchor::Value,
+                    "`frame_field` must not be empty",
+                );
+            } else {
+                match names.fields.get(name) {
+                    None => self.unknown_step_field(&frame_path, Anchor::Value, name, names),
+                    Some(FieldType::Str) => {}
+                    Some(ty) => self.ctx.invalid(
+                        &frame_path,
+                        Anchor::Value,
+                        format!(
+                            "`frame_field` must name a str field, but `{name}` is `{}`",
+                            type_label(ty)
+                        ),
+                    ),
+                }
+            }
+        }
+    }
+
+    /// One `<prefix>.<group>.<axis>` component of the flattened pose: a
+    /// declared f32 or f64 field, as the engine requires.
+    fn pose_component(
+        &mut self,
+        prefix_path: &PathVec,
+        prefix: &str,
+        group: &str,
+        axis: &str,
+        names: &Names,
+    ) {
+        let name = format!("{prefix}.{group}.{axis}");
+        match names.fields.get(&name) {
+            None => self.unknown_step_field(prefix_path, Anchor::Value, &name, names),
+            Some(FieldType::F32 | FieldType::F64) => {}
+            Some(ty) => self.ctx.invalid(
+                prefix_path,
+                Anchor::Value,
+                format!(
+                    "`{name}` must be f32 or f64 for the `pose` step, but it is `{}`",
+                    type_label(ty)
+                ),
+            ),
         }
     }
 

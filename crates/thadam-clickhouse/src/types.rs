@@ -797,4 +797,76 @@ mod tests {
         assert!(int_ok(true, 16, &Dst::UInt(UIntWidth::U16)));
         assert!(!int_ok(true, 32, &Dst::UInt(UIntWidth::U16)));
     }
+
+    /// The flattened dotted shape a `decode: ros2` dataset declares, e.g.
+    /// `header.frame_id` and `pose.orientation.w`, as first-class columns.
+    fn dotted_fields() -> Vec<FieldRef> {
+        std::sync::Arc::new(
+            thadam_arrow::DatasetSchema::builder("poses")
+                .field(
+                    thadam_core::FieldDef::new("header.frame_id", thadam_core::FieldType::Str)
+                        .with_field_id(1000),
+                )
+                .field(
+                    thadam_core::FieldDef::new("pose.position.x", thadam_core::FieldType::F64)
+                        .with_field_id(1001),
+                )
+                .field(
+                    thadam_core::FieldDef::new("pose.orientation.w", thadam_core::FieldType::F64)
+                        .with_field_id(1002),
+                )
+                .build()
+                .expect("dotted schema"),
+        )
+        .arrow_schema()
+        .fields()
+        .iter()
+        .cloned()
+        .collect()
+    }
+
+    #[test]
+    fn dotted_columns_match_by_name_and_stay_literal() {
+        let table = describe(&[
+            ("header.frame_id", "Nullable(String)"),
+            ("pose.position.x", "Nullable(Float64)"),
+            ("pose.orientation.w", "Nullable(Float64)"),
+        ]);
+        let p = build_plan(&dotted_fields(), &table, None).expect("matches by literal name");
+        let names: Vec<&str> = p.cols.iter().map(|c| c.table.as_str()).collect();
+        assert_eq!(
+            names,
+            ["header.frame_id", "pose.position.x", "pose.orientation.w"]
+        );
+        assert_eq!(p.cols[1].dst, Dst::Float(FloatWidth::F64));
+    }
+
+    #[test]
+    fn dotted_names_work_through_the_columns_mapping() {
+        let table = describe(&[
+            ("frame", "Nullable(String)"),
+            ("pos_x", "Nullable(Float64)"),
+            ("quat_w", "Nullable(Float64)"),
+        ]);
+        let map = mapping(&[
+            ("header.frame_id", "frame"),
+            ("pose.position.x", "pos_x"),
+            ("pose.orientation.w", "quat_w"),
+        ]);
+        let p = build_plan(&dotted_fields(), &table, Some(&map)).expect("mapped");
+        let names: Vec<&str> = p.cols.iter().map(|c| c.table.as_str()).collect();
+        assert_eq!(names, ["frame", "pos_x", "quat_w"]);
+
+        // Dropping a dotted declared field from the mapping names the field,
+        // dots and all, in the error.
+        let mut short = map.clone();
+        short.remove("pose.position.x");
+        let text = build_plan(&dotted_fields(), &table, Some(&short))
+            .expect_err("incomplete")
+            .join(" | ");
+        assert!(
+            text.contains("declared dataset field `pose.position.x` has no entry in `columns`"),
+            "{text}"
+        );
+    }
 }

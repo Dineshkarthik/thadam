@@ -303,8 +303,11 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
           ]
         },
         "from": {
-          "description": "A JSON Pointer into the payload; `^/` reads from the parent message of an exploded sample.",
-          "type": "string"
+          "description": "A JSON Pointer into the payload; `^/` reads from the parent message of\nan exploded sample. Absent, the field reads `/<name>`: one pointer\ntoken, so a dotted name reads the decoder's flattened key\n(`pose.position.x`) as `/pose.position.x` — never as nesting.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "id": {
           "description": "The stable Parquet field ID (1000 to 4194303, unique in the dataset). Never reuse the ID of a removed field.",
@@ -343,8 +346,7 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
       "required": [
         "name",
         "id",
-        "type",
-        "from"
+        "type"
       ],
       "type": "object"
     },
