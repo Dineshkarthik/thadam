@@ -2,7 +2,7 @@
 
 ## Is Thadam production-ready?
 
-No — it is pre-alpha. The architecture is settled and the core crates are tested, but the Parquet and object-store sinks are still landing, and `thadam run` cannot execute a pipeline end to end yet. See the [status banner](../../README.md) and [roadmap](roadmap.md).
+No — it is pre-alpha. The architecture is settled, the core crates are tested, and `thadam run` executes a pipeline end to end. The WAL's on-disk format is not frozen until the ADR-0004 re-run on reference hardware is done. See the [status banner](../../README.md) and [roadmap](roadmap.md).
 
 ## Does Thadam guarantee exactly-once delivery?
 
@@ -30,7 +30,7 @@ No. Thadam may transport command/event-like messages only where explicitly confi
 
 ## Which protocols and sinks work today?
 
-Sources: MQTT (3.1.1; v5 experimental). Sinks: Parquet (local segments) works; object storage shipping is in progress, the ClickHouse batch sink is implemented, ROS 2 is M2. The [roadmap](roadmap.md) has the full sequence.
+Sources: MQTT (3.1.1; v5 experimental), HTTP, gRPC, Modbus TCP, SocketCAN, and ROS 2 MCAP (offline ingestion). Sinks: Parquet (local segments), S3-compatible object storage shipping ([`thadam-object-store`](sinks/object-store.md)), NATS JetStream, and the ClickHouse batch sink (P1). Live ROS 2 transport is M2. The [roadmap](roadmap.md) has the full sequence.
 
 ## Can I run Thadam on a Raspberry Pi / Jetson / Mac?
 
@@ -42,4 +42,4 @@ Linux ARM64 and x86_64 are supported and are the only durability targets, on ind
 
 ## Where is the Python SDK?
 
-Planned post-MVP (product.md section 16: Rust first, Python first-class later). Nothing is published to any registry yet — crate and name clearance is tracked as ADR-0016, which is also why every crate is `publish = false`.
+The SDK is implemented in `sdk/python/` (PyO3 and maturin) and documented in the [Python SDK](sdk/python.md) page; build it from a checkout with `maturin develop`. It is not published to any package registry: its package version is `0.0.0`.

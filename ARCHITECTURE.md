@@ -409,7 +409,7 @@ An append-only, CRC-checked `catalog.log` with `Finalized`, `Eligible`, `Uploade
 
 ### Quarantine
 
-A segment sink with a fixed schema: `_wal_epoch`, `_wal_pos`, `_ingest_time`, `source_id`, `topic`, `error_domain`, `error_code`, `reason`, `raw` (binary, truncated at 64 KiB with a `raw_truncated` flag). It has its own disk budget so a schema change cannot starve normal data.
+A segment sink with a fixed schema: `_wal_epoch`, `_wal_pos`, `_ingest_time`, `source_id`, `topic`, `error_domain`, `error_code`, `reason`, `raw` (binary, truncated at 64 KiB with a `raw_truncated` flag). It has its own disk budget so a schema change cannot starve normal data. A reject is fsynced into the quarantine's staging file before its sink's cursor may pass it, so the segment's rotation never holds back the owning sink (ADR-0004, implementation notes for commit `6a56578`).
 
 ---
 

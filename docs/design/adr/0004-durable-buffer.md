@@ -163,6 +163,16 @@ Recorded from the `thadam-wal` crate documentation and source (commit `0c4cf6f`)
 
 Defaults as implemented in `WalOptions::new(on_full)`: `fsync` `interval(10ms)`, `segment_bytes` 64 MiB, `frame_max_bytes` 4 MiB, `group_max_bytes` 4 MiB, at most 8 MiB and 256 submitted-but-unwritten batches, `retain_for` zero, no preallocation, and no `node_id` or `machine_id`. `on_full` has no default.
 
+## Implementation notes (quarantine staging, 6a56578)
+
+Recorded from `crates/thadam-runtime/src/quarantine.rs`, `crates/thadam-runtime/src/staging.rs`, and `crates/thadam-core/src/connector/sink.rs` (commit `6a56578`). Rejects no longer gate the sink's WAL cursor on quarantine segment rotation.
+
+1. **Staging is the durability point for a reject.** A reject is appended to the quarantine instance's staging file, `quarantine/<sink>/rejects.staging`, and fsynced before `Quarantine::push` returns. The owning sink's cursor may pass it at that point. The quarantine Parquet segment is built from the same rows on its own rotation cadence, and it does not hold back the sink.
+2. **Staging file format.** The header is `RVQSTG01`. Each frame is `len u32 LE | crc32c u32 LE | payload`. On open, a torn tail is cut. The file shrinks by truncation or by an atomic rewrite (`.tmp` then rename) once the segment covering its rows is durable, and it is compacted once at least 64 KiB of it is dead.
+3. **Bounded size and budget.** Staged bytes are charged to `BudgetCategory::Quarantine`. The open quarantine segment is closed early once about 8 MiB is staged (`STAGING_SOFT_LIMIT`).
+4. **Crash recovery.** `Quarantine::recover` replays staged rows that are above the quarantine's durable WAL position into the next quarantine segment. The durable position is also kept as a floor (`floor_pos`), so a restart, a rewind, or a re-read of the same WAL frames does not stage a reject twice.
+5. **Sink-level rejects.** Rejects that a segment sink returns for its own batch (a value its columns cannot hold) are staged before the sink makes that batch's rows durable. The sink signals this through `SegmentSink::defer_durability` (the trait default is a no-op).
+
 ## Alternatives considered
 
 - **Custom segmented log (chosen; frozen only when this ADR is accepted).** Sequential writes, no compaction, whole-segment deletion gives predictable reclaim, replay is a sequential scan (11 GB/s or more on a warm cache in S1), no C dependency on ARM. Cost: Thadam owns the correctness. The review estimates 3 to 4k lines with tests. The original plan cites the Kafka and Vector disk-buffer lineage as evidence that recovery is simple and well understood; that is design lineage, and S1 now provides the measurements for this design.

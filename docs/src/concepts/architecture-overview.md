@@ -24,7 +24,7 @@ Thadam is a single-process, single-binary edge runtime running exactly one pipel
   │                       │ rejects  │        │ finalize → cursor     │
   │                       ▼          ▼        ▼ commit → eligible     │
   │               Quarantine      Segment catalog ──► Shipper ──► S3  │
-  │                                                               (P1)│
+  │                                                               (M1)│
   │               Chain (sink C): … ──► BatchDriver (accumulate,      │
   │                                        retry, bisect) ──► ClickHouse
   │                                                                 │
@@ -67,7 +67,7 @@ The workspace is split by dependency weight and change rate, with the dependency
 | `thadam-runtime` | Drivers, supervisor, shutdown, replay, observability, admin API |
 | `thadam-arrow` | Event → Arrow RecordBatch, dataset schema mapping, Parquet field IDs |
 | `thadam-segments` | Parquet segment sink, segment catalog, quarantine writer |
-| `thadam-object-store` | S3-compatible shipper over the segment catalog *(in progress)* |
+| `thadam-object-store` | S3-compatible shipper over the segment catalog |
 | `thadam-mqtt` | MQTT source |
 | `thadam-testkit` | Memory connectors, conformance suites, fake clock, crash harness (dev only) |
 | `apps/thadam-cli` | The `thadam` binary; the only composition root |
