@@ -32,12 +32,14 @@ Thadam is under active development. The architecture and the delivery guarantees
 - The runtime (`thadam-runtime`) with supervisor, shutdown and crash recovery, the admin HTTP API (`/healthz`, `/readyz`, `/metrics`, `/status`), and Prometheus metrics; `thadam run` and `thadam status` exist at the CLI level.
 - The Parquet segment sink (`thadam-segments`) and the object-store shipper (`thadam-object-store`) — locally durable segments, then oldest-first deterministic-key uploads with startup capability probing and unbounded retry.
 - The seeded demo simulator (`tools/thadam-simulator`) and the `edge-capture` demo stack: a 6-robot MQTT fleet with a per-sample truth oracle, Docker Compose topology (Mosquitto, Toxiproxy, SeaweedFS, Prometheus/Grafana), and a DuckDB exploration script.
+- Replay and inspection (`thadam replay`, `thadam inspect`), the chaos suites, the oracle verifier, and the benchmark harness (`tools/thadam-bench`).
+- Offline ROS 2 (milestone M2, [ADR-0007](docs/design/adr/0007-ros2-strategy.md)): MCAP capture, `decode: ros2` in the chain, `thadam export --mcap`, and [`examples/ros2-mcap-to-parquet`](examples/ros2-mcap-to-parquet).
 
 **In progress:**
 
-- Replay (`thadam replay`), the chaos suites, the oracle verifier, and published benchmarks (PR17–PR18). Local Parquet segments (`crates/thadam-segments`) and S3-compatible delivery ([ADR-0013](docs/design/adr/0013-parquet-segment-layout.md)) are wired and run end to end; the seeded demo fleet with its truth oracle lives in [`examples/edge-capture`](examples/edge-capture).
-- ClickHouse is a P1 sink that starts only after the M1 reliability gate ([ADR-0008](docs/design/adr/0008-clickhouse-sink.md), Draft).
-- ROS 2 is milestone M2 and is not part of v0.1 ([ADR-0007](docs/design/adr/0007-ros2-strategy.md), Draft).
+- Published benchmark results and the ADR-0004 WAL re-run on reference hardware (`scripts/wal-hw-bench.sh` is ready; the runs are not done).
+- Live ROS 2 transport: spike S3 (Zenoh-native first) is under way; ROS 2 is not part of v0.1.
+- ClickHouse is a P1 sink, implemented but outside the M1 reliability gate ([ADR-0008](docs/design/adr/0008-clickhouse-sink.md), Draft).
 
 Current per-component status is tracked in [docs/design/readiness.md](docs/design/readiness.md) and [ARCHITECTURE.md](ARCHITECTURE.md) section 21.
 

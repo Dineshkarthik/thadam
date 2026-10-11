@@ -68,11 +68,12 @@ Thadam is early in its first milestone (M1 / MVP v0.1). No releases exist yet; t
 
 ### In progress (not yet usable)
 
-- **Replay and inspect** (`thadam replay`, `thadam inspect`), chaos suites, the oracle verifier, and published benchmark results (PR17–PR18). Demo levels 1-2 landed; levels 3-4 follow with them.
+- Published benchmark results and the ADR-0004 WAL re-run on reference hardware (the bench script landed above; the runs are not done).
+- Live ROS 2 transport: spike S3 (ADR-0007 stage 3).
 
 ### Not started
 
-- ClickHouse sink (P1 after the M1 gate; ADR-0008 Draft), ROS 2 `thadam export --mcap` and live sources (M2; ADR-0007 Draft — the stage-1 `thadam-ros2-msg` decoder and the stage-2 `thadam-mcap` file source have landed above), Python SDK, plugin mechanism, windowing/aggregation.
+- Live ROS 2 source (ADR-0007 stage 4), plugin mechanism, windowing/aggregation.
 
 ### Known issues
 
