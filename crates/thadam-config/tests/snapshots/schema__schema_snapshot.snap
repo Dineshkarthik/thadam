@@ -140,6 +140,11 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
           "const": "json",
           "description": "A JSON object per message.",
           "type": "string"
+        },
+        {
+          "const": "ros2",
+          "description": "A ROS 2 CDR payload from an MCAP source. The message references its\nschema by hash (`mcap.schema_hash`); the schema text resolves from\nthe pipeline's schema store, and the decoded record's flattened\ndotted field names (`header.stamp`, `pose.position.x`, …) become the\npayload keys.",
+          "type": "string"
         }
       ]
     },

@@ -539,6 +539,97 @@ async fn ros2_mode_preflights_schemas_and_attaches_fields() {
     assert_eq!(messages.len(), 1);
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ros2msg_schemas_are_stored_before_messages_and_hashed_on_every_message() {
+    use thadam_core::{BuildContext, SchemaStore, SourceFactory};
+    use thadam_mcap::McapSourceFactory;
+
+    let dir = tempfile::tempdir().expect("tmpdir");
+    let bag = dir.path().join("bag.mcap");
+    // ros2msg + jsonschema + schemaless channels in one file.
+    write_mcap(
+        &bag,
+        &[
+            Msg::joint(10, 1),
+            Msg::json(20, 2),
+            Msg::other("/tf", 30, 3),
+        ],
+        false,
+    );
+    let schemas = dir.path().join("data").join("schemas");
+    let expect_hash = SchemaStore::hash(
+        common::JOINT_STATE_SCHEMA_NAME,
+        "ros2msg",
+        &joint_state_schema(),
+    );
+
+    // The factory path (BuildContext::schema_dir), in both decode modes.
+    for decode in ["raw", "ros2"] {
+        let ctx = BuildContext::new(
+            "mcap-test",
+            Arc::new(SystemClock::new()),
+            dir.path().join("source"),
+        )
+        .with_schema_dir(&schemas);
+        let mut source = McapSourceFactory::new()
+            .build(
+                serde_json::json!({ "paths": [bag.to_str().unwrap()], "decode": decode }),
+                &ctx,
+            )
+            .expect("build");
+        let source_ctx = SourceContext::new(
+            SourceId::new("test"),
+            Shutdown::new(),
+            Arc::new(SystemClock::new()),
+        );
+        source.open(&source_ctx).await.expect("open");
+
+        // BEFORE the first batch is ever returned the schema is durable.
+        let store = SchemaStore::open(&schemas);
+        let stored = store
+            .get(&expect_hash)
+            .expect("read")
+            .unwrap_or_else(|| panic!("stored at open ({decode})"));
+        assert_eq!(stored.text, joint_state_schema());
+        assert_eq!(&*stored.name, common::JOINT_STATE_SCHEMA_NAME);
+        assert_eq!(&*stored.encoding, "ros2msg");
+
+        let mut messages = Vec::new();
+        while let Some(batch) = source.next_batch(limits(4)).await.expect("batch") {
+            messages.extend(batch.batch.messages);
+        }
+        // Every ros2msg-channel message carries the hash; the other
+        // channels carry none and stored nothing.
+        assert_eq!(messages.len(), 3);
+        for m in &messages {
+            let topic = m.attrs.get(attr::MCAP_TOPIC).unwrap_or("");
+            let hash = m.attrs.get(attr::MCAP_SCHEMA_HASH);
+            if topic == JOINT_STATE_TOPIC {
+                assert_eq!(hash, Some(expect_hash.as_str()), "{decode}");
+            } else {
+                assert!(
+                    hash.is_none(),
+                    "{decode}: {topic} must not reference a schema"
+                );
+            }
+        }
+        // One schema for the file, idempotent across the second decode mode.
+        assert_eq!(store.list().expect("list").len(), 1);
+        source.close().await.expect("close");
+    }
+
+    // Without a store (a composition that manages no data directory) no
+    // hash is attached; chain decoders then reject with a classified code.
+    let cfg = serde_json::json!({ "paths": [bag.to_str().unwrap()], "decode": "ros2" });
+    let (mut source, _) = open(cfg).await;
+    let messages = collect_all(&mut source).await.expect("collect");
+    assert!(
+        messages
+            .iter()
+            .all(|m| m.attrs.get(attr::MCAP_SCHEMA_HASH).is_none())
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn cancel_safety_no_loss_no_duplication_under_dropped_futures() {
     use thadam_testkit::{SplitMix64, poll_once, poll_up_to};

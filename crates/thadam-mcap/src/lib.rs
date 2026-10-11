@@ -23,7 +23,14 @@
 //! Payloads stay raw: `decode: ros2` only pre-flights `ros2msg` schemas
 //! through the `thadam-ros2-msg` compiler (fail fast on a schema that does
 //! not compile) and attaches the compiled shape's field names; turning CDR
-//! bytes into records is the transform chain's job, using [`decode_ros2`].
+//! bytes into records is the transform chain's job (dataset `decode: ros2`),
+//! which resolves schema text from the pipeline's durable
+//! [`SchemaStore`](thadam_core::SchemaStore) by the `mcap.schema_hash`
+//! attribute every `ros2msg`-channel message carries. The source writes each
+//! `ros2msg` schema to the store the first time its channel is seen — in
+//! both decode modes — before the first message referencing it can be
+//! committed to the WAL; a store write failure is a classified error, never
+//! silently skipped.
 //! Every message carries `mcap.*` attributes (topic, schema name and
 //! encoding, message encoding, channel id, sequence, log and publish time)
 //! plus the normalized `topic` attribute that `match.topic` filters and

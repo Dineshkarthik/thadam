@@ -4,13 +4,18 @@ use std::cell::Cell;
 use std::collections::HashSet;
 use std::marker::PhantomData;
 
-use thadam_core::{EventBatch, ThadamError, ShapeRef, ShapeRegistry, Sym, TimeDomain, WalRange};
+use thadam_core::{
+    ErrorDomain, EventBatch, ThadamError, SchemaStore, ShapeRef, ShapeRegistry, Sym, TimeDomain,
+    WalRange, codes,
+};
+use serde_json::Value as Json;
 
 use crate::dataset::{Dataset, DatasetStats};
 use crate::decode::parse_json;
 use crate::input::{FrameInput, RejectedRaw};
 use crate::limits::ChainLimits;
-use crate::spec::ChainSpec;
+use crate::ros2::{Ros2Decode, record_to_json};
+use crate::spec::{ChainSpec, DecodeSpec};
 use crate::steps::{self, EnrichmentInfo, StepCtx, config_error};
 
 /// What a compiled dataset produces and which files it was built from.
@@ -87,6 +92,8 @@ pub struct Chain {
     infos: Vec<DatasetInfo>,
     registry: ShapeRegistry,
     limits: ChainLimits,
+    /// The ROS 2 payload decoder, built when any dataset is `decode: ros2`.
+    ros2: Option<Ros2Decode>,
     unmatched: u64,
     _not_sync: PhantomData<Cell<()>>,
 }
@@ -135,6 +142,32 @@ impl Chain {
                 }
             }
         }
+
+        // A `decode: ros2` dataset needs the runtime-provided schema store;
+        // without one there is nothing to resolve `mcap.schema_hash`
+        // against, which only config can fix.
+        let ros2 = if spec.datasets.iter().any(|d| d.decode == DecodeSpec::Ros2) {
+            match &spec.schema_dir {
+                Some(dir) => Some(Ros2Decode::new(SchemaStore::open(dir))),
+                None => {
+                    for (i, d) in spec.datasets.iter().enumerate() {
+                        if d.decode == DecodeSpec::Ros2 {
+                            errs.push(
+                                ThadamError::permanent(
+                                    ErrorDomain::Config,
+                                    codes::CONFIG_MISSING,
+                                    "`decode: ros2` needs the pipeline's schema store directory, which the runtime provides from the data directory",
+                                )
+                                .with_context("path", format!("datasets[{i}].decode")),
+                            );
+                        }
+                    }
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
         for (t, transform) in spec.transforms.iter().enumerate() {
             let path = format!("transforms[{t}]");
@@ -202,6 +235,7 @@ impl Chain {
             infos,
             registry,
             limits,
+            ros2,
             unmatched: 0,
             _not_sync: PhantomData,
         })
@@ -243,8 +277,13 @@ impl Chain {
         out: &mut ChainOutput,
         rejects: &mut Vec<RejectedRaw>,
     ) {
+        let ros2 = &mut self.ros2;
+        let limits = &self.limits;
         for view in input.records {
-            let mut parsed = None;
+            // Decode failures are cached per record so every matching
+            // dataset rejects the message with the same error.
+            let mut json_root: Option<Result<Json, ThadamError>> = None;
+            let mut ros2_root: Option<Result<Json, ThadamError>> = None;
             let mut matched = false;
             for (i, ds) in self.datasets.iter_mut().enumerate() {
                 if !ds.matches(view) {
@@ -254,7 +293,21 @@ impl Chain {
                 let Some(slot) = out.batches.get_mut(i) else {
                     continue;
                 };
-                let root = parsed.get_or_insert_with(|| parse_json(view.payload, &self.limits));
+                let root = match ds.decode {
+                    DecodeSpec::Json => {
+                        json_root.get_or_insert_with(|| parse_json(view.payload, limits))
+                    }
+                    DecodeSpec::Ros2 => ros2_root.get_or_insert_with(|| match ros2.as_mut() {
+                        Some(decode) => decode
+                            .decode(view.attrs, view.payload)
+                            .map(|r| record_to_json(&r)),
+                        None => Err(ThadamError::fatal(
+                            ErrorDomain::Config,
+                            codes::CONFIG_MISSING,
+                            "`decode: ros2` has no schema store (compile-time check missed it)",
+                        )),
+                    }),
+                };
                 match root {
                     Ok(root) => ds.process(view, root, &mut slot.batch.events, rejects),
                     Err(e) => {

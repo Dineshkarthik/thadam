@@ -191,8 +191,13 @@ pub async fn replay(
             .unwrap_or_else(|| spec.pipeline.data_dir.clone()),
     };
     let only = plan::sink_datasets(spec, index, &sink_spec.config)?;
-    let chain_spec =
-        plan::chain_spec(spec, &req.sink, only.as_deref(), opts.config_dir.as_deref())?;
+    let chain_spec = plan::chain_spec(
+        spec,
+        &req.sink,
+        only.as_deref(),
+        opts.config_dir.as_deref(),
+        Some(layout.schemas().as_path()),
+    )?;
     let mut chain = Chain::compile(&chain_spec, opts.chain_limits.clone()).map_err(|es| {
         es.into_iter()
             .next()

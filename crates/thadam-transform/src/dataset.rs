@@ -16,7 +16,7 @@ use crate::eventid::{IdBuf, positional_id, sample_id};
 use crate::input::{RawRecordView, RejectedRaw};
 use crate::limits::ChainLimits;
 use crate::paths::{FieldPath, PathError, Template, TemplateContext, TopicFilter};
-use crate::spec::{DatasetSpec, FieldSpec, parse_field_type};
+use crate::spec::{DatasetSpec, DecodeSpec, FieldSpec, parse_field_type};
 use crate::steps::{EnrichmentInfo, Step, StepResult};
 use crate::timex::{TimeParser, TimePlan};
 use crate::units::{Unit, UnitConversion};
@@ -109,6 +109,8 @@ struct Explode {
 
 pub(crate) struct Dataset {
     pub(crate) id: Sym,
+    /// How the payload becomes the JSON root `process` reads.
+    pub(crate) decode: DecodeSpec,
     matcher: Matcher,
     identity: Vec<(Sym, Template)>,
     fixed_asset: Option<AssetPath>,
@@ -570,6 +572,7 @@ impl Dataset {
 
         Ok(Dataset {
             id: Sym::from(spec.id.as_str()),
+            decode: spec.decode,
             matcher,
             identity,
             fixed_asset,

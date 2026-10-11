@@ -68,6 +68,7 @@ mod metrics;
 mod position;
 mod quality;
 mod record;
+pub mod schema_store;
 mod shape;
 mod shutdown;
 mod text;
@@ -96,6 +97,7 @@ pub use metrics::{ConnectorMetric, MetricsRecorder, NoopMetricsRecorder};
 pub use position::{BatchId, InvertedWalRange, ParseBatchIdError, WalEpoch, WalPos, WalRange};
 pub use quality::{Quality, QualityFlags, QualityStatus};
 pub use record::{Record, RecordError};
+pub use schema_store::{SCHEMA_HASH_ATTR, SchemaStore, StoredSchema};
 pub use shape::{
     FieldDef, FieldIdx, FieldType, MAX_SHAPE_FIELDS, Shape, ShapeError, ShapeFingerprint, ShapeKey,
     ShapeLimitExceeded, ShapeRef, ShapeRegistry,

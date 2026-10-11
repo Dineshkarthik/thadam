@@ -101,10 +101,31 @@ Unknown keys are rejected. `paths` is the only required key.
 
 ### `decode: raw` versus `decode: ros2`
 
-The source never turns payload bytes into records — that is the transform chain's job, matching ADR-0007's separation of transport and schema. `decoded` records can be produced by a (future) transform step calling `thadam_mcap::decode_ros2(schema_name, schema_text, payload)`, which runs the same `thadam-ros2-msg` pipeline described above. The difference:
+The source never turns payload bytes into records — that is the transform chain's job, matching ADR-0007's separation of transport and schema. The difference:
 
 - `raw` passes every channel through untouched.
-- `ros2` pre-flights each channel whose schema encoding is `ros2msg`: the schema is registered and compiled when the channel is first seen, so a schema that does not compile fails `open` (a `schema.*` error naming the file) instead of surprising the pipeline mid-run. Messages on such channels additionally carry `mcap.ros2.fields` (see below).
+- `ros2` additionally pre-flights each channel whose schema encoding is `ros2msg`: the schema is registered and compiled when the channel is first seen, so a schema that does not compile fails `open` (a `schema.*` error naming the file) instead of surprising the pipeline mid-run. Messages on such channels additionally carry `mcap.ros2.fields` (see below).
+
+### The schema store and `decode: ros2` on a dataset
+
+In both modes the source writes every `ros2msg` channel's schema text to the pipeline's **schema store** the first time the channel is seen — durable (`tmp` file, fsync, rename, directory fsync), content-addressed, and idempotent — *before* the first message referencing it can be committed to the WAL, so a replay never lands a message whose schema was lost. The store lives at [`<data_dir>/schemas/`](../operations/data-directory.md#the-schema-store-schemas) (`thadam_core::SchemaStore`, one `<sha-256 hash>.schema` file per schema holding name, encoding, and text); a store write failure is a classified error, never silently skipped. Every message on such a channel carries the schema's hash as `mcap.schema_hash`.
+
+A dataset then opts into ROS 2 decoding:
+
+```yaml
+datasets:
+  - id: joints
+    match: { source: rosbag, topic: /joint_states }
+    decode: ros2
+    time: { field: /header.stamp, unit: ns, domain: utc }
+    fields:
+      - { id: 1000, name: frame, type: str, from: /header.frame_id }
+      - { id: 1001, name: position, type: list<f64>, from: /position }
+```
+
+The chain resolves the schema text from the store by the message's `mcap.schema_hash` (compiled messages are cached per hash), decodes the CDR payload with `thadam-ros2-msg`, and bridges the decoded **record** into the payload keys the pipeline reads: each flattened dotted field name is *one* key, so `/header.stamp` is a single JSON Pointer token. Failures are quarantined rejects with classified codes, never silent drops, and error text never contains payload bytes: a missing `mcap.schema_hash` is `decode.schema_ref_missing`, a hash the store does not hold is `decode.unknown_schema`, and schema or CDR problems are the `schema.*`/`decode.*` codes the decoder already classifies.
+
+Declaring the decoder's dotted names *as dataset fields* (typed by the decode itself, without the JSON bridge) is a later step; datasets today declare simple field names and reach the dotted keys through `from:` and `time.field`, as above, or consume them in the `pose`/`joint_state` steps.
 
 ### Ordering, timing, and replay determinism
 
@@ -126,6 +147,7 @@ Each MCAP message becomes one raw message with these attributes:
 | `mcap.log_time` | The MCAP log time, nanoseconds, decimal. |
 | `mcap.publish_time` | The MCAP publish time, nanoseconds, decimal. |
 | `mcap.ros2.fields` | With `decode: ros2` only, and only on channels with a `ros2msg` schema: the comma-separated flattened field names of the compiled shape (for example `header.stamp.sec,header.stamp.nanosec,header.stamp,header.frame_id,name,position,velocity,effort`). |
+| `mcap.schema_hash` | On every message of a channel with a `ros2msg` schema: the hex SHA-256 key of the channel's schema in the pipeline's [schema store](../operations/data-directory.md#the-schema-store-schemas). The chain's dataset `decode: ros2` resolves schema text with it. |
 
 ### Timestamps
 
@@ -134,7 +156,7 @@ ROS 2 has two clocks you can choose from in `time`:
 - Publisher time, from the message: `header.stamp` (a `builtin_interfaces/Time`, decoded to unix nanoseconds). Use `field: /header.stamp, unit: ns`. The dotted name is one JSON Pointer token, because the decoded field is the flattened key `header.stamp`.
 - Recorder time, from MCAP: `attr: mcap.log_time, unit: ns`. Publish time is also available as `attr: mcap.publish_time, unit: ns`.
 
-Today the transform chain reads JSON payloads. `decode: ros2` records (`decode_ros2`) are not yet fed to the transform step, so `/header.stamp` applies to JSON messages that carry that key. For CDR messages, use `attr: mcap.publish_time` or `attr: mcap.log_time`.
+`time.field` reads the decoded record too: with dataset `decode: ros2`, `/header.stamp` addresses the flattened key the decoder writes (a nanosecond `Ts`, read as-is with `unit: ns`), exactly as the field paths above do.
 
 The source is finite: it ends with `None` once the inputs are drained. Acks are no-ops (`ack_mode: none`) and stay ordered trivially, because files are re-readable: replay is idempotent from the input, so after a crash or restart the source simply reads the files again from the start and nothing is skipped or acknowledged early.
 

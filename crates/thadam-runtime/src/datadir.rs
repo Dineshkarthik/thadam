@@ -8,6 +8,7 @@
 //!   sinks/<id>/          state of each segment or batch sink
 //!   quarantine/<sink>/   each sink's quarantine instance
 //!   sources/<id>/        source state (connectors decide)
+//!   schemas/             the schema store (thadam-core): <hash>.schema, content-addressed
 //!   services/<id>/       service state
 //!   replays/<id>/        replay output, never the production directories
 //! ```
@@ -38,6 +39,11 @@ pub const CURSOR_LAYOUT_VERSION: u32 = 1;
 pub const CATALOG_FORMAT_VERSION: u32 = 1;
 /// The WAL root inside the data directory.
 pub const WAL_DIR: &str = "wal";
+/// The schema-store root inside the data directory
+/// ([`thadam_core::SchemaStore`]): durable, content-addressed message
+/// schemas written by sources before messages referencing them reach the
+/// WAL, read back by chain decoders (and exports) by hash.
+pub const SCHEMAS_DIR: &str = "schemas";
 
 const LOCK_FILE: &str = "LOCK";
 
@@ -320,6 +326,9 @@ pub(crate) struct Layout {
 impl Layout {
     pub fn wal(&self) -> PathBuf {
         self.root.join(WAL_DIR)
+    }
+    pub fn schemas(&self) -> PathBuf {
+        self.root.join(SCHEMAS_DIR)
     }
     pub fn sink(&self, id: &str) -> PathBuf {
         self.root.join("sinks").join(id)

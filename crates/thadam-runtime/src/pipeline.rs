@@ -395,6 +395,7 @@ impl Pipeline {
                     &s.id,
                     only.as_deref(),
                     opts.config_dir.as_deref(),
+                    Some(layout.schemas().as_path()),
                 ) {
                     Ok(cs) => cs,
                     Err(e) => {
@@ -453,7 +454,8 @@ impl Pipeline {
         let clock = Arc::clone(&opts.clock);
         let mut sources = Vec::new();
         for (s, f) in spec.sources.iter().zip(source_factories) {
-            let ctx = BuildContext::new(s.id.as_str(), Arc::clone(&clock), layout.source(&s.id));
+            let ctx = BuildContext::new(s.id.as_str(), Arc::clone(&clock), layout.source(&s.id))
+                .with_schema_dir(layout.schemas());
             match f.build(s.config.clone(), &ctx) {
                 Ok(source) => sources.push(SourceSlot {
                     id: s.id.clone(),

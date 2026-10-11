@@ -71,7 +71,9 @@
 //! - Windowing and aggregation.
 //! - Arrow.
 //! - Async.
-//! - Any I/O beyond loading the enrichment file at compile time.
+//! - Any I/O beyond loading enrichment files at compile time and reading
+//!   the content-addressed schema store (`decode: ros2`), which is read-only
+//!   and deterministic.
 
 mod chain;
 mod dataset;
@@ -82,6 +84,7 @@ mod input;
 mod limits;
 pub mod paths;
 mod predicate;
+mod ros2;
 mod spec;
 mod steps;
 pub mod timeparse;

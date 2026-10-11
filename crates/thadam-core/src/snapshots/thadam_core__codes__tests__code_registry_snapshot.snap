@@ -17,6 +17,8 @@ decode: decode.unsupported_encoding
 decode: decode.too_large
 decode: decode.depth_exceeded
 decode: decode.invalid_time
+decode: decode.schema_ref_missing
+decode: decode.unknown_schema
 schema: schema.type_mismatch
 schema: schema.missing_field
 schema: schema.shape_limit

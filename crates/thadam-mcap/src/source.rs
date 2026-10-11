@@ -33,13 +33,14 @@ use std::time::Duration;
 use async_trait::async_trait;
 use thadam_core::{
     AckMode, Attributes, BatchLimits, Clock, ErrorDomain, RawBatch, RawMessage, ThadamError,
-    Shutdown, Source, SourceBatch, SourceCapabilities, SourceContext, SourceId, Timestamp, codes,
+    SchemaStore, Shutdown, Source, SourceBatch, SourceCapabilities, SourceContext, SourceId,
+    Timestamp, codes,
 };
 use thadam_ros2_msg::{CompiledMessage, Registry};
 
 use crate::config::{DecodeMode, McapConfig, Pace};
 use crate::error::McapError;
-use crate::file_reader::{ChannelInfo, FileReader, Item};
+use crate::file_reader::{ChannelInfo, FileReader, Item, SchemaInfo};
 
 /// The longest a pacing sleep ever waits. Gaps beyond a day in a recording
 /// are pathological; this also keeps `tokio::time::sleep` far from overflow.
@@ -70,6 +71,11 @@ pub mod attr {
     /// With `decode: ros2`: the comma-separated flattened field names of the
     /// compiled `ros2msg` shape.
     pub const MCAP_ROS2_FIELDS: &str = "mcap.ros2.fields";
+    /// The schema-store hash of the channel's schema, set on every message
+    /// of a `ros2msg` channel whose schema text was durably stored (see
+    /// [`SchemaStore`](thadam_core::SchemaStore)). The transform chain's
+    /// `decode: ros2` resolves the schema text from the store with this key.
+    pub const MCAP_SCHEMA_HASH: &str = thadam_core::SCHEMA_HASH_ATTR;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,6 +150,12 @@ pub struct McapSource {
     /// Payload byte total of `staged`.
     staged_bytes: usize,
     ros2: Option<Ros2State>,
+    /// The pipeline's durable schema store, when the runtime planned this
+    /// source against a data directory.
+    schema_store: Option<SchemaStore>,
+    /// The store hash of each seen `ros2msg` channel's schema, keyed like
+    /// `Ros2State.channels` by `(file index, channel id)`.
+    schema_hashes: HashMap<(usize, u16), Arc<str>>,
     /// The first read error, returned on every call after the staged flush.
     error: Option<ThadamError>,
     /// Set once every file is exhausted; makes `None` stable.
@@ -166,9 +178,23 @@ impl McapSource {
             staged: Vec::new(),
             staged_bytes: 0,
             ros2: None,
+            schema_store: None,
+            schema_hashes: HashMap::new(),
             error: None,
             exhausted: false,
         }
+    }
+
+    /// Sets the schema store `ros2msg` channel schemas are written to
+    /// (before the first message that references them), and whose hashes
+    /// messages carry as `mcap.schema_hash`. The runtime's factory always
+    /// sets one; a source without a store passes schemas through
+    /// unreferenced, so a chain `decode: ros2` then rejects affected
+    /// messages with `decode.schema_ref_missing`.
+    #[must_use]
+    pub fn with_schema_store(mut self, store: SchemaStore) -> Self {
+        self.schema_store = Some(store);
+        self
     }
 
     /// Expands directories one level deep, keeps `*.mcap`, sorts and
@@ -205,12 +231,44 @@ impl McapSource {
         Ok(files)
     }
 
-    /// Drains a file's newly seen channels through `ros2` schema pre-flight.
+    /// Drains a file's newly seen channels through schema storing and the
+    /// `ros2` pre-flight.
     fn preflight(&mut self, file: usize) -> Result<(), ThadamError> {
         let path = self.files[file].path().to_path_buf();
         for channel in self.files[file].drain_new_channels() {
             self.preflight_channel(file, &channel, &path)?;
         }
+        Ok(())
+    }
+
+    /// Writes a `ros2msg` channel's schema text to the schema store the
+    /// first time the channel is seen, so the write is durable before any
+    /// message of the channel can be committed to the WAL (`refill` runs
+    /// this before the channel's first message is staged). A write failure
+    /// is classified and sticks like any read error.
+    fn store_channel_schema(
+        &mut self,
+        file: usize,
+        channel_id: u16,
+        schema: &SchemaInfo,
+    ) -> Result<(), ThadamError> {
+        if self.schema_hashes.contains_key(&(file, channel_id)) {
+            return Ok(());
+        }
+        let Some(store) = &self.schema_store else {
+            return Ok(());
+        };
+        let Ok(text) = std::str::from_utf8(&schema.data) else {
+            // Bytes that are not valid `ros2msg` text cannot be stored, so
+            // no message can reference them. With `decode: ros2` the
+            // pre-flight below reports the same schema as
+            // `schema.invalid_shape`; `decode: raw` passes it through
+            // unreferenced.
+            return Ok(());
+        };
+        let hash = store.put(&schema.name, &schema.encoding, text)?;
+        self.schema_hashes
+            .insert((file, channel_id), Arc::from(hash.as_str()));
         Ok(())
     }
 
@@ -220,12 +278,16 @@ impl McapSource {
         channel: &Arc<ChannelInfo>,
         path: &Path,
     ) -> Result<(), ThadamError> {
-        let (Some(ros2), Some(schema)) = (&mut self.ros2, &channel.schema) else {
+        let Some(schema) = channel.schema.clone() else {
             return Ok(());
         };
         if schema.encoding != "ros2msg" {
             return Ok(());
         }
+        self.store_channel_schema(file, channel.id, &schema)?;
+        let Some(ros2) = &mut self.ros2 else {
+            return Ok(());
+        };
         let file_ctx = || path.display().to_string();
         let text = std::str::from_utf8(&schema.data).map_err(|_| {
             ThadamError::permanent(
@@ -353,6 +415,9 @@ impl McapSource {
             attr::MCAP_MESSAGE_ENCODING,
             channel.message_encoding.clone(),
         );
+        if let Some(hash) = self.schema_hashes.get(&(file, channel.id)) {
+            attrs.insert(attr::MCAP_SCHEMA_HASH, hash.as_ref());
+        }
         attrs.insert(attr::MCAP_CHANNEL_ID, channel.id.to_string());
         attrs.insert(attr::MCAP_SEQUENCE, item.sequence.to_string());
         attrs.insert(attr::MCAP_LOG_TIME, item.log_time.to_string());

@@ -51,6 +51,10 @@ codes! {
         DECODE_DEPTH_EXCEEDED = "decode.depth_exceeded",
         /// A timestamp could not be parsed.
         DECODE_INVALID_TIME = "decode.invalid_time",
+        /// The message does not carry the schema reference the decoder needs.
+        DECODE_SCHEMA_REF_MISSING = "decode.schema_ref_missing",
+        /// The referenced schema hash is not in the schema store.
+        DECODE_UNKNOWN_SCHEMA = "decode.unknown_schema",
     }
     Schema {
         /// A value does not match its declared field type.

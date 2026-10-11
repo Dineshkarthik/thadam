@@ -580,6 +580,12 @@ impl Default for QuarantineSpec {
 pub enum DecodeFormat {
     /// A JSON object per message.
     Json,
+    /// A ROS 2 CDR payload from an MCAP source. The message references its
+    /// schema by hash (`mcap.schema_hash`); the schema text resolves from
+    /// the pipeline's schema store, and the decoded record's flattened
+    /// dotted field names (`header.stamp`, `pose.position.x`, …) become the
+    /// payload keys.
+    Ros2,
 }
 
 /// Which messages belong to a dataset.

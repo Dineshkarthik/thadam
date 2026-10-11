@@ -30,6 +30,11 @@ pub struct ChainSpec {
     /// config text; the runtime sets it to the config file's directory.
     #[serde(skip)]
     pub base_dir: Option<PathBuf>,
+    /// The pipeline's schema-store directory, where dataset `decode: ros2`
+    /// resolves schema text. Not part of the config text; the runtime sets
+    /// it to `<data_dir>/schemas` (see [`thadam_core::SchemaStore`]).
+    #[serde(skip)]
+    pub schema_dir: Option<PathBuf>,
 }
 
 impl ChainSpec {
@@ -44,6 +49,14 @@ impl ChainSpec {
     #[must_use]
     pub fn with_base_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.base_dir = Some(dir.into());
+        self
+    }
+
+    /// Sets the schema-store directory `decode: ros2` datasets resolve
+    /// schema text from.
+    #[must_use]
+    pub fn with_schema_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.schema_dir = Some(dir.into());
         self
     }
 }
@@ -72,6 +85,12 @@ pub enum DecodeSpec {
     /// A JSON document.
     #[default]
     Json,
+    /// A ROS 2 CDR payload from an MCAP source. The message must carry
+    /// `mcap.schema_hash`; the schema text resolves from the schema store
+    /// the runtime pointed the chain at ([`ChainSpec::schema_dir`]), and
+    /// the decoded record's flattened dotted field names
+    /// (`header.stamp`, `pose.position.x`, …) become the payload keys.
+    Ros2,
 }
 
 /// Identity levels in hierarchy order, each a template such as `{topic.2}`.

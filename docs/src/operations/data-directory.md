@@ -17,6 +17,7 @@ data_dir/
 │   ├── ready/           # finalized, catalog-recorded segment files     (planned)
 │   └── catalog.log      # append-only segment catalog (CRC-checked)     (planned)
 ├── quarantine/<sink>/   # each sink's quarantine instance (own budget); rejects.staging holds rejects until their segment is durable
+├── schemas/             # the schema store: <sha-256 hash>.schema, content-addressed (see below)
 ├── sources/<id>/        # source state (connectors decide)
 ├── services/<id>/       # service state (e.g. the shipper)
 └── replays/<id>/        # replay output — never the production directories (planned)
@@ -43,6 +44,18 @@ Owned by the runtime; records everything needed to decide "is this my data?":
 Owned by the WAL; holds the WAL's own identity: its kind, the WAL/frame/cursor format versions, the **epoch**, and the `node_id`/`machine_id` binding.
 
 Identity lives once, here — `thadam.json` only *references* the epoch. Reason: sink state (finalized segments, batch progress) stores bare WAL positions, which are meaningless across epochs. If `wal/` were replaced by a fresh one (new epoch, positions restarting at 1) while `sinks/` survived, resuming at old positions would silently skip new data. The runtime refuses that combination (exit 3) unless [`--repair`](crash-recovery.md#--repair) is given; likewise a directory copied to another machine is refused by the machine binding. The epoch also appears in Parquet file names and object keys, so files from the two epochs can never collide.
+
+## The schema store (`schemas/`)
+
+Content-addressed store of message schemas, owned by `thadam-core`'s `SchemaStore` and shared pipeline-wide. Sources whose messages reference stored schema text — today the MCAP source for `ros2msg` channels — write each schema here the first time its channel is seen, *before the first message referencing it can be committed to the WAL*, and stamp the affected messages with the schema's hash (for MCAP, `mcap.schema_hash`). Chain decoders (dataset `decode: ros2`) and exports resolve the schema text by hash, so the WAL never has to carry schema text on every message.
+
+```text
+schemas/
+├── <sha-256 hash>.schema    # one file per schema
+└── .<sha-256 hash>.tmp-*    # in-flight writes; ignored by readers
+```
+
+Each `.schema` file is a small self-describing record (`thadam/schema-store 1`, then length-prefixed `name`, `encoding`, and `text` fields). The hash in the file name is SHA-256 over the name, encoding, and text — the name is hashed in because a `ros2msg` document does not name its main type. Writes publish atomically (write `tmp`, fsync, rename, fsync the directory) and are idempotent; readers re-hash the stored content and refuse a file that does not match the requested hash, so a damaged store fails loudly instead of decoding against the wrong schema. Deleting files only degrades new decodes of affected hashes to classified rejects.
 
 ## Format-status caution
 

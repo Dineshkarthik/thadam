@@ -219,6 +219,7 @@ fn dataset_value(d: &DatasetSpec, path: &str) -> Result<Value, ThadamError> {
     m.insert("match".into(), Value::Object(matcher));
     let decode = match d.decode {
         DecodeFormat::Json => "json",
+        DecodeFormat::Ros2 => "ros2",
         _ => {
             return Err(config_error(
                 &format!("{path}.decode"),
@@ -348,10 +349,15 @@ pub(crate) fn chain_spec(
     sink_id: &str,
     only: Option<&[String]>,
     base_dir: Option<&Path>,
+    schema_dir: Option<&Path>,
 ) -> Result<ChainSpec, ThadamError> {
     let cs = ChainSpec::from_value(chain_value(spec, sink_id, only)?)?;
-    Ok(match base_dir {
+    let cs = match base_dir {
         Some(dir) => cs.with_base_dir(dir),
+        None => cs,
+    };
+    Ok(match schema_dir {
+        Some(dir) => cs.with_schema_dir(dir),
         None => cs,
     })
 }
@@ -472,7 +478,7 @@ datasets:
     #[test]
     fn every_transform_kind_deserializes_into_a_chain_spec() {
         let spec = spec_with_parts("  - { id: a, kind: recseg }", "", EACH_KIND);
-        let chain = chain_spec(&spec, "a", None, None).unwrap();
+        let chain = chain_spec(&spec, "a", None, None, None).unwrap();
         let kinds: Vec<&str> = chain
             .transforms
             .iter()
@@ -533,7 +539,7 @@ datasets:
             "humantime text (`1m 30s`) does not parse in thadam-transform"
         );
         assert_eq!(v["transforms"][0]["every_n"], json!(2));
-        let chain = chain_spec(&spec, "a", None, None).unwrap();
+        let chain = chain_spec(&spec, "a", None, None, None).unwrap();
         let rt::TransformSpec::Sample(s) = &chain.transforms[0] else {
             panic!("{:?}", chain.transforms)
         };
@@ -551,7 +557,7 @@ datasets:
         let v = chain_value(&spec, "a", None).unwrap();
         assert_eq!(v["datasets"][0]["time"]["unit"], json!("rfc3339"));
         assert_eq!(v["datasets"][0]["time"]["default_offset"], json!("+02:00"));
-        let chain = chain_spec(&spec, "a", None, None).unwrap();
+        let chain = chain_spec(&spec, "a", None, None, None).unwrap();
         let time = chain.datasets[0].time.as_ref().unwrap();
         assert_eq!(time.unit, "rfc3339");
         assert_eq!(time.default_offset.as_deref(), Some("+02:00"));
@@ -561,7 +567,7 @@ datasets:
             "    time: { field: /ts, unit: us, domain: utc }\n",
             "",
         );
-        let chain = chain_spec(&epoch, "a", None, None).unwrap();
+        let chain = chain_spec(&epoch, "a", None, None, None).unwrap();
         assert_eq!(chain.datasets[0].time.as_ref().unwrap().unit, "us");
     }
 
@@ -572,7 +578,7 @@ datasets:
             "",
             "transforms:\n  - { kind: on_change, dataset: d, fields: [n, { field: temp, deadband: 0.5 }], heartbeat: 90s }\n",
         );
-        let chain = chain_spec(&spec, "a", None, None).unwrap();
+        let chain = chain_spec(&spec, "a", None, None, None).unwrap();
         let rt::TransformSpec::OnChange(oc) = &chain.transforms[0] else {
             panic!("{:?}", chain.transforms)
         };
@@ -591,7 +597,7 @@ datasets:
             "",
             "transforms:\n  - { kind: filter, dataset: d, where: { field: temp, null: true } }\n",
         );
-        let chain = chain_spec(&spec, "a", None, None).unwrap();
+        let chain = chain_spec(&spec, "a", None, None, None).unwrap();
         let rt::TransformSpec::Filter(f) = &chain.transforms[0] else {
             panic!("{:?}", chain.transforms)
         };

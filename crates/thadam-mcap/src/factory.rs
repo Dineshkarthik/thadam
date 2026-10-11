@@ -35,7 +35,7 @@ impl SourceFactory for McapSourceFactory {
     fn build(
         &self,
         cfg: serde_json::Value,
-        _ctx: &BuildContext,
+        ctx: &BuildContext,
     ) -> Result<Box<dyn Source>, ThadamError> {
         let config = McapConfig::from_value(&cfg).map_err(|mut errors| {
             let extra = errors.len() - 1;
@@ -47,7 +47,11 @@ impl SourceFactory for McapSourceFactory {
             }
             first
         })?;
-        Ok(Box::new(McapSource::new(config)))
+        let source = McapSource::new(config);
+        Ok(Box::new(match &ctx.schema_dir {
+            Some(dir) => source.with_schema_store(thadam_core::SchemaStore::open(dir)),
+            None => source,
+        }))
     }
 }
 

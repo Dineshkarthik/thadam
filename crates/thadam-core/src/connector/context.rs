@@ -164,6 +164,15 @@ pub struct BuildContext {
     pub clock: Arc<dyn Clock>,
     /// The component's directory.
     pub data_dir: PathBuf,
+    /// The pipeline's shared schema-store directory (the runtime places it
+    /// at `<data_dir>/schemas`), set when the runtime plans against a data
+    /// directory. A source whose messages reference durably stored schema
+    /// text — the MCAP source's `ros2msg` channels today — writes the
+    /// schema here (see [`crate::schema_store`]) before the first message
+    /// referencing it can reach the WAL, and stamps messages with
+    /// [`crate::schema_store::SCHEMA_HASH_ATTR`]. `None` for compositions
+    /// that do not manage a data directory.
+    pub schema_dir: Option<PathBuf>,
     /// The pipeline-declared datasets this component consumes, in
     /// configuration order. The runtime fills this for sinks built with a
     /// `datasets:` selector (restricted to that selector) and for each
@@ -180,8 +189,16 @@ impl BuildContext {
             component_id: component_id.into(),
             clock,
             data_dir,
+            schema_dir: None,
             datasets: Arc::from([]),
         }
+    }
+
+    /// Sets the shared schema-store directory.
+    #[must_use]
+    pub fn with_schema_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.schema_dir = Some(dir.into());
+        self
     }
 
     /// Sets the declared datasets the component consumes.
