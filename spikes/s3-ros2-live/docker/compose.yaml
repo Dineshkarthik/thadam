@@ -1,4 +1,4 @@
-# Spike S3: Jazzy live-transport stacks.
+# Spike S3: Jazzy/Lyrical/Humble live-transport stacks.
 #
 # Step 1 (default): router + rclpy publishers over rmw_zenoh.
 #   docker compose -f docker/compose.yaml build
@@ -9,12 +9,48 @@
 # DDS discovery is multicast.
 #   docker compose -f docker/compose.yaml --profile fastdds up -d bridge sensor-pub-dds
 #
+# Step 3 profiles:
+#   lyrical            rmw_zenohd + rclpy publishers over rmw_zenoh (Lyrical)
+#   lyrical-fastdds    bridge + Lyrical publishers over its default DDS
+#   jazzy-cyclone      bridge + Jazzy publishers over Cyclone DDS (best effort)
+#   humble-fastdds     bridge + Humble publishers over Fast DDS (best effort)
+# (The cross-distro rmw_zenoh checks — Jazzy router + Lyrical publishers and
+# reverse — are recipe-only; see docker/run.sh lyrical-rmw-jazzy-router and
+# jazzy-rmw-lyrical-router, which docker/run.sh runs directly.)
+#
 # The Rust subscriber runs natively on the host and connects to
 # tcp/127.0.0.1:7447 in both setups. docker/run.sh mirrors this file
 # verbatim (sandboxed env without compose: `run.sh jazzy-zenoh up` /
-# `run.sh jazzy-fastdds-bridge up`).
+# `run.sh jazzy-fastdds-bridge up` / `run.sh lyrical-zenoh up` / ...).
 
 name: s3ros2
+
+x-rmw-zenohd-env: &rmw-zenohd-env
+  RMW_IMPLEMENTATION: rmw_zenoh_cpp
+  ROS_DOMAIN_ID: '0'
+  # Default rmw_zenoh sessions connect to tcp/localhost:7447; point them at
+  # the router service instead. Multicast scouting off: nothing may leak
+  # onto the LAN, and scouted peers advertise unreachable addresses.
+  ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["tcp/router:7447"];scouting/multicast/enabled=false'
+
+x-dds-pub-env: &dds-pub-env
+  ROS_DOMAIN_ID: '0'
+
+x-bridge-base: &bridge-base
+  # zenoh 1.10.1-compatible bridge (Docker Hub, pinned). Router mode, pinned
+  # zenoh id so the admin space (@/57a9ed/ros2/**) is addressable; zenoh
+  # multicast scouting off; DDS-side multicast stays on inside this network
+  # for DDS discovery.
+  image: eclipse/zenoh-bridge-ros2dds:1.10.1
+  command: ['-i', '57a9ed', '-d', '0', '-l', 'tcp/0.0.0.0:7447', '--no-multicast-scouting']
+  ports:
+    - '127.0.0.1:7447:7447'
+  healthcheck:
+    test: ["CMD-SHELL", "nc -z 127.0.0.1 7447"]
+    interval: 2s
+    timeout: 2s
+    retries: 15
+  restart: 'no'
 
 services:
   router:
@@ -37,37 +73,20 @@ services:
     depends_on:
       router:
         condition: service_healthy
-    environment:
-      RMW_IMPLEMENTATION: rmw_zenoh_cpp
-      ROS_DOMAIN_ID: '0'
-      # Default rmw_zenoh sessions connect to tcp/localhost:7447; point them at
-      # the router service instead. Multicast scouting off: nothing may leak
-      # onto the LAN, and scouted peers advertise unreachable addresses.
-      ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["tcp/router:7447"];scouting/multicast/enabled=false'
+    environment: *rmw-zenohd-env
     command: bash -c 'source /opt/ros/jazzy/setup.bash && exec python3 /usr/local/lib/s3/sensor_pub.py'
     restart: 'no'
 
   bridge:
-    # Step 2 sidecar: zenoh 1.10.1-compatible bridge (Docker Hub, pinned).
-    # Router mode, pinned zenoh id so the admin space (@/57a9ed/ros2/**) is
-    # addressable; zenoh multicast scouting off; DDS-side multicast stays on
-    # inside this network for Fast DDS discovery. ROS_DISTRO=jazzy silences
-    # the bridge's iron-assumption warning (ros_discovery_info parsing).
-    image: eclipse/zenoh-bridge-ros2dds:1.10.1
+    # Step 2 sidecar: Fast DDS publishers (Jazzy default RMW).
+    # ROS_DISTRO=jazzy silences the bridge's iron-assumption warning
+    # (ros_discovery_info parsing).
+    <<: *bridge-base
     profiles: ['fastdds']
     environment:
       ROS_DOMAIN_ID: '0'
       ROS_DISTRO: jazzy
       RUST_LOG: info
-    command: ['-i', '57a9ed', '-d', '0', '-l', 'tcp/0.0.0.0:7447', '--no-multicast-scouting']
-    ports:
-      - '127.0.0.1:7447:7447'
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 7447"]
-      interval: 2s
-      timeout: 2s
-      retries: 15
-    restart: 'no'
 
   sensor-pub-dds:
     # Step 2 publishers: identical script/rates/QoS as sensor-pub, but over
@@ -80,7 +99,116 @@ services:
       bridge:
         condition: service_healthy
     environment:
+      <<: *dds-pub-env
       RMW_IMPLEMENTATION: rmw_fastrtps_cpp
-      ROS_DOMAIN_ID: '0'
     command: bash -c 'source /opt/ros/jazzy/setup.bash && exec python3 /usr/local/lib/s3/sensor_pub.py'
+    restart: 'no'
+
+  # --- Step 3: Lyrical + rmw_zenoh (profile `lyrical`) ---
+
+  router-lyrical:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.lyrical
+    image: s3-ros2-zenoh:lyrical-1
+    profiles: ['lyrical']
+    command: bash -c 'source /opt/ros/lyrical/setup.bash && exec ros2 run rmw_zenoh_cpp rmw_zenohd'
+    ports:
+      - '127.0.0.1:7447:7447'
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/7447'"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    restart: 'no'
+
+  sensor-pub-lyrical:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.lyrical
+    image: s3-ros2-zenoh:lyrical-1
+    profiles: ['lyrical']
+    depends_on:
+      router-lyrical:
+        condition: service_healthy
+    environment:
+      RMW_IMPLEMENTATION: rmw_zenoh_cpp
+      ROS_DOMAIN_ID: '0'
+      ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["tcp/router-lyrical:7447"];scouting/multicast/enabled=false'
+    command: bash -c 'source /opt/ros/lyrical/setup.bash && exec python3 /usr/local/lib/s3/sensor_pub.py'
+    restart: 'no'
+
+  # --- Step 3: Lyrical + default DDS via bridge (profile `lyrical-fastdds`) ---
+
+  bridge-lyrical:
+    <<: *bridge-base
+    profiles: ['lyrical-fastdds']
+    environment:
+      ROS_DOMAIN_ID: '0'
+      ROS_DISTRO: lyrical
+      RUST_LOG: info
+
+  sensor-pub-lyrical-dds:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.lyrical
+    image: s3-ros2-zenoh:lyrical-1
+    profiles: ['lyrical-fastdds']
+    depends_on:
+      bridge-lyrical:
+        condition: service_healthy
+    environment:
+      <<: *dds-pub-env
+      RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+    command: bash -c 'source /opt/ros/lyrical/setup.bash && exec python3 /usr/local/lib/s3/sensor_pub.py'
+    restart: 'no'
+
+  # --- Step 3 best effort: Jazzy Cyclone DDS via bridge (profile `jazzy-cyclone`) ---
+
+  bridge-cyclone:
+    <<: *bridge-base
+    profiles: ['jazzy-cyclone']
+    environment:
+      ROS_DOMAIN_ID: '0'
+      ROS_DISTRO: jazzy
+      RUST_LOG: info
+
+  sensor-pub-cyclone-dds:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.cyclone
+    image: s3-ros2-zenoh:jazzy-cyclone-1
+    profiles: ['jazzy-cyclone']
+    depends_on:
+      bridge-cyclone:
+        condition: service_healthy
+    environment:
+      <<: *dds-pub-env
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+    command: bash -c 'source /opt/ros/jazzy/setup.bash && exec python3 /usr/local/lib/s3/sensor_pub.py'
+    restart: 'no'
+
+  # --- Step 3 best effort: Humble Fast DDS via bridge (profile `humble-fastdds`) ---
+
+  bridge-humble:
+    <<: *bridge-base
+    profiles: ['humble-fastdds']
+    environment:
+      ROS_DOMAIN_ID: '0'
+      ROS_DISTRO: humble
+      RUST_LOG: info
+
+  sensor-pub-humble-dds:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.humble
+    image: s3-ros2-zenoh:humble-1
+    profiles: ['humble-fastdds']
+    depends_on:
+      bridge-humble:
+        condition: service_healthy
+    environment:
+      <<: *dds-pub-env
+      RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+    command: bash -c 'source /opt/ros/humble/setup.bash && exec python3 /usr/local/lib/s3/sensor_pub.py'
     restart: 'no'

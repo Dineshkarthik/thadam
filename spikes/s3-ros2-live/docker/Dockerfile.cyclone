@@ -1,0 +1,18 @@
+# Spike S3 (ADR-0007 step 3, best effort): adds Cyclone DDS to the Jazzy
+# publisher image so the same matrix runs with
+# RMW_IMPLEMENTATION=rmw_cyclonedds_cpp against zenoh-bridge-ros2dds
+# (whose own embedded DDS is also CycloneDDS).
+#
+#   docker build -f docker/Dockerfile.cyclone -t s3-ros2-zenoh:jazzy-cyclone-1 .
+#
+# FROM the pinned step-1 spike image (built from ros:jazzy-ros-base).
+FROM s3-ros2-zenoh:jazzy-1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ros-jazzy-rmw-cyclonedds-cpp \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN dpkg-query -W -f='${Package} ${Version}\n' \
+        ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-cyclonedds \
+        >> /usr/local/lib/s3/versions.txt || true

@@ -365,3 +365,129 @@ What a **user** would set in the config surface: `transport: rmw_zenoh | bridge`
 2. Re-run BOTH stacks (rmw_zenoh and bridge) against Lyrical with this same harness — the harness, trait, bridge impl, counter publisher, and scripts are distro-agnostic; only the image + vendored `.msg` hash baselines change. Pay attention to REP-2016 hash drift for the vendored types (record new RIHS01s) and any rmw_zenoh Lyrical attachment/keyexpr evolution (re-sniff before measuring).
 3. Also re-pin the bridge image against the Lyrical zenoh version if the lockstep zenoh release moves beyond 1.10.x.
 4. Cyclone (best-effort) on Jazzy folds in cheaply here: add `ros-jazzy-rmw-cyclonedds-cpp` to the image, rerun `jazzy-fastdds-bridge` with `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`.
+
+---
+
+# Step 3: Lyrical (rmw_zenoh + its default DDS via the bridge), Cyclone and Humble best-effort runs
+
+Everything in §1–§11 is the step-1/step-2 record; this section is step 3, run the same day with the same harness, traits, publisher, and scripts. **No Rust code changed** — the step-1/2 mapping implementation runs Lyrical/Humble/Cyclone unmodified; all evidence below comes from recorded runs in `results/` (`sniff-lyrical-*`, `discover-*-bridge.json`, `capture-lyrical-rmw-*`, `capture-lyrical-bridge-*`, `capture-cross-*`, `capture-cyclone-bridge-*`, `capture-humble-bridge-*`).
+
+## 12.1 Images, versions, setups
+
+| Item | Value |
+|---|---|
+| Lyrical image | `s3-ros2-zenoh:lyrical-1` (051e339d2d66, 1.55 GB) FROM **`ros:lyrical-ros-base`@`sha256:f79cd486fa218596747c45d00ca42101b0303fc6d94ed5adb72145cd6f54b86c`** (Ubuntu 26.04, amd64+arm64, pulled 2026-10-12). Version stamps (`/usr/local/lib/s3/versions.txt`): `ros-lyrical-rmw-zenoh-cpp` **0.10.6**-1resolute, `ros-lyrical-zenoh-cpp-vendor` 0.10.6, `ros-lyrical-rmw-fastrtps-cpp` 9.4.10, `ros-lyrical-fastdds` **3.6.2** |
+| Lyrical default RMW | **`rmw_fastrtps_cpp`** (verified in-image at build time; Fast DDS is now packaged as `ros-lyrical-fastdds`, the `ros-lyrical-fastrtps` metapackage is gone) |
+| Lyrical vendored zenoh | zenoh-c **1.10.1 + fixes** per upstream `ros2/rmw_zenoh` lyrical-branch `zenoh_cpp_vendor/CMakeLists.txt` (zenoh commit 9fcd9cb5) — same family as the host client's `zenoh =1.10.1` pin; the bridge image (`eclipse/zenoh-bridge-ros2dds:1.10.1`, digest sha256:74fae6a9…) therefore stays correctly lockstepped, no re-pin needed (step-3 §11.9 item 3 satisfied) |
+| Cyclone image (best effort) | `s3-ros2-zenoh:jazzy-cyclone-1` (c8945d57b425, 1.39 GB) = `s3-ros2-zenoh:jazzy-1` + `ros-jazzy-rmw-cyclonedds-cpp` 2.2.4 (cyclonedds 0.10.5) |
+| Humble image (best effort) | `s3-ros2-zenoh:humble-1` (06c56613f56c, 1.10 GB) FROM **`ros:humble-ros-base`@`sha256:860e53793ccf575e5369b5e9a19939de2bfcfb46a299954d06f54f2af54fed19`** (Ubuntu 22.04); `ros-humble-rmw-fastrtps-cpp` 6.2.10, `ros-humble-fastrtps` 2.6.12, default RMW `rmw_fastrtps_cpp`. Humble runs bridge-only (its rmw_zenoh is zenoh-0.11, ADR-0007's known-incompatible case) |
+| Setup verbs | `docker/run.sh lyrical-zenoh`, `lyrical-dds-bridge`, `jazzy-cyclone-bridge`, `humble-fastdds-bridge`, plus the cross-distro `lyrical-rmw-jazzy-router` / `jazzy-rmw-lyrical-router`; mirrored in `docker/compose.yaml` (`lyrical`, `lyrical-fastdds`, `jazzy-cyclone`, `humble-fastdds` profiles). Same container names everywhere, so any `down` cleans everything; verified empty `docker ps -a` at the end |
+
+## 12.2 Mapping re-verification vs step 1/2 (every required combo)
+
+**Lyrical + rmw_zenoh (6772 samples/6 s sniff, `results/sniff-lyrical-rmw.jsonl`): byte-identical mapping to Jazzy step 1.**
+
+- Data key expressions: `<domain>/<fqn>/<pkg::msg::dds_::Type_>/RIHS01_<64hex>` (5 distinct keys incl. `/rosout`).
+- **RIHS01 hashes for `Imu`, `JointState`, `TFMessage` are byte-identical to the Jazzy values recorded in §5.1** (`7d9a00ff…000b5b`, `a13ee3a3…9260e`, `e369d0f0…f087`). REP-2016 hash drift for these vendored types: **none** — decoder keying needs no change.
+- Attachment: **33 bytes on 6758/6758 data samples**, well-formed (`i64-LE seq | i64-LE source_ts_ns | u8 gid_len=16 | 16 B GID`), per-publisher GIDs stable.
+- Liveliness: `@ros2_lv/0/...` tokens with the same kinds (NN/MP/SS) and the same MP QoS compact encodings as §5.3 (`2::,5:,:,:,,` for `/imu` best_effort depth 5, `:1:,1:,:,:,,` for `/tf_static` transient_local depth 1, etc.).
+- transient_local late join: the exact step-1 `@adv` + `_anyke` + consolidation-None + target-All query works unchanged. Solo `/tf_static` capture long after the one-shot publish: **exactly 1 replayed sample** (`capture-lyrical-rmw-latejoin-solo.json`); `--no-late-join` 15 s control: `/tf_static` **0 received**, others dense (14 853 / 1 500 / 450, 0 missing).
+
+**Lyrical + default DDS via the bridge: byte-identical mapping to Jazzy step 2.**
+
+- Bare topic keys (`imu`, `joint_states`, `tf`, `tf_static`, `rosout`), **0 attachments** in the sniff, no liveliness tokens.
+- Admin-space discovery (`@/57a9ed/ros2/**`) finds 6 adverts; **Fast DDS 3.6.2 (Lyrical) still carries `typehash=RIHS01_<hex>` in DDS endpoint user_data** and the recovered hashes are the same byte-identical values as Jazzy/Lyrical-rmw.
+- Late join: unchanged route-activation replay, no client query — solo capture 1 sample; `--no-late-join` (forced VOLATILE) still receives 1 (interest-driven, same as §11.4.3).
+
+**Best-effort combos:** Cyclone on Jazzy — hashes **present** in admin user_data (the `typehash=` parameter comes from the ROS rmw layer, not the DDS vendor; byte-identical values). Humble — **no `typehash=` anywhere** (Humble predates REP-2016): topics arrive by DDS type name only (`/imu`/etc. all still decoded correctly by name + vendored `.msg`; CDR verified identical, 0 decode errors).
+
+**Cross-distro rmw_zenoh (quick check, 15 s full matrix each direction):** Lyrical publishers ↔ Jazzy `rmw_zenohd` router (`capture-cross-lp-jr-15s.json`: 14 761+1 499+450+1-late, 0 missing) and Jazzy publishers ↔ Lyrical router (`capture-cross-jp-lr-15s.json`: 14 785+1 499+450+1-late, 0 missing, 0 warnings). **Jazzy↔Lyrical rmw_zenoh interop works in both directions** (both vendor zenoh-c 1.10.x — unlike the Humble 0.11 case ADR-0007 flags).
+
+## 12.3 Results (60 s runs, host client, RUST_LOG=warn)
+
+### 12.3.1 Lyrical + rmw_zenoh — baseline (`capture-lyrical-rmw-baseline-60s.*`, offset −0.60 ms)
+
+| topic | recv / expected | decode err | drops (attachment seq) | latency p50 | p99 | publisher Δ (±5 s window) |
+|---|---|---|---|---|---|---|
+| `/imu` (best_effort ~984 Hz) | 59 051 / 59 051 | 0 | **0 (0 gaps)** | 1.69 ms | 2.04 ms | 412 218 → 471 245 (59 027) |
+| `/joint_states` (reliable 100 Hz) | 5 999 / 5 999 | 0 | **0** | 1.64 ms | 2.03 ms | 41 976 → 47 975 (5 999) |
+| `/tf` (reliable 30 Hz) | 1 800 / 1 800 | 0 | **0** | 1.65 ms | 2.07 ms | 12 600 → 14 400 (1 800) |
+| `/tf_static` (transient_local) | **1 (late_join=1)** | 0 | 0 | n/a | n/a | 1 |
+
+- Capture process: **avg 6.2 % (max 9.1 %) of one core, RSS ≤10.6 MiB** — statistically the same as Jazzy step 1 (6.9 % / 10 MiB). Max latency 13.8 ms (one /imu outlier); attachment/header latency agree within 0.1 ms.
+
+### 12.3.2 Lyrical + rmw_zenoh — overload (`capture-lyrical-rmw-overload-60s.*`, collector 2 ms/msg)
+
+| topic | recv | expected (seq window) | **counted drops (gaps)** | backlog latency p50 | p99 |
+|---|---|---|---|---|---|
+| `/imu` (best_effort) | 15 419 | 22 650 | **7 231 (5 gaps)** | 7.21 s | 20.9 s |
+| `/joint_states` (reliable) | 2 011 | 3 804 | **1 793 (9 gaps)** | 11.9 s | 22.9 s |
+| `/tf` (reliable) | 602 | 1 141 | **539 (9 gaps)** | 11.9 s | 22.8 s |
+| `/tf_static` | 1 (late_join=1) | 1 | 0 | n/a | n/a |
+
+Same mechanism class as Jazzy step 1 (router-egress drop under sustained backpressure, counted mid-stream via attachment gaps) but **larger drop volume than Jazzy's 548/685/205** — rmw_zenoh 0.10.6 queues/trims differently than 0.2.11. Behavior criterion holds: nothing is silently lost; every sequence number is either received or counted. RSS 20.7 MiB (bounded), CPU 1.9 %. Publisher held rate (54 039 imu over ~55 s).
+
+### 12.3.3 Lyrical + default DDS (Fast DDS 3.6.2) via bridge — baseline (`capture-lyrical-bridge-baseline-60s.*`, offset +2.18 ms ±0.63)
+
+| topic | recv / expected | drops (payload seq) | hdr-stamp latency p50 | p99 | max |
+|---|---|---|---|---|---|
+| `/imu` | 58 968 / 58 968 | **0** | 2.38 ms | 10.31 ms | 10.31 ms |
+| `/joint_states` | 5 998 / 5 998 | **0** | 0.68 ms | 5.12 ms | 5.12 ms |
+| `/tf` | 1 800 / 1 800 | **0** | 2.94 ms | 3.08 ms | 3.08 ms |
+| `/tf_static` | **1 (late_join=1)** | 0 | n/a | n/a | n/a |
+
+- Capture process: avg 5.7 % (max 8.7 %), RSS 10.7 MiB. **Bridge container: avg 7.1 % (max 8.0 %), RSS ~28 MiB** (same image grew to 8 MiB on the Jazzy runs — the Lyrical participant brings more discovery payload; process stays bounded).
+- Publisher Δ: imu 127 718 → 186 669 (58 951), js 12 997 → 18 996 (5 999), tf 3 900 → 5 700 (1 800).
+
+### 12.3.4 Lyrical bridge — overload (`capture-lyrical-bridge-overload-60s.*`)
+
+| topic | recv | expected (seq window) | mid-window gaps | startup-burst unseen¹ | tail undrained¹ | latency p50 | p99 |
+|---|---|---|---|---|---|---|---|
+| `/imu` | 15 392 | 15 394 | **2 (1 gap)** | ≈853 (≤ ~5.7 k) | ≈37.8 k | 7.25 s | 28.2 s |
+| `/joint_states` | 2 013 | 2 013 | 0 | ≈85 | ≈3.4 k | 12.4 s | 39.2 s |
+| `/tf` | 604 | 604 | 0 | ≈26 | ≈1.2 k | 12.4 s | 39.2 s |
+| `/tf_static` | 1 (late_join=1) | 1 | 0 | 0 | 0 | n/a | n/a |
+
+¹ Same accounting as §11.5.2 (publisher log 255 248 → 309 254 vs seq window [256 101, 271 494]); loss concentrates at the edge of the congested chain, mid-stream delivery is dense. Behavior matches step 2's end-to-end-blocking fidelity deviation.
+
+### 12.3.5 Best effort: Jazzy + Cyclone DDS via bridge (`capture-cyclone-bridge-*`)
+
+- Baseline: `/imu` 58 996/58 996, `/joint_states` 5 998/5 998, `/tf` 1 800/1 800, `/tf_static` 1 late; **0 drops**; p50 2.05/2.04/2.08 ms, p99 ~3 ms, max 13.4 ms. Capture avg 7.4 % (max 8.5 %), RSS 10.8 MiB. Bridge avg 7.6 %, RSS 6.1 MiB. Overload: **zero mid-window gaps on all topics** (blocking shape like step 2), p50 7.3 s/12.4 s, p99 28.3 s/39.3 s; startup unseen ≈4.6 k, tail ≈34.1 k; capture 2.4 % RSS 27.8 MiB, bridge 3.7 % RSS 6.8 MiB. Late join by replay ✓. Interrupts nothing: `rmw_cyclonedds_cpp` works against the bridge's embedded CycloneDDS.
+- Best-effort scoreboard row from §11.5.4 ("Cyclone NOT RUN") is now **RUN: PASS with the same step-2 caveats**.
+
+### 12.3.6 Best effort: Humble + Fast DDS via bridge (`capture-humble-bridge-*`)
+
+- Baseline: `/imu` 59 009/59 009, `/joint_states` 5 996/5 996, `/tf` 1 800/1 800, `/tf_static` 1 late; **0 drops**; p50 1.74/1.79/1.85 ms, p99 ~2.3 ms, max 12.4 ms. Capture avg 7.5 %, RSS 10.5 MiB. Bridge avg 7.2 %, RSS 5.5 MiB. Overload: `/imu` 5 missing (1 gap event, edge), js/tf 0; p50 7.3 s/12.4 s, p99 28.3 s/39.2 s; startup ≈3.0 k, tail ≈40.5 k; capture 2.2 % RSS 26.8 MiB, bridge 3.7 % RSS 6.3 MiB.
+- The only mapping delta: **no RIHS01 hashes from Humble endpoints** (§12.2) — decoder keys on type name alone. Decodes the wire-identical CDR with the Jazzy-vendored `.msg` texts, 0 decode errors in 66 806 samples.
+
+## 12.4 Consolidated owner-criteria matrix (steps 1–3, 2026-10-12)
+
+| Combination | Scope | 60 s capture+decode | reliable QoS | best_effort drops accounted | transient_local late join | Verdict |
+|---|---|---|---|---|---|---|
+| Jazzy + rmw_zenoh 0.2.11 | required (step 1) | PASS (§6.1) | PASS | PASS — mid-stream counted via attachment (§6.4) | PASS — on-demand `@adv` cache query, every joiner | **PASS** |
+| Jazzy + Fast DDS 2.14 via bridge 1.10.1 | required (step 2) | PASS (§11.5.1) | PASS (blocks under overload) | PARTIAL — edge losses exact via payload seq; best_effort thinning → blocking (§11.5.2) | PASS w/ note — replay at route activation, first-subscriber-only | **PASS w/ caveats** |
+| **Lyrical + rmw_zenoh 0.10.6 (zenoh-c 1.10.1+fixes)** | **required (step 3)** | **PASS** (§12.3.1) | **PASS** (0 drops unloaded) | **PASS** — mid-stream counted; larger volumes than 0.2.11 (§12.3.2) | **PASS** — identical `@adv` semantics (§12.2) | **PASS** |
+| **Lyrical + default DDS (Fast DDS 3.6.2) via bridge** | **required (step 3)** | **PASS** (§12.3.3) | **PASS** (blocks) | **PARTIAL** — same bridge fidelity deviation (§12.3.4) | **PASS w/ note** — same replay semantics (§12.2) | **PASS w/ caveats** |
+| Lyrical pubs ↔ Jazzy router, Jazzy pubs ↔ Lyrical router (rmw_zenoh) | required cross-check (step 3) | PASS (15 s, both directions, 0 missing) | — | — | PASS both directions | **PASS** |
+| Jazzy + Cyclone DDS 0.10.5 via bridge | best effort | PASS (§12.3.5) | PASS (blocks) | PARTIAL — zero mid-stream gaps, edge loss only | PASS | **PASS w/ caveats** |
+| Humble + Fast DDS 2.6 via bridge | best effort | PASS (§12.3.6) | PASS (blocks) | PARTIAL — same | PASS w/ note | **PASS w/ caveats + no RIHS01 from endpoints (name-only keying)** |
+| hiroz / roslibrust | optional | — | — | — | — | **NOT RUN** (unchanged from §10; lowest-value item) |
+| ARM Pi 5/Jetson: 1 kHz IMU + 100 Hz joint_states + 30 Hz /tf at <25 % of one core, no unaccounted drops | required | — | — | — | — | **NOT MEASURED** here (owner reference hardware; recipe in `spikes/s3-ros2-live/ARM.md`; Mac reference: 5.7–7.5 % avg of one Apple Silicon core, 0 unaccounted drops, every combo) |
+
+RIHS01 hash comparison (owner question "do they differ from Jazzy?"): **No** — byte-identical for `Imu`/`JointState`/`TFMessage` across Jazzy rmw_zenoh, Lyrical rmw_zenoh, Jazzy Fast DDS 2.14, Lyrical Fast DDS 3.6.2, Jazzy Cyclone 0.10.5. Humble endpoints advertise no hash at all. The vendored `.msg` texts therefore decode every combination measured, unchanged.
+
+## 12.5 Problems and notes (step 3)
+
+1. **The base image's apt lists are stale**: `ros:lyrical-ros-base` (2026-10-02) ships lists that do not include `ros-lyrical-rmw-zenoh-cpp`; an in-image `apt-get update` (now in the Dockerfile) is required or the package "doesn't exist". Same pattern likely on Humble.
+2. The step-3 Dockerfiles intentionally **pin base images by digest** (`ros:lyrical-ros-base@sha256:f79cd486…`, `ros:humble-ros-base@sha256:860e5379…`); both manifest lists resolve `linux/amd64` + `linux/arm64` (`linux/arm64/v8`), and the bridge image `1.10.1` publishes `linux/arm64` too — ARM builds (ARM.md) need no edits.
+3. Run-to-run container↔host clock offset varied from −1.13 ms to +2.18 ms across the session (Docker Desktop VM clock drift); the per-run offset measurement absorbs it — do not hard-code an offset.
+4. Sandbox note for reproduction here: this dev sandbox admitted plain `docker run/build` but intermittently rejected wrapped `run.sh` invocations; the identical docker commands were run individually. `run.sh` is `bash -n` clean and mirrors `compose.yaml` (`docker compose -f docker/compose.yaml config` OK).
+
+## 12.6 Draft recommendation for ADR-0007 stage 4
+
+**Build two transports behind Thadam's `LiveRos2Transport`: `rmw_zenoh` (primary) and `bridge` (sidecar mode for stock-DDS deployments).** Evidence-backed reasoning:
+
+- **rmw_zenoh as primary**: exact per-publisher drop accounting from transport metadata (attachment seq/GID/source-ts — no protocol fallbacks); on-demand transient_local late join for every subscriber (strongest semantics measured); lowest ops burden (one router container, no multicast anywhere, no DDS vendor on the client path); verified on Jazzy **and** Lyrical with cross-distro interop both ways, and a byte-identical wire mapping between them (so the implementation ships once). The cross-distro guarantee also covers mixed fleets during Jazzy→Lyrical migration.
+- **bridge as supported sidecar**: for deployments that must keep nodes on stock RMW (any DDS vendor — measured: Fast DDS 2.6/2.14/3.6.2, Cyclone 0.10.5, all via one bridge 1.10.1) including Humble sites rmw_zenoh can't serve. Costs: a second process (+~7 % core, +6–28 MiB RSS), multicast discovery between the bridge and participants, PARTIAL best_effort fidelity (blocking instead of thinning under sustained overload), and weaker late-join semantics (first-subscriber-only, first-come owns the replay).
+- **User-facing config**: `transport: rmw_zenoh | bridge`; `zenoh.endpoint` (tcp/host:7447), `domain`; for bridge additionally `bridge.namespace` (key prefix) + `bridge.zid` (admin space, pin the bridge with `-i`). Decoder keying: `(ros_type, RIHS01)` where available; fall back to `ros_type` when the endpoint advertises no hash (Humble, any bridge variant) with a log line. Drop accounting: attachment when present (rmw), payload-embedded counter when enabled, else degraded to best-effort heuristics (and a documented caveat).
+- **Open risks / decision inputs**: (1) `serde_yaml` (mandatory, banned) + `option-ext` MPL-2.0 findings from §7.3 are still unresolved for enabling this in the workspace; (2) hiroz/roslibrust remains unevaluated (no production claim per ADR-0007); (3) bridge drop accounting needs publisher cooperation (payload counter) or publisher-log fallback, and cannot distinguish edge truncation from mid-stream loss at capture cutoff; (4) bridge `transient_local` cache dies with the sidecar process; (5) ARM numbers outstanding — ARM.md maps the arm64-verified runbook to the <25 %-of-one-core, no-unaccounted-drops criterion; (6) rmw_zenoh overload drop volumes are version-dependent (7 231 vs 548 on /imu between 0.10.6 and 0.2.11 in identical topology) — criterion is "counted, not silent", but capacity planning should re-check at each rmw_zenoh bump; (7) zenoh lockstep: host client `=1.10.1` matches today's rmw_zenoh vendors; re-verify when a distro ships zenoh ≥ 1.11.

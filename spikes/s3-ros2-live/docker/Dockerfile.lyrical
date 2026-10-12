@@ -1,0 +1,35 @@
+# Spike S3 (ADR-0007 step 3): ROS 2 Lyrical with rmw_zenoh + test publishers.
+#
+#   docker build -f docker/Dockerfile.lyrical -t s3-ros2-zenoh:lyrical-1 .
+#
+# Base pinned by digest (Docker Hub, amd64+arm64 both published):
+#   ros:lyrical-ros-base, pulled 2026-10-12, Ubuntu 26.04 "resolute".
+FROM ros:lyrical-ros-base@sha256:f79cd486fa218596747c45d00ca42101b0303fc6d94ed5adb72145cd6f54b86c
+
+# Opt-in corporate-proxy hook (same pattern as docker/Dockerfile).
+COPY docker/secrets/ /tmp/s3-secrets/
+RUN set -e; \
+    if [ -f /tmp/s3-secrets/ca.pem ]; then \
+        cp /tmp/s3-secrets/ca.pem /usr/local/share/ca-certificates/s3-ca.crt; \
+        update-ca-certificates; \
+    fi
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ros-lyrical-rmw-zenoh-cpp \
+        ros-lyrical-tf2-msgs \
+        python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY docker/sensor_pub.py /usr/local/lib/s3/sensor_pub.py
+COPY docker/default_rmw.py /usr/local/lib/s3/default_rmw.py
+
+# Record the resolved RMW versions and Lyrical's default RMW in the image
+# for the spike report (Fast DDS is packaged as ros-lyrical-fastdds on
+# Lyrical; ros-lyrical-fastrtps no longer exists).
+RUN dpkg-query -W -f='${Package} ${Version}\n' \
+        ros-lyrical-rmw-zenoh-cpp ros-lyrical-zenoh-cpp-vendor \
+        ros-lyrical-rmw-fastrtps-cpp ros-lyrical-fastdds \
+        > /usr/local/lib/s3/versions.txt \
+    && echo "default RMW: $(bash -c '. /opt/ros/lyrical/setup.bash && python3 /usr/local/lib/s3/default_rmw.py')" \
+        >> /usr/local/lib/s3/versions.txt
