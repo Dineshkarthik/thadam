@@ -133,7 +133,7 @@ fn attributes(names: &AttrNames, interner: &mut TopicInterner, p: &InPublish) ->
     let mut attrs = Attributes::new();
     let topic = interner.intern(p.topic.clone());
     // The chain's routing contract (`match.topic` and `{topic.N}` identity
-    // templates, docs/src/configuration/datasets.md) reads the normalized
+    // templates, website/docs/src/configuration/datasets.md) reads the normalized
     // `topic` attribute; the namespaced `mqtt.topic` documented for
     // attribute-table consumers stays as well.
     attrs.insert(Sym::from("topic"), Utf8Bytes::from(Sym::clone(&topic)));

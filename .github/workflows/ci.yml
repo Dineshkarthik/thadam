@@ -108,6 +108,21 @@ jobs:
           tool: cargo-deny@0.20.2
       - run: cargo deny --locked check
 
+  site:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook@0.5.4
+      - run: website/scripts/build.sh
+      - run: python3 website/scripts/check.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: website-dist
+          path: website/dist
+          if-no-files-found: error
+
   deps-guard:
     runs-on: ubuntu-24.04
     steps:

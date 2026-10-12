@@ -77,7 +77,7 @@ impl PyPipeline {
     }
 
     /// Runs the pipeline to completion and returns the process-style exit
-    /// code (0, 1, 2, 3, 130; see `docs/src/operations/exit-codes.md`).
+    /// code (0, 1, 2, 3, 130; see `website/docs/src/operations/exit-codes.md`).
     ///
     /// The pipeline runs on a fresh Rust-owned Tokio multi-thread runtime
     /// with the GIL released, so other Python threads keep working and may

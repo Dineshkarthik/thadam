@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="thadam-assets/brand/thadam-logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="thadam-assets/brand/thadam-logo-light.svg">
-    <img alt="Thadam — The open data plane for robotics" src="thadam-assets/brand/thadam-logo-light.svg" width="390">
+    <source media="(prefers-color-scheme: dark)" srcset="thadam-assets/brand/svg/thadam-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="thadam-assets/brand/svg/thadam-logo-light.svg">
+    <img alt="Thadam — The open data plane for robotics" src="thadam-assets/brand/svg/thadam-logo-light.svg" width="390">
   </picture>
 </p>
 
@@ -166,7 +166,7 @@ make query       # DuckDB over data/sinks/local/ready/**/...
 make down        # (make clean also wipes ./data and the volumes)
 ```
 
-The full walkthrough, including publishing test messages and checking a config without secrets (`--allow-unresolved`), is in the book's [getting-started pages](docs/src/getting-started/first-pipeline.md). A larger example with six datasets, transforms, and an S3 target lives in [examples/edge-capture/thadam/pipeline.yaml](examples/edge-capture/thadam/pipeline.yaml) — the demo's README walks both levels (local Parquet, then S3).
+The full walkthrough, including publishing test messages and checking a config without secrets (`--allow-unresolved`), is in the book's [getting-started pages](website/docs/src/getting-started/first-pipeline.md). A larger example with six datasets, transforms, and an S3 target lives in [examples/edge-capture/thadam/pipeline.yaml](examples/edge-capture/thadam/pipeline.yaml) — the demo's README walks both levels (local Parquet, then S3).
 
 For ROS 2 recordings, [`examples/ros2-mcap-to-parquet`](examples/ros2-mcap-to-parquet) replays a generated MCAP file of `sensor_msgs/JointState` and `geometry_msgs/PoseStamped` messages, decodes and validates them into local Parquet, and exports the recording back to MCAP. It needs no Docker.
 
@@ -202,12 +202,12 @@ The product.md phases map onto these: Phase 0 foundations and Phase 1 MVP runtim
 - [product.md](product.md) — product scope, use cases, roadmap (source of truth for product direction).
 - [docs/design/adr/](docs/design/adr/) — architecture decision records, including the delivery guarantees and claims register.
 - [docs/design/spikes/](docs/design/spikes/) — spike reports (S1 WAL, S2 MQTT, D8 record representation, config YAML, filter language).
-- [The Thadam book](docs/src/SUMMARY.md) — the full user documentation (concepts, configuration, operations, CLI). Build it locally with `mdbook build docs` (install mdBook first) and open `docs/book/index.html`.
+- [The Thadam book](website/docs/src/SUMMARY.md) — the full user documentation (concepts, configuration, operations, CLI), published at `/docs/` on the site. Build the whole site with `website/scripts/build.sh` (needs mdBook 0.5.x: `cargo install mdbook --locked`), preview it with `website/scripts/preview.sh`, and check it with `python3 website/scripts/check.py`. Output goes to `website/dist/`. The folder layout is in [website/README.md](website/README.md). Deployment is configured separately from this repository.
 - [docs/design/readiness.md](docs/design/readiness.md) — implementation status per PR.
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the toolchain, workspace layout, required checks, and the ADR process. Architecture decisions are recorded as ADRs; only the project owner accepts an ADR.
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the toolchain, workspace layout, required checks, and the ADR process. Notes for coding agents are in [AGENTS.md](AGENTS.md) ("Notes for coding agents"). Architecture decisions are recorded as ADRs; only the project owner accepts an ADR.
 
 ## Security
 

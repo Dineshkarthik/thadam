@@ -137,6 +137,6 @@ The same flow runs as a CI smoke test in
 `apps/thadam-cli/tests/ros2_example.rs`, which generates the sample into a temp
 directory and asserts the row counts, columns, flags, and round trip above.
 
-See [ROS 2 support](../../docs/src/sources/ros2.md) for the source and decoder
-reference, and [robotics conventions](../../docs/src/concepts/robotics-conventions.md)
+See [ROS 2 support](../../website/docs/src/sources/ros2.md) for the source and decoder
+reference, and [robotics conventions](../../website/docs/src/concepts/robotics-conventions.md)
 for the `pose` and `joint_state` checks.

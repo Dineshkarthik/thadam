@@ -2,7 +2,7 @@
 
 ## Is Thadam production-ready?
 
-No — it is pre-alpha. The architecture is settled, the core crates are tested, and `thadam run` executes a pipeline end to end. The WAL's on-disk format is not frozen until the ADR-0004 re-run on reference hardware is done. See the [status banner](../../README.md) and [roadmap](roadmap.md).
+No — it is pre-alpha. The architecture is settled, the core crates are tested, and `thadam run` executes a pipeline end to end. The WAL's on-disk format is not frozen until the ADR-0004 re-run on reference hardware is done. See the [status banner](https://github.com/Dineshkarthik/thadam/blob/main/README.md) and [roadmap](roadmap.md).
 
 ## Does Thadam guarantee exactly-once delivery?
 

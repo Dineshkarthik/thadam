@@ -7,7 +7,10 @@ src = "src"
 [output.html]
 default-theme = "light"
 git-repository-url = "https://github.com/Dineshkarthik/thadam"
+edit-url-template = "https://github.com/Dineshkarthik/thadam/edit/main/website/docs/src/{path}"
+site-url = "/docs/"
+input-404 = ""
 additional-css = ["theme/custom.css"]
 
 [output.html.print]
-enable = true
+enable = false

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thadam: The open data plane for robotics</title>
+  <meta name="description" content="Thadam is an open-source, Rust-first data plane for robotics and industrial telemetry. It captures to a durable local log, normalizes the data, and delivers it to Parquet, S3-compatible object storage, and analytical databases.">
+  <link rel="canonical" href="__SITE_ORIGIN__/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Thadam">
+  <meta property="og:title" content="Thadam: The open data plane for robotics">
+  <meta property="og:description" content="Capture robotic and industrial data durably at the edge, then deliver it to modern data platforms.">
+  <meta property="og:url" content="__SITE_ORIGIN__/">
+  <meta property="og:image" content="__SITE_ORIGIN__/assets/brand/png/og-card.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Thadam: The open data plane for robotics">
+  <meta name="twitter:image" content="__SITE_ORIGIN__/assets/brand/png/og-card.png">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Thadam",
+    "description": "Open-source, Rust-first data plane for robotics and industrial telemetry.",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux, macOS",
+    "license": "https://www.apache.org/licenses/LICENSE-2.0",
+    "url": "__SITE_ORIGIN__/",
+    "codeRepository": "https://github.com/Dineshkarthik/thadam"
+  }
+  </script>
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" href="/assets/brand/svg/thadam-icon-light.svg" type="image/svg+xml">
+  <link rel="icon" href="/assets/brand/png/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/assets/brand/png/favicon-180.png" sizes="180x180">
+  <link rel="stylesheet" href="/assets/brand/tokens/thadam.css">
+  <link rel="stylesheet" href="/assets/site.css">
+  <script src="/assets/site.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <a class="brand" href="/">
+      <img class="on-light" src="/assets/brand/svg/thadam-logo-light.svg" alt="Thadam: The open data plane for robotics" width="200" height="53">
+      <img class="on-dark" src="/assets/brand/svg/thadam-logo-dark.svg" alt="Thadam: The open data plane for robotics" width="200" height="53">
+    </a>
+    <nav aria-label="Primary">
+      <a href="/docs/">Docs</a>
+      <a href="#status">Status</a>
+      <a href="#build">Build</a>
+      <a href="https://github.com/Dineshkarthik/thadam">GitHub</a>
+      <button type="button" class="theme-toggle" data-theme-toggle hidden>Dark</button>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Pre-alpha &middot; Rust &middot; Apache-2.0</p>
+        <h1>The open data plane for robotics.</h1>
+        <p class="lede">Capture robotic and industrial data durably at the edge, normalize it, and deliver it to Parquet, S3-compatible object storage, and analytical databases.</p>
+        <div class="actions">
+          <a class="button button-primary" href="/docs/getting-started/installation.html">Get started <span aria-hidden="true">&rarr;</span></a>
+          <a class="button" href="/docs/">Read the docs</a>
+        </div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="plane"></div>
+        <img class="mark on-light" src="/assets/brand/svg/thadam-mark-light.svg" alt="" width="260" height="260">
+        <img class="mark on-dark" src="/assets/brand/svg/thadam-mark-dark.svg" alt="" width="260" height="260">
+      </div>
+    </section>
+
+    <ul class="features" aria-label="Highlights">
+      <li>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
+        <span>Capture first, before acknowledging</span>
+      </li>
+      <li>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+        <span>Durable local log with fsync</span>
+      </li>
+      <li>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 7.5v9M8.5 19c4 0 5-3 7-6"/></svg>
+        <span>Independent sinks per pipeline</span>
+      </li>
+      <li>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>
+        <span>Built for edge and cloud</span>
+      </li>
+    </ul>
+
+    <section class="section" id="how" aria-labelledby="how-heading">
+      <h2 id="how-heading">How it works</h2>
+      <p>Every accepted message is committed to one local log. Each sink then reads that log through its own chain, so a slow sink does not hold back capture or the others.</p>
+      <figure class="flow">
+        <svg viewBox="0 0 960 220" role="img" aria-labelledby="flow-title flow-desc">
+          <title id="flow-title">Data flow</title>
+          <desc id="flow-desc">Sources feed a durable write-ahead log. Per-sink chains read the log and deliver to Parquet, object storage, and ClickHouse.</desc>
+          <g class="flow-box">
+            <rect x="10" y="60" width="180" height="100" rx="8"/>
+            <text x="100" y="105" text-anchor="middle">Sources</text>
+            <text x="100" y="128" text-anchor="middle" class="flow-sub">MQTT, ROS 2, HTTP, more</text>
+          </g>
+          <g class="flow-box flow-accent">
+            <rect x="250" y="60" width="180" height="100" rx="8"/>
+            <text x="340" y="105" text-anchor="middle">Write-ahead log</text>
+            <text x="340" y="128" text-anchor="middle" class="flow-sub">fsync before ack</text>
+          </g>
+          <g class="flow-box">
+            <rect x="490" y="60" width="180" height="100" rx="8"/>
+            <text x="580" y="105" text-anchor="middle">Per-sink chains</text>
+            <text x="580" y="128" text-anchor="middle" class="flow-sub">decode, transform</text>
+          </g>
+          <g class="flow-box">
+            <rect x="730" y="20" width="220" height="60" rx="8"/>
+            <text x="840" y="56" text-anchor="middle">Parquet and object storage</text>
+          </g>
+          <g class="flow-box">
+            <rect x="730" y="140" width="220" height="60" rx="8"/>
+            <text x="840" y="176" text-anchor="middle">ClickHouse (P1)</text>
+          </g>
+          <path class="flow-line" d="M190 110 H250 M430 110 H490 M670 110 L700 110 L700 50 L730 50 M700 110 L700 170 L730 170"/>
+        </svg>
+        <figcaption>Capture, then deliver. The log is the source of truth; sinks are independent readers.</figcaption>
+      </figure>
+    </section>
+
+    <section class="section" id="status" aria-labelledby="status-heading">
+      <h2 id="status-heading">Status</h2>
+      <p>Thadam is pre-alpha. Nothing is published to a package registry, and there are no release binaries yet. <strong>Available</strong> means implemented in this repository; the <a href="https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md">readiness tracker</a> records how far each part is verified. Sink priorities: P0 local Parquet and S3-compatible object storage; P1 ClickHouse; P2 Iceberg and managed destinations.</p>
+      <div class="table-wrap">
+        <table>
+          <caption>Sources and sinks</caption>
+          <thead>
+            <tr><th scope="col">Kind</th><th scope="col">Component</th><th scope="col">Status</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Source</td><td>MQTT, with persistent sessions and acknowledgement after WAL commit</td><td>Available</td></tr>
+            <tr><td>Source</td><td>ROS 2 offline recordings (MCAP)</td><td>Available</td></tr>
+            <tr><td>Source</td><td>HTTP, gRPC, Modbus TCP, SocketCAN</td><td>Available</td></tr>
+            <tr><td>Source</td><td>OPC UA (opt-in <code>opcua</code> build feature)</td><td>Available</td></tr>
+            <tr><td>Source</td><td>Live ROS 2 transport</td><td>In progress (spike S3)</td></tr>
+            <tr><td>Sink (P0)</td><td>Local Parquet segments</td><td>Available</td></tr>
+            <tr><td>Sink (P0)</td><td>S3-compatible object storage</td><td>Available; chaos verification pending</td></tr>
+            <tr><td>Sink (P1)</td><td>ClickHouse</td><td>In progress; outside the M1 reliability gate</td></tr>
+            <tr><td>Sink (P2)</td><td>Iceberg and managed destinations</td><td>Planned</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section" id="build" aria-labelledby="build-heading">
+      <h2 id="build-heading">Build from source</h2>
+      <p>The Rust toolchain is pinned by <code>rust-toolchain.toml</code>, and rustup installs it on first use. Linux x86_64 and ARM64 are the durability targets; macOS is for development only.</p>
+      <pre><code>git clone https://github.com/Dineshkarthik/thadam.git
+cd thadam
+cargo build --release -p thadam-cli
+./target/release/thadam version</code></pre>
+      <p>Next, follow <a href="/docs/getting-started/first-pipeline.html">your first pipeline</a>.</p>
+    </section>
+
+    <section class="section" id="changes" aria-labelledby="changes-heading">
+      <h2 id="changes-heading">Latest changes</h2>
+      <p>Changes land in the <a href="https://github.com/Dineshkarthik/thadam/blob/main/CHANGELOG.md">CHANGELOG</a>. Design decisions are recorded as ADRs in <a href="https://github.com/Dineshkarthik/thadam/tree/main/docs/design/adr">docs/design/adr</a>, and milestone progress is tracked in the <a href="/docs/roadmap.html">roadmap</a>.</p>
+    </section>
+
+    <section class="section" aria-labelledby="claims-heading">
+      <h2 id="claims-heading">Delivery claims</h2>
+      <p>Guarantees are stated per hop and only where the claims register has evidence. Thadam does not claim exactly-once or zero-loss delivery end to end. For MQTT QoS 1 and 2, capture is at-least-once with acknowledgement after WAL commit. Read the full wording in <a href="/docs/concepts/delivery-guarantees.html">delivery guarantees</a>.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Thadam is licensed under <a href="https://github.com/Dineshkarthik/thadam/blob/main/LICENSE">Apache-2.0</a>. &ldquo;Thadam&rdquo; is the selected project name; trademark and domain clearance is pending.</p>
+    <p><a href="/docs/">Documentation</a> &middot; <a href="https://github.com/Dineshkarthik/thadam">Source</a> &middot; <a href="https://github.com/Dineshkarthik/thadam/blob/main/CONTRIBUTING.md">Contributing</a> &middot; <a href="https://github.com/Dineshkarthik/thadam/issues">Issues</a> &middot; <a href="https://github.com/Dineshkarthik/thadam/blob/main/SECURITY.md">Security</a></p>
+  </footer>
+</body>
+</html>
