@@ -1,16 +1,19 @@
-//! An in-process OPC UA server for the source's tests, mirroring the
-//! in-process Modbus test server: a handful of variables on a timer, a
-//! controllable lifecycle, and username-token support for the
-//! encrypted-policy test.
+//! An in-process OPC UA server and certificate fixtures for the source's
+//! tests. The server offers every policy and mode the source supports, the
+//! anonymous and username tokens, and an X.509 user token. It trusts the
+//! client certificate only, so a rogue certificate is refused the way a
+//! real server would refuse it.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
-use opcua::crypto::{CertificateStore, SecurityPolicy};
+use opcua::crypto::{CertificateStore, SecurityPolicy, X509Data};
 use opcua::server::address_space::{
     AccessLevel, AddressSpace, NodeType, ReferenceDirection, VariableBuilder,
 };
@@ -23,17 +26,32 @@ use opcua::types::{
     ApplicationDescription, Array, DataTypeId, DataValue, LocalizedText, MessageSecurityMode,
     NodeId, ObjectId, ReferenceTypeId, StatusCode, VariableTypeId, Variant, VariantScalarTypeId,
 };
-use tokio::net::TcpListener;
+use thadam_core::SourceFactory;
+use thadam_core::{
+    BatchLimits, BuildContext, RawMessage, Shutdown, Source, SourceContext, SourceId, SystemClock,
+};
+use thadam_opcua::OpcUaSourceFactory;
+use serde_json::{Value, json};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 /// The test namespace URI; variables live under it.
 pub const NAMESPACE: &str = "urn:thadam:opcua:test";
+/// The server's application URI, carried by its certificate.
+pub const SERVER_APP_URI: &str = "urn:thadam:opcua:test-server";
+/// The client's application URI. The source sets this itself, so the
+/// client certificate must carry the same URI.
+pub const CLIENT_APP_URI: &str = "urn:thadam:opcua";
 
 /// The test username (`auth` with `kind: username`).
 pub const USERNAME: &str = "thadam";
 /// The test user's password.
 pub const PASSWORD: &str = "correct-horse";
+/// The token id of the X.509 user the server knows (`auth` with `kind:
+/// certificate`, using `user_cert`).
+const CERT_USER: &str = "certuser";
 
 type TestNodeManager = InMemoryNodeManager<SimpleNodeManagerImpl>;
 
@@ -56,6 +74,118 @@ impl TestNodes {
     /// The `ns=N;i=<n>` spelling source configs take.
     pub fn id_str(node: &NodeId) -> String {
         node.to_string()
+    }
+}
+
+/// Certificates shared by every test in the process. Generating RSA keys
+/// is the slow part of these tests, so they are made once.
+pub struct Material {
+    /// The server's certificate and key (PEM).
+    pub server_cert: PathBuf,
+    pub server_key: PathBuf,
+    /// The client application certificate, trusted by the server.
+    pub client_cert: PathBuf,
+    pub client_key: PathBuf,
+    /// The X.509 user certificate the server accepts as a user token.
+    pub user_cert: PathBuf,
+    pub user_key: PathBuf,
+    /// A certificate neither the server nor its user tokens know.
+    pub rogue_cert: PathBuf,
+    pub rogue_key: PathBuf,
+}
+
+impl Material {
+    /// The process-wide certificate set.
+    pub fn shared() -> &'static Material {
+        static MATERIAL: OnceLock<Material> = OnceLock::new();
+        MATERIAL.get_or_init(|| {
+            let dir = tempfile::tempdir().expect("material dir").keep();
+            let file = |name: &str| dir.join(name);
+
+            let server_description = ApplicationDescription {
+                application_uri: opcua::types::UAString::from(SERVER_APP_URI.to_owned()),
+                application_name: LocalizedText::new("en", "thadam-opcua-test-server"),
+                ..Default::default()
+            };
+            let server: X509Data = (
+                server_description,
+                Some(vec!["127.0.0.1".to_owned(), "localhost".to_owned()]),
+            )
+                .into();
+            let (server_cert, server_key) = (file("server.der"), file("server-key.pem"));
+            CertificateStore::create_certificate_and_key(&server, true, &server_cert, &server_key)
+                .expect("server certificate");
+
+            let (client_cert, client_key) = make_app_cert(&dir, "client", CLIENT_APP_URI);
+            let (user_cert, user_key) = make_app_cert(&dir, "user", "urn:thadam:opcua:test-user");
+            let (rogue_cert, rogue_key) = make_app_cert(&dir, "rogue", CLIENT_APP_URI);
+
+            Material {
+                server_cert,
+                server_key,
+                client_cert,
+                client_key,
+                user_cert,
+                user_key,
+                rogue_cert,
+                rogue_key,
+            }
+        })
+    }
+}
+
+fn make_app_cert(dir: &Path, name: &str, application_uri: &str) -> (PathBuf, PathBuf) {
+    let cert = dir.join(format!("{name}.der"));
+    let key = dir.join(format!("{name}-key.pem"));
+    let description = ApplicationDescription {
+        application_uri: opcua::types::UAString::from(application_uri.to_owned()),
+        product_uri: opcua::types::UAString::from("urn:thadam:opcua:test".to_owned()),
+        application_name: LocalizedText::new("en", "thadam test"),
+        ..Default::default()
+    };
+    CertificateStore::create_certificate_and_key(&description.into(), true, &cert, &key)
+        .expect("application certificate");
+    (cert, key)
+}
+
+/// A per-test copy of the client's certificate files, so each test has its
+/// own PKI directory (trusted and rejected entries are per test).
+pub struct ClientFiles {
+    _dir: tempfile::TempDir,
+    /// The client's PKI directory.
+    pub pki_dir: PathBuf,
+    /// The client's application certificate and key, inside `pki_dir`.
+    pub cert: PathBuf,
+    pub key: PathBuf,
+}
+
+impl ClientFiles {
+    /// A fresh PKI directory holding a copy of `cert` and `key`.
+    pub fn new(cert: &Path, key: &Path) -> Self {
+        let dir = tempfile::tempdir().expect("client dir");
+        let pki_dir = dir.path().join("client-pki");
+        std::fs::create_dir_all(&pki_dir).expect("client pki dir");
+        let cert_copy = pki_dir.join("client.der");
+        let key_copy = pki_dir.join("client-key.pem");
+        std::fs::copy(cert, &cert_copy).expect("copy client cert");
+        std::fs::copy(key, &key_copy).expect("copy client key");
+        ClientFiles {
+            _dir: dir,
+            pki_dir,
+            cert: cert_copy,
+            key: key_copy,
+        }
+    }
+
+    /// The `cert` block of a source config for this client, with the given
+    /// explicit server trust entries.
+    pub fn cert_block(&self, trust_server_certs: &[PathBuf]) -> Value {
+        json!({
+            "cert": self.cert,
+            "key": self.key,
+            "pki_dir": self.pki_dir,
+            "trust_server_certs": trust_server_certs,
+        })
     }
 }
 
@@ -83,9 +213,10 @@ impl ServerControl {
 
 /// A running in-process server.
 pub struct TestServer {
-    /// The bound address the source connects to.
+    /// The address the server listens on.
     pub addr: SocketAddr,
-    /// `opc.tcp://addr` — the endpoint for source configs.
+    /// The endpoint URL the server advertises, for source configs. This is
+    /// the proxy's address when the server sits behind one.
     pub endpoint: String,
     handle: ServerHandle,
     task: JoinHandle<Result<(), String>>,
@@ -115,7 +246,7 @@ impl TestServer {
 
 /// Binds a loopback listener, retrying briefly while an earlier server's
 /// socket drains.
-async fn bind(port: u16) -> TcpListener {
+pub async fn bind(port: u16) -> TcpListener {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
         match TcpListener::bind(("127.0.0.1", port)).await {
@@ -130,62 +261,86 @@ async fn bind(port: u16) -> TcpListener {
     }
 }
 
-/// What kind of endpoint the test server offers.
-#[derive(Clone, Copy)]
-pub enum ServerKind {
-    /// `none`/`none` security; anonymous and username tokens.
-    Plain,
-    /// `basic256sha256`/`sign_and_encrypt` with a generated key pair.
-    Encrypted,
+/// Starts a server on `port` (0 for any free port).
+pub async fn start_server(port: u16) -> (TestServer, TestNodes) {
+    let listener = bind(port).await;
+    let advertised = listener.local_addr().expect("local addr").port();
+    start_on(listener, advertised).await
 }
 
-/// Starts a server on port 0 (or `port`), with the test variables inserted.
-pub async fn start_server(kind: ServerKind, port: u16) -> (TestServer, TestNodes) {
-    let listener = bind(port).await;
+/// Starts a server on an existing listener, advertising `advertised_port`
+/// in its endpoint URLs. A different advertised port puts a proxy between
+/// the client and the server.
+pub async fn start_on(listener: TcpListener, advertised_port: u16) -> (TestServer, TestNodes) {
     let addr = listener.local_addr().expect("local addr");
-    let endpoint = format!("opc.tcp://127.0.0.1:{}", addr.port());
-    let pki = tempfile::tempdir().expect("pki dir");
+    let endpoint = format!("opc.tcp://127.0.0.1:{advertised_port}");
+    let pki = tempfile::tempdir().expect("server pki dir");
+    let material = Material::shared();
+    trust_certificate(pki.path(), &material.client_cert);
 
-    let token_ids: &[&str] = &[ANONYMOUS_USER_TOKEN_ID, USERNAME];
+    let plain_tokens: &[&str] = &[ANONYMOUS_USER_TOKEN_ID, USERNAME];
+    let secured_tokens: &[&str] = &[ANONYMOUS_USER_TOKEN_ID, USERNAME, CERT_USER];
     let mut builder = ServerBuilder::new()
         .application_name("thadam-opcua-test")
-        .application_uri("urn:thadam:opcua:test-server")
+        .application_uri(SERVER_APP_URI)
         .product_uri("urn:thadam:opcua:test")
         .host("127.0.0.1")
-        .port(addr.port())
+        .port(advertised_port)
         .discovery_urls(vec![endpoint.clone()])
         .pki_dir(pki.path())
+        .certificate_path(material.server_cert.clone())
+        .private_key_path(material.server_key.clone())
+        .trust_client_certs(false)
         .add_user_token(USERNAME, ServerUserToken::user_pass(USERNAME, PASSWORD))
+        .add_user_token(
+            CERT_USER,
+            ServerUserToken::x509(CERT_USER, &material.user_cert),
+        )
         .with_node_manager(simple_node_manager(
             NamespaceMetadata {
                 namespace_uri: NAMESPACE.to_owned(),
                 ..Default::default()
             },
             "test",
-        ));
-    builder = match kind {
-        ServerKind::Plain => builder.create_sample_keypair(false).add_endpoint(
+        ))
+        .add_endpoint(
             "none",
             (
                 "/",
                 SecurityPolicy::None,
                 MessageSecurityMode::None,
-                token_ids,
+                plain_tokens,
             ),
+        );
+    for (id, policy, mode) in [
+        (
+            "basic256sha256-sign-encrypt",
+            SecurityPolicy::Basic256Sha256,
+            MessageSecurityMode::SignAndEncrypt,
         ),
-        ServerKind::Encrypted => builder
-            .create_sample_keypair(true)
-            .trust_client_certs(true)
-            .add_endpoint(
-                "basic256",
-                (
-                    "/",
-                    SecurityPolicy::Basic256Sha256,
-                    MessageSecurityMode::SignAndEncrypt,
-                    token_ids,
-                ),
-            ),
-    };
+        (
+            "aes128-sign",
+            SecurityPolicy::Aes128Sha256RsaOaep,
+            MessageSecurityMode::Sign,
+        ),
+        (
+            "aes128-sign-encrypt",
+            SecurityPolicy::Aes128Sha256RsaOaep,
+            MessageSecurityMode::SignAndEncrypt,
+        ),
+        (
+            "aes256-sign",
+            SecurityPolicy::Aes256Sha256RsaPss,
+            MessageSecurityMode::Sign,
+        ),
+        (
+            "aes256-sign-encrypt",
+            SecurityPolicy::Aes256Sha256RsaPss,
+            MessageSecurityMode::SignAndEncrypt,
+        ),
+    ] {
+        builder = builder.add_endpoint(id, ("/", policy, mode, secured_tokens));
+    }
 
     let (server, handle) = builder.build().expect("server builds");
     let task = tokio::spawn(server.run_with(listener));
@@ -259,6 +414,16 @@ pub async fn start_server(kind: ServerKind, port: u16) -> (TestServer, TestNodes
     )
 }
 
+/// Copies `cert` into `<pki>/trusted` under the name the server looks it
+/// up by, as an operator would.
+fn trust_certificate(pki: &Path, cert: &Path) {
+    let trusted = pki.join("trusted");
+    std::fs::create_dir_all(&trusted).expect("trusted dir");
+    let x509 = CertificateStore::read_cert(cert).expect("read certificate");
+    let name = CertificateStore::cert_file_name(&x509);
+    std::fs::write(trusted.join(name), x509.to_der().expect("der")).expect("trust certificate");
+}
+
 /// Inserts a variable under the Objects folder.
 fn add_variable(
     address_space: &mut AddressSpace,
@@ -281,22 +446,47 @@ fn add_variable(
     address_space.insert_reference(id, &type_def, ReferenceTypeId::HasTypeDefinition);
 }
 
-/// Generates a self-signed client certificate pair in `dir` for the
-/// encrypted-policy test. Returns `(cert, key, pki_dir)`.
-pub fn make_client_cert(
-    dir: &Path,
-) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
-    let cert = dir.join("cert.der");
-    let key = dir.join("key.pem");
-    let description = ApplicationDescription {
-        application_uri: opcua::types::UAString::from("urn:thadam:opcua:test-client".to_owned()),
-        product_uri: opcua::types::UAString::from("urn:thadam:opcua:test".to_owned()),
-        application_name: LocalizedText::new("en", "thadam test client"),
-        ..Default::default()
-    };
-    CertificateStore::create_certificate_and_key(&description.into(), true, &cert, &key)
-        .expect("client cert");
-    (cert, key, dir.to_path_buf())
+/// A TCP relay that counts accepted connections. Every connection the
+/// client makes to the advertised port passes through it, so a test can
+/// observe reconnect attempts.
+pub struct CountingProxy {
+    /// The port the client connects to.
+    pub port: u16,
+    accepted: Arc<AtomicU32>,
+    _task: JoinHandle<()>,
+}
+
+impl CountingProxy {
+    /// Relays to `target`, listening on a free loopback port.
+    pub async fn start(target: SocketAddr) -> Self {
+        let listener = bind(0).await;
+        let port = listener.local_addr().expect("proxy addr").port();
+        let accepted = Arc::new(AtomicU32::new(0));
+        let counter = Arc::clone(&accepted);
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((mut inbound, _)) = listener.accept().await else {
+                    return;
+                };
+                counter.fetch_add(1, Ordering::Relaxed);
+                tokio::spawn(async move {
+                    if let Ok(mut outbound) = TcpStream::connect(target).await {
+                        let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
+                    }
+                });
+            }
+        });
+        CountingProxy {
+            port,
+            accepted,
+            _task: task,
+        }
+    }
+
+    /// Connections accepted so far.
+    pub fn accepted(&self) -> u32 {
+        self.accepted.load(Ordering::Relaxed)
+    }
 }
 
 /// Tick task: updates `temp`/`counter` every `interval` until cancelled.
@@ -326,4 +516,95 @@ pub fn bad_sensor_value(v: f64) -> DataValue {
     let mut dv = DataValue::new_now(v);
     dv.status = Some(StatusCode::BadSensorFailure);
     dv
+}
+
+/// The shutdown-scoped context a source opens with.
+pub fn ctx(shutdown: &Shutdown) -> SourceContext {
+    SourceContext::new(
+        SourceId::new("opcua-test"),
+        shutdown.clone(),
+        Arc::new(SystemClock::new()),
+    )
+}
+
+/// Batch limits that keep the tests' latency low.
+pub fn limits() -> BatchLimits {
+    BatchLimits {
+        max_messages: 16,
+        linger: Duration::from_millis(5),
+        ..BatchLimits::default()
+    }
+}
+
+/// Builds and opens a source from a config JSON document.
+pub async fn open_source(cfg: Value, shutdown: &Shutdown) -> Box<dyn Source> {
+    let build = BuildContext::new(
+        "opcua-1",
+        Arc::new(SystemClock::new()),
+        std::path::PathBuf::new(),
+    );
+    let mut source = OpcUaSourceFactory::new()
+        .build(cfg, &build)
+        .expect("config builds");
+    source.open(&ctx(shutdown)).await.expect("open");
+    source
+}
+
+/// Collects messages until `until` returns true or the timeout passes.
+pub async fn collect_until(
+    source: &Mutex<Box<dyn Source>>,
+    within: Duration,
+    mut until: impl FnMut(&RawMessage) -> bool,
+) -> Vec<RawMessage> {
+    let deadline = tokio::time::Instant::now() + within;
+    let mut out = Vec::new();
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return out;
+        }
+        let batch = {
+            let mut guard = source.lock().await;
+            match tokio::time::timeout(remaining, guard.next_batch(limits())).await {
+                Ok(Ok(Some(batch))) => batch.batch.messages,
+                Ok(Ok(None)) => Vec::new(),
+                Ok(Err(error)) => panic!("next_batch failed: {error}"),
+                Err(_) => return out, // publish gap longer than the remaining budget
+            }
+        };
+        let done = batch.iter().any(&mut until);
+        out.extend(batch);
+        if done {
+            return out;
+        }
+    }
+}
+
+/// A message's JSON payload.
+pub fn payload(message: &RawMessage) -> Value {
+    serde_json::from_slice(&message.payload).expect("json payload")
+}
+
+/// A subscribe-mode config over every test node, with fast timing.
+pub fn base_config(server: &TestServer, nodes: &TestNodes) -> Value {
+    json!({
+        "endpoint": server.endpoint,
+        "security_policy": "none",
+        "security_mode": "none",
+        "subscribe": {"publishing_interval": "100ms", "sampling_interval": "25ms"},
+        "reconnect": {"min_backoff": "100ms", "max_backoff": "500ms",
+                      "max_handshakes_per_minute": 6000},
+        "nodes": nodes_json(nodes)
+    })
+}
+
+/// The five test nodes in the order the tests expect.
+pub fn nodes_json(nodes: &TestNodes) -> Value {
+    json!([
+        {"node_id": TestNodes::id_str(&nodes.temp), "name": "temp"},
+        {"node_id": TestNodes::id_str(&nodes.running), "name": "running"},
+        {"node_id": TestNodes::id_str(&nodes.label), "name": "label"},
+        {"node_id": TestNodes::id_str(&nodes.accel), "name": "accel"},
+        {"node_id": TestNodes::id_str(&nodes.counter), "name": "counter"}
+    ])
 }

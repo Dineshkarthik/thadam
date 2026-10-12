@@ -1,5 +1,6 @@
-//! The session task: connect, subscribe, forward publish responses, and
-//! reconnect on loss.
+//! The session task: connect, then either subscribe and forward publish
+//! responses (`mode: subscribe`) or read every node on a timer (`mode:
+//! poll`), reconnecting on loss.
 //!
 //! Reconnects are supervised here, not inside `async-opcua`, so the cadence
 //! is fully controlled: an exponential backoff with jitter between failed
@@ -9,13 +10,17 @@
 //! samples an observer can collect toward RUSTSEC-2023-0071 (the `rsa` 0.9
 //! Marvin advisory; see the crate docs).
 //!
-//! One publish response becomes one raw message. The subscription callback
-//! runs inside the client event loop, so it never awaits: it maps values,
-//! builds the message, and `try_send`s it. When the runtime falls far
-//! enough behind that the bounded channel is full, whole publish responses
-//! are dropped and counted — the running total rides on later messages as
-//! `opcua.dropped`. A non-Good status is never lost: it becomes a `null`
-//! value named in `opcua.bad_status`.
+//! Subscribe mode: one publish response becomes one raw message. The
+//! subscription callback runs inside the client event loop, so it never
+//! awaits: it maps values, builds the message, and `try_send`s it. When the
+//! runtime falls far enough behind that the bounded channel is full, whole
+//! publish responses are dropped and counted — the running total rides on
+//! later messages as `opcua.dropped`. A non-Good status is never lost: it
+//! becomes a `null` value named in `opcua.bad_status`.
+//!
+//! Poll mode: one Read service call per tick, one message per poll. The
+//! poll sends with backpressure rather than dropping, since the interval
+//! already paces it.
 
 use std::hash::{BuildHasher, Hasher, RandomState};
 use std::sync::Arc;
@@ -25,21 +30,23 @@ use std::time::Duration;
 use bytes::Bytes;
 use opcua::client::{
     Client, ClientBuilder, IdentityToken, MonitoredItemMap, OnSubscriptionNotificationCore,
-    SessionPollResult,
+    Session, SessionPollResult,
 };
 use opcua::types::{
     AttributeId, DataChangeNotification, DataValue, EndpointDescription, MessageSecurityMode,
     MonitoredItemCreateRequest, MonitoringMode, MonitoringParameters, NotificationMessage,
     ReadValueId, TimestampsToReturn, UAString,
 };
-use thadam_core::{Classify, Clock, RawMessage, Retry, Shutdown};
+use thadam_core::{Classify, Clock, RawMessage, Retry, Shutdown, Timestamp};
 use serde_json::{Map, Value};
 use tokio::sync::mpsc;
+use tokio::time::MissedTickBehavior;
 use tokio_stream::StreamExt;
 use tracing::{debug, warn};
 
-use crate::config::{AuthConfig, OpcUaConfig, SecurityModeSpec, TIMESTAMP_KEY};
+use crate::config::{AuthConfig, ModeSpec, OpcUaConfig, SecurityModeSpec, TIMESTAMP_KEY};
 use crate::error::{OpcUaError, from_connect, from_status, status_name};
+use crate::pki;
 use crate::value::{MappedValue, map_data_value, newest_timestamp_us};
 
 /// Publish responses the session task may run ahead of `next_batch`.
@@ -147,7 +154,7 @@ where
                 debug!(
                     endpoint = %config.endpoint,
                     %error,
-                    "OPC UA session ended; resubscribing"
+                    "OPC UA session ended; reconnecting"
                 );
             }
             Ok(Attempt::Connecting(error)) => {
@@ -188,9 +195,11 @@ pub(crate) async fn run(
     .await
 }
 
-/// Builds the `async-opcua` client from the configuration.
+/// Builds the `async-opcua` client from the configuration. Trust entries
+/// are installed into the PKI store first, so the client finds them when
+/// it checks the server certificate.
 fn build_client(config: &OpcUaConfig) -> Result<Client, OpcUaError> {
-    let keep_alive = (config.subscribe.publishing_interval.0 * 3)
+    let keep_alive = (config.subscribe_settings().publishing_interval.0 * 3)
         .clamp(Duration::from_secs(2), Duration::from_secs(30));
     let mut builder = ClientBuilder::new()
         .application_name("thadam")
@@ -202,12 +211,18 @@ fn build_client(config: &OpcUaConfig) -> Result<Client, OpcUaError> {
         .recreate_subscriptions(false)
         .keep_alive_interval(keep_alive);
     if let Some(cert) = &config.cert {
+        let trusted: Vec<_> = cert
+            .trust_server_certs
+            .iter()
+            .map(|path| cert.resolve(path))
+            .collect();
+        pki::install_trusted(&cert.pki_dir, &trusted).map_err(OpcUaError::Config)?;
         builder = builder
             .pki_dir(&cert.pki_dir)
-            .certificate_path(&cert.cert)
-            .private_key_path(&cert.key)
-            .trust_server_certs(cert.trust_server)
-            .verify_server_certs(!cert.trust_server);
+            .certificate_path(cert.resolve(&cert.cert))
+            .private_key_path(cert.resolve(&cert.key))
+            .trust_server_certs(cert.accept_unknown_server_cert)
+            .verify_server_certs(true);
     }
     builder
         .client()
@@ -229,11 +244,21 @@ fn endpoint_description(config: &OpcUaConfig) -> EndpointDescription {
     }
 }
 
-fn identity_token(config: &OpcUaConfig) -> IdentityToken {
+fn identity_token(config: &OpcUaConfig) -> Result<IdentityToken, OpcUaError> {
     match &config.auth {
-        AuthConfig::Anonymous => IdentityToken::Anonymous,
-        AuthConfig::Username { username, password } => {
-            IdentityToken::UserName(username.clone(), password.clone().into())
+        AuthConfig::Anonymous => Ok(IdentityToken::Anonymous),
+        AuthConfig::Username { username, password } => Ok(IdentityToken::UserName(
+            username.clone(),
+            password.clone().into(),
+        )),
+        AuthConfig::Certificate { cert, key } => {
+            let Some(material) = config.cert.as_ref() else {
+                return Err(OpcUaError::Config(
+                    "auth kind certificate needs the cert block".into(),
+                ));
+            };
+            IdentityToken::new_x509_path(material.resolve(cert), material.resolve(key))
+                .map_err(|e| OpcUaError::Config(format!("cannot load the user certificate: {e}")))
         }
     }
 }
@@ -252,9 +277,9 @@ enum SessionEvent {
 }
 
 /// Drives the client event loop in its own task: service calls
-/// (`create_subscription`, `create_monitored_items`) only complete while the
-/// loop is being polled, and subscription notifications fire from inside
-/// it. Connect/disconnect liveness events flow over `events`.
+/// (`create_subscription`, `create_monitored_items`, `read`) only complete
+/// while the loop is being polled, and subscription notifications fire from
+/// inside it. Connect/disconnect liveness events flow over `events`.
 async fn drive(
     event_loop: opcua::client::SessionEventLoop<opcua::client::transport::TcpConnector>,
     events: mpsc::Sender<SessionEvent>,
@@ -286,16 +311,32 @@ impl Drop for AbortOnDrop {
     }
 }
 
-/// Performs one full connect-subscribe-forward cycle. `Ok` reports how far
-/// the cycle got; `Err` is always fatal and ends the source.
+/// The attempt a lifecycle event ends, or `None` when the event is
+/// informational.
+fn session_ended(event: Option<SessionEvent>) -> Option<Attempt> {
+    match event {
+        Some(SessionEvent::Connected) => None,
+        Some(SessionEvent::Lost(code)) => Some(Attempt::Established(OpcUaError::Transport(
+            format!("connection lost ({})", status_name(&code)),
+        ))),
+        Some(SessionEvent::Failed(status)) => Some(Attempt::Established(from_status(status))),
+        Some(SessionEvent::Ended) | None => Some(Attempt::Established(OpcUaError::Transport(
+            "the session event loop ended".into(),
+        ))),
+    }
+}
+
+/// Performs one full connect-and-forward cycle. `Ok` reports how far the
+/// cycle got; `Err` is always fatal and ends the source.
 async fn one_session(
     config: Arc<OpcUaConfig>,
     clock: Arc<dyn Clock>,
     tx: mpsc::Sender<RawMessage>,
 ) -> Result<Attempt, OpcUaError> {
     let mut client = build_client(&config)?;
+    let identity = identity_token(&config)?;
     let (session, event_loop) = match client
-        .connect_to_matching_endpoint(endpoint_description(&config), identity_token(&config))
+        .connect_to_matching_endpoint(endpoint_description(&config), identity)
         .await
     {
         Ok(pair) => pair,
@@ -325,18 +366,26 @@ async fn one_session(
         }
     }
 
-    let forward = Forwarder::new(&config, clock, tx);
+    match config.mode {
+        ModeSpec::Subscribe => subscribe_cycle(&session, &config, clock, tx, &mut events_rx).await,
+        ModeSpec::Poll => poll_cycle(&session, &config, clock, tx, &mut events_rx).await,
+    }
+}
+
+/// Creates the subscription and monitored items, then forwards publish
+/// responses until the connection ends.
+async fn subscribe_cycle(
+    session: &Session,
+    config: &OpcUaConfig,
+    clock: Arc<dyn Clock>,
+    tx: mpsc::Sender<RawMessage>,
+    events: &mut mpsc::Receiver<SessionEvent>,
+) -> Result<Attempt, OpcUaError> {
+    let settings = config.subscribe_settings();
+    let forward = Forwarder::new(config, clock, tx);
     let published_id = forward.subscription_id();
     let sub_result = session
-        .create_subscription(
-            config.subscribe.publishing_interval.0,
-            100,
-            20,
-            0,
-            0,
-            true,
-            forward,
-        )
+        .create_subscription(settings.publishing_interval.0, 100, 20, 0, 0, true, forward)
         .await;
     let subscription_id = match sub_result {
         Ok(id) => id,
@@ -357,8 +406,8 @@ async fn one_session(
             monitoring_mode: MonitoringMode::Reporting,
             requested_parameters: MonitoringParameters {
                 client_handle: i as u32 + 1,
-                sampling_interval: config.subscribe.sampling_interval.0.as_secs_f64() * 1000.0,
-                queue_size: config.subscribe.queue_size,
+                sampling_interval: settings.sampling_interval.0.as_secs_f64() * 1000.0,
+                queue_size: settings.queue_size,
                 discard_oldest: true,
                 ..Default::default()
             },
@@ -393,27 +442,128 @@ async fn one_session(
     );
 
     loop {
-        match events_rx.recv().await {
-            Some(SessionEvent::Lost(code)) => {
-                return Ok(Attempt::Established(OpcUaError::Transport(format!(
-                    "connection lost ({})",
-                    status_name(&code)
-                ))));
-            }
-            Some(SessionEvent::Failed(status)) => {
-                return Ok(Attempt::Established(from_status(status)));
-            }
-            Some(SessionEvent::Ended) | None => {
-                return Ok(Attempt::Established(OpcUaError::Transport(
-                    "the session event loop ended".into(),
-                )));
-            }
-            Some(SessionEvent::Connected) => {}
+        if let Some(attempt) = session_ended(events.recv().await) {
+            return Ok(attempt);
         }
     }
 }
 
-/// Maps publish responses to raw messages inside the client event loop.
+/// Reads every node in one Read call per `interval` and emits one message
+/// per poll, until the connection ends.
+async fn poll_cycle(
+    session: &Session,
+    config: &OpcUaConfig,
+    clock: Arc<dyn Clock>,
+    tx: mpsc::Sender<RawMessage>,
+    events: &mut mpsc::Receiver<SessionEvent>,
+) -> Result<Attempt, OpcUaError> {
+    let Some(interval) = config.interval.map(|i| i.0) else {
+        return Err(OpcUaError::Config("mode: poll needs interval".into()));
+    };
+    let reads: Vec<ReadValueId> = config
+        .nodes
+        .iter()
+        .map(|spec| ReadValueId {
+            node_id: spec.node_id.clone(),
+            attribute_id: AttributeId::Value as u32,
+            ..Default::default()
+        })
+        .collect();
+    let names: Vec<&str> = config.nodes.iter().map(|n| n.name.as_str()).collect();
+    let topic = format!("opcua/{}/poll", host_of(&config.endpoint));
+
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    loop {
+        tokio::select! {
+            _ = ticker.tick() => {}
+            event = events.recv() => {
+                if let Some(attempt) = session_ended(event) {
+                    return Ok(attempt);
+                }
+                continue;
+            }
+        }
+        let read = tokio::select! {
+            result = session.read(&reads, TimestampsToReturn::Both, 0.0) => result,
+            event = events.recv() => {
+                if let Some(attempt) = session_ended(event) {
+                    return Ok(attempt);
+                }
+                continue;
+            }
+        };
+        let values = match read {
+            Ok(values) => values,
+            Err(e) => return Ok(Attempt::Established(from_status(e.status()))),
+        };
+        if values.len() != names.len() {
+            return Ok(Attempt::Established(OpcUaError::Protocol(format!(
+                "the server answered {} values for {} nodes",
+                values.len(),
+                names.len()
+            ))));
+        }
+
+        let mut message = grouped_message(clock.now(), &names, &values);
+        message
+            .attrs
+            .insert("opcua.endpoint", config.endpoint.clone());
+        message.attrs.insert("topic", topic.clone());
+        if tx.send(message).await.is_err() {
+            return Err(OpcUaError::Cancelled);
+        }
+    }
+}
+
+/// The host part of an endpoint URL, or the URL itself when it does not
+/// parse.
+fn host_of(endpoint: &str) -> String {
+    url::Url::parse(endpoint)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_owned))
+        .unwrap_or_else(|| endpoint.to_owned())
+}
+
+/// One message grouping `values`: each `names[i]` maps to `values[i]`'s JSON
+/// value, with `ts_us` and the `opcua.bad_status` and `opcua.unsupported`
+/// attributes when they apply. Callers add the source attributes.
+fn grouped_message(received: Timestamp, names: &[&str], values: &[DataValue]) -> RawMessage {
+    let mut object = Map::new();
+    let mut bad: Vec<String> = Vec::new();
+    let mut unsupported: Vec<String> = Vec::new();
+    for (name, dv) in names.iter().zip(values) {
+        let MappedValue {
+            json,
+            bad_status,
+            unsupported: kind,
+        } = map_data_value(dv);
+        object.insert((*name).to_owned(), json);
+        if let Some(status) = bad_status {
+            bad.push(format!("{name}={status}"));
+        }
+        if let Some(kind) = kind {
+            unsupported.push(format!("{name}={kind}"));
+        }
+    }
+    let ts_us = newest_timestamp_us(values).unwrap_or_else(|| received.as_micros());
+    object.insert(TIMESTAMP_KEY.to_owned(), Value::from(ts_us));
+    let payload = serde_json::to_vec(&Value::Object(object)).unwrap_or_else(|_| b"{}".to_vec());
+
+    let mut message = RawMessage::new(received, Bytes::from(payload));
+    if !bad.is_empty() {
+        message.attrs.insert("opcua.bad_status", bad.join(","));
+    }
+    if !unsupported.is_empty() {
+        message
+            .attrs
+            .insert("opcua.unsupported", unsupported.join(","));
+    }
+    message
+}
+
+/// Maps subscription publish responses to raw messages inside the client
+/// event loop.
 ///
 /// The callback is synchronous, so it does every conversion eagerly and
 /// hands finished messages to the runtime's channel with `try_send`: a
@@ -430,14 +580,10 @@ struct Forwarder {
 
 impl Forwarder {
     fn new(config: &OpcUaConfig, clock: Arc<dyn Clock>, tx: mpsc::Sender<RawMessage>) -> Self {
-        let host = url::Url::parse(&config.endpoint)
-            .ok()
-            .and_then(|u| u.host_str().map(str::to_owned))
-            .unwrap_or_else(|| config.endpoint.clone());
         Forwarder {
             names: config.nodes.iter().map(|n| n.name.clone()).collect(),
             endpoint: config.endpoint.clone(),
-            host,
+            host: host_of(&config.endpoint),
             subscription_id: Arc::new(AtomicU32::new(0)),
             dropped: Arc::new(AtomicU64::new(0)),
             clock,
@@ -450,12 +596,9 @@ impl Forwarder {
     }
 
     fn data_change(&self, notification: DataChangeNotification) {
-        let mut object = Map::new();
-        let mut bad: Vec<String> = Vec::new();
-        let mut unsupported: Vec<String> = Vec::new();
-        let mut values: Vec<DataValue> = Vec::new();
-
         let subscription_id = self.subscription_id.load(Ordering::Relaxed);
+        let mut names: Vec<&str> = Vec::new();
+        let mut values: Vec<DataValue> = Vec::new();
         for item in notification.monitored_items.into_iter().flatten() {
             let index = item
                 .client_handle
@@ -469,31 +612,14 @@ impl Forwarder {
                 );
                 continue;
             };
-            let dv = item.value;
-            let MappedValue {
-                json,
-                bad_status,
-                unsupported: kind,
-            } = map_data_value(&dv);
-            object.insert(name.clone(), json);
-            if let Some(status) = bad_status {
-                bad.push(format!("{name}={status}"));
-            }
-            if let Some(kind) = kind {
-                unsupported.push(format!("{name}={kind}"));
-            }
-            values.push(dv);
+            names.push(name.as_str());
+            values.push(item.value);
         }
         if values.is_empty() {
             return;
         }
 
-        let received = self.clock.now();
-        let ts_us = newest_timestamp_us(&values).unwrap_or_else(|| received.as_micros());
-        object.insert(TIMESTAMP_KEY.to_owned(), Value::from(ts_us));
-        let payload = serde_json::to_vec(&Value::Object(object)).unwrap_or_else(|_| b"{}".to_vec());
-
-        let mut message = RawMessage::new(received, Bytes::from(payload));
+        let mut message = grouped_message(self.clock.now(), &names, &values);
         message
             .attrs
             .insert("opcua.endpoint", self.endpoint.clone());
@@ -503,14 +629,6 @@ impl Forwarder {
         message
             .attrs
             .insert("topic", format!("opcua/{}/{subscription_id}", self.host));
-        if !bad.is_empty() {
-            message.attrs.insert("opcua.bad_status", bad.join(","));
-        }
-        if !unsupported.is_empty() {
-            message
-                .attrs
-                .insert("opcua.unsupported", unsupported.join(","));
-        }
         let total = self.dropped.load(Ordering::Relaxed);
         if total > 0 {
             message.attrs.insert("opcua.dropped", total.to_string());
@@ -689,5 +807,43 @@ mod tests {
             Err(OpcUaError::Authenticate("bad credentials".into()))
         );
         assert_eq!(attempts.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn a_poll_message_groups_every_node_and_names_bad_values() {
+        use opcua::types::{DateTime, StatusCode, Variant};
+        let stamp: DateTime = chrono::DateTime::from_timestamp_micros(1_700_000_000_000_000)
+            .expect("in range")
+            .into();
+        let good = DataValue {
+            value: Some(Variant::Int32(7)),
+            status: Some(StatusCode::Good),
+            source_timestamp: Some(stamp),
+            ..DataValue::default()
+        };
+        let bad = DataValue {
+            value: Some(Variant::Double(0.0)),
+            status: Some(StatusCode::BadSensorFailure),
+            ..DataValue::default()
+        };
+        let received = Timestamp::from_micros(42).expect("in range");
+        let message = grouped_message(received, &["count", "temp"], &[good, bad]);
+        let body: Value = serde_json::from_slice(&message.payload).expect("json");
+        assert_eq!(body["count"], json!(7));
+        assert_eq!(body["temp"], Value::Null);
+        assert_eq!(body[TIMESTAMP_KEY], json!(1_700_000_000_000_000i64));
+        assert_eq!(
+            message.attrs.get("opcua.bad_status"),
+            Some("temp=BadSensorFailure")
+        );
+    }
+
+    #[test]
+    fn a_poll_message_without_timestamps_uses_the_receive_time() {
+        let received = Timestamp::from_micros(42).expect("in range");
+        let message = grouped_message(received, &["x"], &[DataValue::default()]);
+        let body: Value = serde_json::from_slice(&message.payload).expect("json");
+        assert_eq!(body[TIMESTAMP_KEY], json!(42));
+        assert!(message.attrs.get("opcua.bad_status").is_none());
     }
 }

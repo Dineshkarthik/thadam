@@ -2,11 +2,13 @@
 //! [`async-opcua`](https://crates.io/crates/async-opcua) 0.19 (pure Rust,
 //! MPL-2.0 — an owner decision; never `open62541`).
 //!
-//! The source connects to one OPC UA server, creates one subscription over
-//! the configured nodes, and emits ONE raw message per publish response.
-//! Each message's payload groups that response's data changes:
+//! The source connects to one OPC UA server and either creates one
+//! subscription over the configured nodes (`mode: subscribe`, the default)
+//! and emits ONE raw message per publish response, or reads every node on a
+//! timer (`mode: poll`) and emits ONE raw message per poll. Each message's
+//! payload groups the values:
 //! `{ "<name>": value, ..., "ts_us": <microseconds> }` where `ts_us` is the
-//! source timestamp of the newest change, failing that the newest server
+//! source timestamp of the newest value, failing that the newest server
 //! timestamp, failing that the time the response was received.
 //!
 //! Delivery is at-most-once per publish response (`ack_mode: none`). OPC UA
@@ -41,11 +43,16 @@
 //!   (no retry storms against a misconfigured secret);
 //! - RSA is only used on the channel handshake, never per message.
 //!
-//! Certificate *authentication* (logging in with an X.509 token) is step 2.
+//! Client certificates and trust: the server certificate is rejected unless
+//! it is pinned in `cert.trust_server_certs` or the insecure
+//! `cert.accept_unknown_server_cert` is set. Certificate user authentication
+//! (`auth: {kind: certificate}`) is signed on the secure channel and needs a
+//! secured policy.
 
 mod config;
 mod error;
 mod factory;
+mod pki;
 mod session;
 mod source;
 mod value;
