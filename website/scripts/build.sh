@@ -42,6 +42,8 @@ brand_files=(
   png/favicon-192.png
   png/favicon-512.png
   png/og-card.png
+  png/thadam-illusion-light-hero.png
+  png/thadam-illusion-dark-hero.png
   tokens/thadam.css
 )
 for f in "${brand_files[@]}"; do
@@ -50,6 +52,7 @@ for f in "${brand_files[@]}"; do
 done
 
 python3 - "$dist" "$origin" <<'PY'
+import hashlib
 import html
 import pathlib
 import re
@@ -112,6 +115,12 @@ entries = "\n".join(f"  <url><loc>{escape(origin + path)}</loc></url>" for path 
     "</urlset>\n",
     encoding="utf-8",
 )
+
+digest = hashlib.sha256((dist / "assets" / "site.css").read_bytes() + (dist / "assets" / "site.js").read_bytes()).hexdigest()[:10]
+for page in dist.rglob("*.html"):
+    text = page.read_text(encoding="utf-8")
+    if "__ASSET_VERSION__" in text:
+        page.write_text(text.replace("__ASSET_VERSION__", digest), encoding="utf-8")
 
 robots = dist / "robots.txt"
 robots.write_text(robots.read_text(encoding="utf-8").rstrip("\n") + f"\n\nSitemap: {origin}/sitemap.xml\n", encoding="utf-8")

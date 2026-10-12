@@ -61,22 +61,87 @@
 }
 
 .theme-toggle {
-  padding: 0.25rem 0.7rem;
-  border: 1px solid currentColor;
-  border-radius: 0.4rem;
-  background: transparent;
+  position: relative;
+  flex: none;
+  width: 3.75rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 9%, transparent);
   color: inherit;
-  font: inherit;
   cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.theme-toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: currentColor;
+  transition: transform 0.2s ease;
+}
+
+.theme-toggle svg {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  width: 0.95rem;
+  height: 0.95rem;
+  transform: translateY(-50%);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.7;
+}
+
+.theme-toggle .icon-sun {
+  left: 0.5rem;
+}
+
+.theme-toggle .icon-moon {
+  right: 0.5rem;
 }
 
 .theme-toggle:hover {
-  text-decoration: underline;
+  border-color: currentColor;
+}
+
+.theme-toggle:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 3px;
 }
 
 .theme-toggle[hidden] {
   display: none;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle,
+  .theme-toggle::after {
+    transition: none;
+  }
+}
+
+.light .theme-toggle .icon-sun,
+.rust .theme-toggle .icon-sun,
+.navy .theme-toggle .icon-moon,
+.coal .theme-toggle .icon-moon {
+  opacity: 1;
+  color: var(--bg);
+}
+
+.navy .theme-toggle::after,
+.coal .theme-toggle::after {
+  transform: translateX(1.75rem);
+}
+
 
 .thadam-site-nav {
   display: flex;
@@ -86,11 +151,55 @@
 }
 
 .thadam-site-nav a {
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.4rem;
   text-decoration: none;
 }
 
 .thadam-site-nav a:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
   text-decoration: underline;
+  text-decoration-color: var(--thadam-signal-orange);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.1rem 0.6rem 0.1rem 0.5rem;
+  border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.pill::before {
+  content: "";
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.pill-progress {
+  border-style: dashed;
+}
+
+.pill-progress::before {
+  background: transparent;
+  border: 1.5px solid currentColor;
+}
+
+.pill-planned {
+  border-style: dotted;
+  opacity: 0.8;
+}
+
+.pill-planned::before {
+  background: transparent;
+  border: 1.5px dotted currentColor;
 }
 
 .thadam-logo--dark {

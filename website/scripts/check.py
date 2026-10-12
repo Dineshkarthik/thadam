@@ -38,16 +38,87 @@ REQUIRED = [
     "assets/brand/png/favicon-192.png",
     "assets/brand/png/favicon-512.png",
     "assets/brand/png/og-card.png",
+    "assets/brand/png/thadam-illusion-light-hero.png",
+    "assets/brand/png/thadam-illusion-dark-hero.png",
     "site.webmanifest",
 ]
 NOINDEX_PAGES = {"docs/print.html", "docs/404.html", "docs/toc.html"}
 HOMEPAGE_BUDGET_BYTES = 30 * 1024
+REQUIRED_CSS_SELECTORS = [".flow-grid", ".flow-node", ".flow-link", ".features", ".hero-art img", ".theme-toggle", "img.on-dark", ".pill-progress"]
+FORBIDDEN_CLAIMS = [
+    "zero data loss",
+    "zero-loss",
+    "zero loss",
+    "no data loss",
+    "exactly-once",
+    "exactly once",
+    "lossless",
+    "production-ready",
+    "production ready",
+    "never lost",
+    "never lose",
+    "is lost",
+    "guaranteed",
+]
+NEGATION_CUES = ("not ", "cannot", "can't", "refuse", "rather than", "without ", "no claim")
+STATUS_WORDS = ("Available", "In progress", "Planned")
+CLAIM_LINT_PAGES = {"index.html": "homepage", "docs/index.html": "docs introduction"}
 HEX_RE = re.compile(r"#(?:[0-9A-Fa-f]{3}){1,2}\b")
 FRAGMENT_PAGES = {"docs/toc.html"}
 FAVICON_GUARDS = {
     "favicon-*.svg": "svg/thadam-icon-light.svg",
     "favicon-*.png": "png/favicon-192.png",
 }
+
+
+class VisibleText(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self.skip += 1
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style") and self.skip:
+            self.skip -= 1
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.parts.append(data)
+
+    def text(self):
+        return re.sub(r"\s+", " ", " ".join(self.parts))
+
+
+def lint_claims(label, text, errors):
+    lowered = text.lower()
+    for phrase in FORBIDDEN_CLAIMS:
+        for match in re.finditer(re.escape(phrase), lowered):
+            before = lowered[max(0, match.start() - 80):match.start()]
+            if not any(cue in before for cue in NEGATION_CUES):
+                snippet = text[max(0, match.start() - 40):match.end() + 20]
+                errors.append(f"{label}: forbidden claim wording '{phrase}' in: ...{snippet}...")
+
+
+def lint_status(html_text, errors):
+    section = re.search(r'<section class="section" id="status".*?</section>', html_text, re.S)
+    if not section:
+        errors.append("index.html: status section not found")
+        return
+    block = section.group(0)
+    for row in re.findall(r"<tr>(.*?)</tr>", block, re.S):
+        cells = re.findall(r"<td>(.*?)</td>", row, re.S)
+        if not cells:
+            continue
+        status = re.sub(r"<[^>]+>", "", cells[-1]).strip()
+        if not status.startswith(STATUS_WORDS):
+            errors.append(f"index.html: status cell must start with Available, In progress, or Planned: '{status}'")
+    for label in re.findall(r'class="pill[^"]*">([^<]+)</span>', html_text):
+        if label not in STATUS_WORDS:
+            errors.append(f"index.html: pill label must be Available, In progress, or Planned: '{label}'")
 
 
 class PageParser(HTMLParser):
@@ -174,7 +245,14 @@ def main():
                 json.loads(block)
             except json.JSONDecodeError as exc:
                 errors.append(f"{rel}: JSON-LD does not parse: {exc}")
+        if rel in CLAIM_LINT_PAGES:
+            visible = VisibleText()
+            visible.feed(text)
+            lint_claims(CLAIM_LINT_PAGES[rel], visible.text(), errors)
         if rel == "index.html":
+            if text.count("<h1") != 1:
+                errors.append(f"index.html: expected exactly one <h1>, found {text.count('<h1')}")
+            lint_status(text, errors)
             if not parser.json_ld:
                 errors.append("index.html: missing JSON-LD")
             if parser.og_image is None:
@@ -183,7 +261,7 @@ def main():
             errors.append(f"{rel}: missing og:title")
         if HEX_RE.search(text) and rel == "index.html":
             errors.append(f"{rel}: hex colour outside the tokens")
-        if "THADAM_CANONICAL" in text or "__SITE_ORIGIN__" in text:
+        if any(token in text for token in ("THADAM_CANONICAL", "__SITE_ORIGIN__", "__ASSET_VERSION__")):
             errors.append(f"{rel}: unreplaced build placeholder")
         if rel.startswith("docs/") and rel not in NOINDEX_PAGES:
             expected_url = ORIGIN + docs_expected(rel[len("docs/"):])
@@ -236,6 +314,11 @@ def main():
     for loc in locs:
         if not loc.startswith(ORIGIN):
             errors.append(f"sitemap.xml entry outside {ORIGIN}: {loc}")
+
+    site_css = (DIST / "assets" / "site.css").read_text(encoding="utf-8") if (DIST / "assets" / "site.css").is_file() else ""
+    for selector in REQUIRED_CSS_SELECTORS:
+        if selector not in site_css:
+            errors.append(f"assets/site.css lacks required rule {selector}")
 
     manifest_path = DIST / "site.webmanifest"
     if manifest_path.is_file():
