@@ -1,6 +1,6 @@
 # ClickHouse sink
 
-**Status: Implemented.** The `clickhouse` kind is a batch sink that inserts one dataset's events into an **existing** ClickHouse table. It is the first analytical-database sink — for low-latency queries over live telemetry, dashboards, and time-window aggregations — and deliberately *not* a prerequisite for using Thadam or the project's defining storage path: it has its own cursor and its own chain, so a ClickHouse outage never blocks Parquet or S3 ([ADR-0008](../../design/adr/0008-clickhouse-sink.md), still Draft in the design record).
+**Status: Implemented.** The `clickhouse` kind is a batch sink that inserts one dataset's events into an **existing** ClickHouse table. It is the first analytical-database sink — for low-latency queries over live telemetry, dashboards, and time-window aggregations — and deliberately *not* a prerequisite for using Thadam or the project's defining storage path: it has its own cursor and its own chain, so a ClickHouse outage never blocks Parquet or S3 ([ADR-0008](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0008-clickhouse-sink.md), still Draft in the design record).
 
 The binary includes it by default (the `clickhouse` Cargo feature of `thadam-cli`; build with `--no-default-features` to leave the client out).
 

@@ -1,0 +1,11 @@
+{
+  "name": "Thadam",
+  "short_name": "Thadam",
+  "description": "The open data plane for robotics.",
+  "start_url": "/",
+  "display": "browser",
+  "icons": [
+    { "src": "/assets/brand/png/favicon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/assets/brand/png/favicon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

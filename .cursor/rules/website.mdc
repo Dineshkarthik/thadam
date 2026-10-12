@@ -1,0 +1,13 @@
+---
+description: Thadam website, docs, and brand rules
+globs: website/**,thadam-assets/**
+alwaysApply: false
+---
+
+Follow the "Website and documentation" section of `AGENTS.md`.
+
+- Brand: use the SVGs in `thadam-assets/brand/svg/` unmodified; take colours only from `thadam-assets/brand/tokens/thadam.css`.
+- Brand files never go under `website/docs/src/`. The only brand copies inside `website/` are the two favicons in `website/docs/theme/`, which `build.sh` checks with `cmp`.
+- Content: every integration or feature is Available, In progress, or Planned, backed by `docs/design/readiness.md`, `CHANGELOG.md`, and the code. No invented commands, benchmarks, or "zero data loss" claims.
+- Routing: docs-page canonicals are extensionless; origin is `https://thadam.dineshkarthik.me`; no deploy steps, wrangler config, or secrets.
+- After a change, run `website/scripts/build.sh` and `python3 website/scripts/check.py`.

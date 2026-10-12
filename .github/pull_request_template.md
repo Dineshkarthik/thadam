@@ -9,7 +9,7 @@
 ## User-facing impact
 
 - [ ] No user-facing change
-- [ ] User-facing change — documentation updated in `docs/src/` as needed
+- [ ] User-facing change — documentation updated in `website/docs/src/` as needed
 - [ ] New or changed public claim — it is consistent with the ADR-0011 claims register (or the register row is added/marked pending evidence)
 
 ## Checks
@@ -22,7 +22,7 @@
 - [ ] `scripts/check-deps.sh` (and `--self-test` if the guard itself changed)
 - [ ] `cargo deny --locked check`
 - [ ] Tests added/updated for the new behavior (unit / integration / failure as applicable)
-- [ ] Docs build: `mdbook build docs`
+- [ ] Site build and check (if the site changed): `website/scripts/build.sh` and `python3 website/scripts/check.py`
 
 ## Notes for reviewers
 

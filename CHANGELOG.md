@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Thadam is early in its first milestone (M1 / MVP v0.1). No releases exist yet; this section summarizes what the development history has built so far. Detailed status: [docs/design/readiness.md](docs/design/readiness.md) and ARCHITECTURE.md section 21.
 
+### Changed
+
+- **One website folder**: the homepage and the user documentation now live under `website/` (`website/public/` at `/`, `website/docs/` at `/docs/`). `website/scripts/build.sh` builds one artifact in `website/dist/`, and `check.py` verifies it. The mdBook sources moved from `docs/` with history kept; `docs/` now holds the design records only. Brand assets are consolidated in `thadam-assets/brand/`, replacing `thadam-brand-kit/`. CI builds the site and uploads `website/dist` as an artifact; deployment is not configured here.
+- **Site polish**: the homepage gains a "How it works" diagram, a working "Get started" link, social cards (`og:image`, Twitter card, JSON-LD), and a web app manifest. Docs pages get per-page social metadata, and the docs header links back to the homepage. The mdBook print page is disabled to reduce size. `check.py` enforces a homepage size budget and the new metadata.
+- **Light and dark themes**: the homepage, the 404 page, and the docs share one theme toggle and one saved choice (`mdbook-theme` in local storage). The choice is applied before first paint, and without a choice the site follows the system setting. The docs use graphite for dark mode and warm white for light mode, with brand tokens throughout.
+- **Agent instructions**: `AGENTS.md` is the source of truth for agents; `CLAUDE.md`, `.cursor/rules/website.mdc`, and `.github/copilot-instructions.md` point to it.
+
 ### Added
 
 - **Workspace and guardrails**: eleven-member Cargo workspace (ten library crates plus the CLI), MSRV Rust 1.89, pinned toolchain, `cargo deny` policy, dependency-direction guard, nextest, CI on Linux x86_64 and ARM64.

@@ -1,0 +1,20 @@
+# Thadam agent notes
+
+Thadam is an open-source, Rust-first data plane for robotics and industrial telemetry, in pre-alpha. The Rust workspace lives in `crates/`, `apps/`, and `sdk/`; the static site lives in `website/`.
+
+Rust build/test gate commands and contribution rules: `CONTRIBUTING.md`; implementation status: `docs/design/readiness.md`.
+
+## Website and documentation
+
+- **Layout:** `website/public/` -> site root `/`; `website/docs/` -> mdBook user docs at `/docs/` (`book.toml`, `src/`, `theme/`); `website/scripts/` -> `build.sh`, `preview.sh`, `check.py`; `website/dist/` -> generated, gitignored, the single deploy artifact. `docs/design/` is engineering records (ADRs, readiness, spikes), not site content; do not move it. Brand assets: `thadam-assets/brand/` is the only canonical copy.
+- **Commands:** build `website/scripts/build.sh`; preview `website/scripts/preview.sh` (127.0.0.1 only); check `python3 website/scripts/check.py`; docs only `mdbook build website/docs` (writes `website/docs/book/`, gitignored). Requires mdBook 0.5.x (`cargo install mdbook --locked`).
+- **Routes:** `/` homepage, `/docs/` documentation, `/404.html` site 404. Origin `https://thadam.dineshkarthik.me` (`SITE_ORIGIN` in `build.sh`). Cloudflare Pages redirects `/foo.html` to `/foo`: docs-page canonical URLs must be extensionless or omitted. Deployment (Cloudflare Pages via GitHub Actions) is configured separately by the owner: do not add deploy steps, `wrangler` config, or secrets.
+- **Brand rules:** use the SVGs in `thadam-assets/brand/svg/` unmodified (no redraw, recolour, stretch, shadow or gradient); light logo on light surfaces, dark logo on graphite; tokens only from `thadam-assets/brand/tokens/thadam.css` (Graphite `#151719`, Warm white `#F5F4F0`, Signal orange `#F26A3D`, Steel grey `#8B9298`); orange is an accent and not for small text on warm white; no new hex values duplicated elsewhere. Brand files must not be placed under `website/docs/src/`. The only brand files inside `website/` are the two favicon copies in `website/docs/theme/`, guarded by `build.sh` (`cmp`).
+- **Content rules:** every integration or feature on public pages carries Available / In progress / Planned, backed by `docs/design/readiness.md`, `CHANGELOG.md`, and the code. No invented commands, YAML, terminal output, benchmarks, customers, production-readiness or "zero data loss" claims. Sink priorities: P0 local Parquet and S3-compatible object storage, P1 optional ClickHouse, P2 Iceberg and managed destinations. Commands shown on the homepage must have been run.
+- **Technical rules:** semantic HTML, keyboard and focus visible, `prefers-reduced-motion` and `prefers-color-scheme` honoured, no external fonts/CDNs/analytics/remote scripts, no JS framework or bundler, light and dark both readable. Homepage HTML plus `site.css` stays under 30 KB (`check.py` enforces it). Every `<img>` has `alt`. Orange is never the only carrier of meaning and never used for informational graphics on warm white. Verify with the build, the check script, and (if a browser tool exists) screenshots of `/` and `/docs/` at about 375 px and 1280 px.
+- **When you change the site:** run `website/scripts/build.sh` and `python3 website/scripts/check.py`, then update in the same change:
+  - `CHANGELOG.md` (Unreleased);
+  - `website/README.md` if commands, folder layout, the build, or checks changed;
+  - this section if routes, layout, brand, content, or technical rules changed;
+  - `.cursor/rules/website.mdc` and `.github/copilot-instructions.md` if any rule or command they digest changed.
+  - Owner-local session notes (git-excluded) may be updated too, but never copy their contents into a committed file.

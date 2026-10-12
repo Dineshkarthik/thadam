@@ -48,7 +48,7 @@
 //! Every message carries `topic` plus `mqtt.topic` (both the interned topic),
 //! `mqtt.qos`, `mqtt.retain` and `mqtt.dup`. `topic` is the normalized
 //! attribute the chain's `match.topic` filter and `{topic.N}` identity
-//! templates read (`docs/src/configuration/datasets.md`); the `mqtt.*` keys
+//! templates read (`website/docs/src/configuration/datasets.md`); the `mqtt.*` keys
 //! are the connector's documented attribute table. The first message after a
 //! gap also carries `mqtt.gap` (`session_lost`, `queue_full`, `oversize`,
 //! comma-joined) and, when messages were dropped, `mqtt.gap_dropped`.

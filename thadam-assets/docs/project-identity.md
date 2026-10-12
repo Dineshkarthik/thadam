@@ -3,7 +3,7 @@
 - **Name:** Thadam
 - **Tagline:** The open data plane for robotics.
 - **Descriptor:** Open-source robotics data infrastructure
-- **Logo:** The canonical geometric `T` mark in `brand/thadam-mark.svg`; use its corresponding wordmark variants for light and dark backgrounds.
+- **Logo:** The canonical geometric `T` mark in `brand/svg/thadam-mark-light.svg`; use the wordmark variants `brand/svg/thadam-logo-light.svg` and `brand/svg/thadam-logo-dark.svg` for light and dark backgrounds.
 - **Product thesis:** Connect robotic and industrial data sources, normalize and process events at the edge, buffer safely through outages, and deliver to the data platform of choice.
 - **Implementation direction:** Rust-first, edge-native, open source.
 - **Name status:** Selected; availability and trademark clearance pending.

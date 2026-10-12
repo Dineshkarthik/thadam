@@ -1,0 +1,16 @@
+{
+  "color": {
+    "graphite": {
+      "value": "#151719"
+    },
+    "warmWhite": {
+      "value": "#F5F4F0"
+    },
+    "signalOrange": {
+      "value": "#F26A3D"
+    },
+    "steelGrey": {
+      "value": "#8B9298"
+    }
+  }
+}

@@ -1,0 +1,170 @@
+/*
+ * Thadam docs accents. Colour values come from thadam-assets/brand/tokens/thadam.css,
+ * which theme/head.hbs loads. Do not add hex values here.
+ */
+
+.thadam-site-header {
+  margin-block-start: var(--menu-bar-height);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--thadam-steel-grey);
+  font-size: 0.95rem;
+}
+
+.thadam-home {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.thadam-site-section {
+  color: var(--thadam-graphite);
+}
+
+.navy .thadam-site-section,
+.coal .thadam-site-section {
+  color: var(--thadam-warm-white);
+}
+
+.light {
+  --bg: var(--thadam-warm-white);
+  --fg: var(--thadam-graphite);
+  --sidebar-bg: color-mix(in srgb, var(--thadam-graphite) 4%, var(--thadam-warm-white));
+  --sidebar-fg: var(--thadam-graphite);
+  --sidebar-non-existant: color-mix(in srgb, var(--thadam-graphite) 60%, var(--thadam-warm-white));
+  --icons: color-mix(in srgb, var(--thadam-graphite) 70%, var(--thadam-warm-white));
+  --icons-hover: var(--thadam-graphite);
+  --links: var(--thadam-graphite);
+  --inline-code-color: var(--thadam-graphite);
+  --theme-popup-bg: var(--thadam-warm-white);
+  --quote-bg: color-mix(in srgb, var(--thadam-graphite) 5%, var(--thadam-warm-white));
+  --table-border-color: color-mix(in srgb, var(--thadam-graphite) 15%, var(--thadam-warm-white));
+  --searchbar-bg: color-mix(in srgb, var(--thadam-graphite) 8%, var(--thadam-warm-white));
+}
+
+.navy,
+.coal {
+  --bg: var(--thadam-graphite);
+  --fg: var(--thadam-warm-white);
+  --sidebar-bg: color-mix(in srgb, var(--thadam-warm-white) 6%, var(--thadam-graphite));
+  --sidebar-fg: var(--thadam-warm-white);
+  --sidebar-non-existant: color-mix(in srgb, var(--thadam-warm-white) 45%, var(--thadam-graphite));
+  --icons: color-mix(in srgb, var(--thadam-warm-white) 65%, var(--thadam-graphite));
+  --icons-hover: var(--thadam-warm-white);
+  --links: var(--thadam-warm-white);
+  --inline-code-color: var(--thadam-warm-white);
+  --theme-popup-bg: var(--thadam-graphite);
+  --quote-bg: color-mix(in srgb, var(--thadam-warm-white) 7%, var(--thadam-graphite));
+  --table-border-color: color-mix(in srgb, var(--thadam-warm-white) 18%, var(--thadam-graphite));
+  --searchbar-bg: color-mix(in srgb, var(--thadam-warm-white) 12%, var(--thadam-graphite));
+}
+
+.theme-toggle {
+  padding: 0.25rem 0.7rem;
+  border: 1px solid currentColor;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  text-decoration: underline;
+}
+
+.theme-toggle[hidden] {
+  display: none;
+}
+
+.thadam-site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-inline-start: auto;
+}
+
+.thadam-site-nav a {
+  text-decoration: none;
+}
+
+.thadam-site-nav a:hover {
+  text-decoration: underline;
+}
+
+.thadam-logo--dark {
+  display: none;
+}
+
+.coal .thadam-logo--light,
+.navy .thadam-logo--light,
+.ayu .thadam-logo--light {
+  display: none;
+}
+
+.coal .thadam-logo--dark,
+.navy .thadam-logo--dark,
+.ayu .thadam-logo--dark {
+  display: inline;
+}
+
+.light a,
+.rust a {
+  color: var(--thadam-graphite);
+  text-decoration-color: var(--thadam-signal-orange);
+}
+
+.coal a,
+.navy a,
+.ayu a {
+  color: var(--thadam-warm-white);
+  text-decoration-color: var(--thadam-signal-orange);
+}
+
+.light h1,
+.light h2,
+.light h3,
+.rust h1,
+.rust h2,
+.rust h3 {
+  color: var(--thadam-graphite);
+}
+
+.light h1,
+.light h2,
+.rust h1,
+.rust h2,
+.coal h1,
+.coal h2,
+.navy h1,
+.navy h2,
+.ayu h1,
+.ayu h2 {
+  border-bottom: 2px solid var(--thadam-signal-orange);
+}
+
+table thead tr {
+  border-bottom: 2px solid var(--thadam-signal-orange);
+}
+
+.light blockquote,
+.rust blockquote,
+.coal blockquote,
+.navy blockquote,
+.ayu blockquote {
+  border-inline-start: 0.25em solid var(--thadam-signal-orange);
+}
+
+.light ::selection,
+.rust ::selection {
+  background: var(--thadam-signal-orange);
+  color: var(--thadam-graphite);
+}
+
+.coal ::selection,
+.navy ::selection,
+.ayu ::selection {
+  background: var(--thadam-signal-orange);
+  color: var(--thadam-graphite);
+}

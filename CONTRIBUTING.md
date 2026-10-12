@@ -7,7 +7,7 @@ Thanks for your interest. Thadam is a young, pre-alpha project with a deliberate
 - **Rust:** the toolchain is pinned by [`rust-toolchain.toml`](rust-toolchain.toml) (channel `1.99.0`, minimal profile, with `rustfmt` and `clippy`; the Linux `x86_64` and `aarch64` `unknown-linux-gnu` targets). With rustup installed, `cargo build` in the repo downloads it automatically. The workspace MSRV is **Rust 1.89** (`rust-version` at the workspace root); only the pinned toolchain is used for CI and releases.
 - **Docker** (or a compatible runtime) for broker-dependent integration tests (`thadam-mqtt`'s `docker_e2e` and conformance suites are `#[ignore]`d by default).
 - Recommended: `cargo nextest` (0.9.x), `cargo deny` (0.20.x). CI installs both.
-- `mdbook` only if you work on the documentation site (`cargo install mdbook --locked`; build with `mdbook build docs`).
+- `mdbook` 0.5.x only if you work on the site (`cargo install mdbook --locked`); build the whole site with `website/scripts/build.sh`. Notes for coding agents: [AGENTS.md](AGENTS.md).
 
 ## Workspace layout
 
@@ -23,7 +23,8 @@ crates/thadam-object-store  S3-compatible shipper over the segment catalog (in p
 crates/thadam-mqtt          MQTT source
 crates/thadam-testkit       memory connectors, conformance suites, fake clock, crash harness
 apps/thadam-cli             the `thadam` binary; the only composition root
-docs/                      this book (docs/src) plus design docs and ADRs (docs/design)
+website/                   the site: public/ (homepage, served at /), docs/ (mdBook user docs, served at /docs/), scripts/ (build.sh, preview.sh, check.py)
+docs/design/               engineering records: ADRs, readiness, owner decisions, spikes
 examples/edge-capture/     the demo pipeline
 spikes/                    throwaway spike code (excluded from the workspace)
 ```
@@ -50,7 +51,7 @@ Notes:
 - `clippy` runs with `-D warnings`; the workspace denies `unwrap_used`/`expect_used` outside tests (`clippy.toml` allows them in tests only).
 - `#![forbid(unsafe_code)]` everywhere; filesystem syscalls go through `rustix`.
 - Docker-gated tests: `cargo nextest run -p thadam-mqtt --run-ignored only -E 'binary(conformance) | binary(docker_e2e)'`.
-- Building the docs: `mdbook build docs` (output in `docs/book/`, gitignored).
+- Building the site: `website/scripts/build.sh` writes one artifact to `website/dist/` (gitignored), then `python3 website/scripts/check.py` verifies it. Preview on 127.0.0.1 with `website/scripts/preview.sh`. Deployment is configured separately from this repository. See [website/README.md](website/README.md).
 
 ## Dependency and toolchain policy (ADR-0020)
 
