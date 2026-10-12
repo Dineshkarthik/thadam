@@ -26,6 +26,7 @@ RUN apt-get update \
 
 COPY docker/sensor_pub.py /usr/local/lib/s3/sensor_pub.py
 
-# Record the resolved rmw_zenoh version in the image for the spike report.
-RUN dpkg-query -W -f='${Package} ${Version}\n' ros-jazzy-rmw-zenoh-cpp \
+# Record the resolved RMW versions in the image for the spike report.
+RUN dpkg-query -W -f='${Package} ${Version}\n' \
+        ros-jazzy-rmw-zenoh-cpp ros-jazzy-rmw-fastrtps-cpp ros-jazzy-fastrtps \
         > /usr/local/lib/s3/versions.txt || true

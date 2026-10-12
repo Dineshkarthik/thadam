@@ -413,6 +413,12 @@ pub fn describe_sample(sample: &zenoh::sample::Sample) -> serde_json::Value {
         "payload_len": payload.len(),
         "payload_hex_first64": hex(&payload[..payload.len().min(64)]),
         "attachment": parsed,
+        // HLC/uhlc timestamp when present (stable API). Bridge samples carry
+        // the bridge-router ingress stamp, NOT the DDS publish time.
+        "timestamp": sample.timestamp().map(|t| format!("{t:?}")),
+        // Sample::source_info() (source_sn) stays unchecked: it is
+        // #[zenoh_macros::unstable]-gated and the spike intentionally does
+        // not enable zenoh's `unstable` feature (step-1 dep policy).
         "topic_type_hash": parsed_ke,
     })
 }

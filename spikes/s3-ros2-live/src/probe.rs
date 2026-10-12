@@ -1,22 +1,38 @@
 //! `probe` subcommand: determine, empirically, which query selectors a raw
-//! host-side zenoh client can use against rmw_zenoh graph entities. Drives
-//! the late-join mapping for transient_local topics.
+//! host-side zenoh client can use against rmw_zenoh graph entities (step 1)
+//! or a zenoh-bridge-ros2dds admin space / graph (step 2, `--admin <zid>`).
 //!
 //! Modes:
-//!   default        run the selector matrix, 2.5 s per get
-//!   --selftest     declare probe/self, sleep 1 s, ONE default-config get()
-//!   --hold-secs N  declare probe/holder and keep it up N s (no gets), for
-//!                  two-process routing experiments
+//!   default          run the rmw_zenoh selector matrix, 2.5 s per get
+//!   --admin <zid>    run the bridge admin/data selector matrix against the
+//!                    bridge whose zenoh id is <zid>
+//!   --selftest       declare probe/self, sleep 1 s, ONE default-config get()
+//!   --hold-secs N    declare probe/holder and keep it up N s (no gets), for
+//!                    two-process routing experiments
 
 use std::time::{Duration, Instant};
 
 use crate::zenoh_impl::{ZenohTransport, describe_sample};
 
 struct Candidate {
-    label: &'static str,
+    label: String,
     selector: String,
     target: zenoh::query::QueryTarget,
     consolidation: zenoh::query::ConsolidationMode,
+}
+
+fn cand(
+    label: &str,
+    selector: String,
+    target: zenoh::query::QueryTarget,
+    consolidation: zenoh::query::ConsolidationMode,
+) -> Candidate {
+    Candidate {
+        label: label.to_string(),
+        selector,
+        target,
+        consolidation,
+    }
 }
 
 pub async fn run(
@@ -24,6 +40,7 @@ pub async fn run(
     mode: &str,
     selftest: bool,
     hold_secs: u64,
+    admin: Option<String>,
 ) -> Result<String, String> {
     let transport = ZenohTransport::connect(endpoint, 0, 256, mode).await?;
     let session = transport.session();
@@ -82,86 +99,127 @@ pub async fn run(
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     let all = zenoh::query::QueryTarget::All;
-    let candidates = vec![
-        Candidate {
-            label: "control local queryable probe/self (All, no conso)",
-            selector: "probe/self".to_string(),
-            target: all,
-            consolidation: zenoh::query::ConsolidationMode::None,
-        },
-        Candidate {
-            label: "remote holder queryable probe/holder (All, no conso)",
-            selector: "probe/holder".to_string(),
-            target: all,
-            consolidation: zenoh::query::ConsolidationMode::None,
-        },
-        Candidate {
-            label: "peer service queryable (get_type_description SS)",
-            selector: "0/s3_sensor_pub/get_type_description/**".to_string(),
-            target: all,
-            consolidation: zenoh::query::ConsolidationMode::Auto,
-        },
-        Candidate {
-            label: "tf_static data ke, AllComplete",
-            selector: "0/tf_static/**".to_string(),
-            target: zenoh::query::QueryTarget::AllComplete,
-            consolidation: zenoh::query::ConsolidationMode::Auto,
-        },
-        Candidate {
-            label: "tf_static data ke, All",
-            selector: "0/tf_static/**".to_string(),
-            target: all,
-            consolidation: zenoh::query::ConsolidationMode::Auto,
-        },
-        Candidate {
-            label: "tf_static @adv subtree, All",
-            selector: "0/tf_static/**/@adv/**".to_string(),
-            target: all,
-            consolidation: zenoh::query::ConsolidationMode::Auto,
-        },
-        Candidate {
-            label: "tf_static @adv subtree, All, no consolidation",
-            selector: "0/tf_static/**/@adv/**".to_string(),
-            target: all,
-            consolidation: zenoh::query::ConsolidationMode::None,
-        },
-        Candidate {
-            label: "tf_static exact-ke @adv subtree, All",
-            selector: concat!(
-                "0/tf_static/tf2_msgs::msg::dds_::TFMessage_/",
-                "RIHS01_e369d0f05a23ae52508854b66f6aa0437f3449d652e8cbf22d5abe85d020f087",
-                "/@adv/**"
-            )
-            .to_string(),
-            target: all,
-            consolidation: zenoh::query::ConsolidationMode::Auto,
-        },
-        Candidate {
-            label: "whole graph @adv subtree, All",
-            selector: "**/@adv/**".to_string(),
-            target: all,
-            consolidation: zenoh::query::ConsolidationMode::Auto,
-        },
-    ];
+    let none = zenoh::query::ConsolidationMode::None;
+    let auto = zenoh::query::ConsolidationMode::Auto;
+    let candidates: Vec<Candidate> =
+        match &admin {
+            Some(zid) => {
+                vec![
+                    cand(
+                        "control local queryable probe/self",
+                        "probe/self".into(),
+                        all,
+                        none,
+                    ),
+                    cand(
+                        "bridge admin space root",
+                        format!("@/{zid}/ros2"),
+                        all,
+                        none,
+                    ),
+                    cand(
+                        "bridge admin space subtree",
+                        format!("@/{zid}/ros2/**"),
+                        all,
+                        none,
+                    ),
+                    cand(
+                        "bridge admin space subtree, auto consolidation",
+                        format!("@/{zid}/ros2/**"),
+                        all,
+                        auto,
+                    ),
+                    cand(
+                        "rmw-style liveliness prefix (control: expect 0)",
+                        "@ros2_lv/0/**".into(),
+                        all,
+                        none,
+                    ),
+                    cand(
+                        "tf_static data ke query (history queryable?)",
+                        "tf_static".into(),
+                        all,
+                        none,
+                    ),
+                    cand(
+                        "tf_static data ke wildcard query",
+                        "tf_static/**".into(),
+                        all,
+                        none,
+                    ),
+                    cand(
+                        "imu data ke query (live topic, expect no queryable)",
+                        "imu".into(),
+                        all,
+                        none,
+                    ),
+                ]
+            }
+            None => {
+                vec![
+                cand("control local queryable probe/self", "probe/self".into(), all, none),
+                cand(
+                    "remote holder queryable probe/holder",
+                    "probe/holder".into(),
+                    all,
+                    none,
+                ),
+                cand(
+                    "peer service queryable (get_type_description SS)",
+                    "0/s3_sensor_pub/get_type_description/**".into(),
+                    all,
+                    auto,
+                ),
+                cand(
+                    "tf_static data ke, AllComplete",
+                    "0/tf_static/**".into(),
+                    zenoh::query::QueryTarget::AllComplete,
+                    auto,
+                ),
+                cand("tf_static data ke, All", "0/tf_static/**".into(), all, auto),
+                cand("tf_static @adv subtree, All", "0/tf_static/**/@adv/**".into(), all, auto),
+                cand(
+                    "tf_static @adv subtree, All, no consolidation",
+                    "0/tf_static/**/@adv/**".into(),
+                    all,
+                    none,
+                ),
+                cand(
+                    "tf_static exact-ke @adv subtree, All",
+                    concat!(
+                        "0/tf_static/tf2_msgs::msg::dds_::TFMessage_/",
+                        "RIHS01_e369d0f05a23ae52508854b66f6aa0437f3449d652e8cbf22d5abe85d020f087",
+                        "/@adv/**"
+                    )
+                    .into(),
+                    all,
+                    auto,
+                ),
+                cand("whole graph @adv subtree, All", "**/@adv/**".into(), all, auto),
+            ]
+            }
+        };
 
     let mut results = Vec::new();
-    for cand in &candidates {
+    for c in &candidates {
         let started = Instant::now();
         let mut ok = 0u32;
         let mut err = 0u32;
         let mut first_ok_ke: Option<String> = None;
         let mut first_err: Option<String> = None;
         let mut first_sample: Option<serde_json::Value> = None;
+        let mut ok_kes: Vec<String> = Vec::new();
+        let mut payloads_first3: Vec<serde_json::Value> = Vec::new();
         let replies = session
-            .get(cand.selector.as_str())
-            .target(cand.target)
-            .consolidation(cand.consolidation)
+            .get(c.selector.as_str())
+            .target(c.target)
+            .consolidation(c.consolidation)
             .timeout(Duration::from_millis(2500))
             .await;
         let Ok(replies) = replies else {
             results.push(serde_json::json!({
-                "label": cand.label,
-                "selector": cand.selector,
+                "label": c.label,
+                "selector": c.selector,
                 "error": "get() failed",
             }));
             continue;
@@ -170,8 +228,22 @@ pub async fn run(
             match reply.into_result() {
                 Ok(sample) => {
                     ok += 1;
+                    let ke = sample.key_expr().as_str().to_string();
+                    if ok_kes.len() < 40 {
+                        ok_kes.push(ke.clone());
+                    }
+                    if payloads_first3.len() < 3 {
+                        payloads_first3.push(serde_json::json!({
+                            "ke": ke,
+                            "payload_text": sample
+                                .payload()
+                                .try_to_string()
+                                .map(|s| s.into_owned())
+                                .ok(),
+                        }));
+                    }
                     if first_ok_ke.is_none() {
-                        first_ok_ke = Some(sample.key_expr().as_str().to_string());
+                        first_ok_ke = Some(ke);
                         first_sample = Some(describe_sample(&sample));
                     }
                 }
@@ -189,15 +261,17 @@ pub async fn run(
             }
         }
         results.push(serde_json::json!({
-            "label": cand.label,
-            "selector": cand.selector,
-            "target": format!("{:?}", cand.target),
-            "consolidation": format!("{:?}", cand.consolidation),
+            "label": c.label,
+            "selector": c.selector,
+            "target": format!("{:?}", c.target),
+            "consolidation": format!("{:?}", c.consolidation),
             "elapsed_ms": started.elapsed().as_millis(),
             "replies_ok": ok,
             "replies_err": err,
             "first_ok_ke": first_ok_ke,
             "first_err_payload": first_err,
+            "ok_kes_first40": ok_kes,
+            "payloads_first3": payloads_first3,
             "first_sample": first_sample,
         }));
     }

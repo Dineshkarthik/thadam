@@ -1,17 +1,18 @@
-# Spike S3 step 1: Jazzy + rmw_zenoh stack.
+# Spike S3: Jazzy live-transport stacks.
 #
+# Step 1 (default): router + rclpy publishers over rmw_zenoh.
 #   docker compose -f docker/compose.yaml build
 #   docker compose -f docker/compose.yaml up -d
-#   docker compose -f docker/compose.yaml down [-v]
 #
-# Services:
-#   router        rmw_zenohd Zenoh router, TCP 7447 published on host localhost
-#   sensor-pub    one rclpy node publishing /imu (1 kHz, best_effort),
-#                 /joint_states (100 Hz, reliable), /tf (30 Hz, reliable) and
-#                 /tf_static (one shot, transient_local) via rmw_zenoh_cpp
+# Step 2 (profile `fastdds`): zenoh-bridge-ros2dds + rclpy publishers over
+# Fast DDS (the Jazzy default RMW). Shares the same compose network because
+# DDS discovery is multicast.
+#   docker compose -f docker/compose.yaml --profile fastdds up -d bridge sensor-pub-dds
 #
 # The Rust subscriber runs natively on the host and connects to
-# tcp/127.0.0.1:7447.
+# tcp/127.0.0.1:7447 in both setups. docker/run.sh mirrors this file
+# verbatim (sandboxed env without compose: `run.sh jazzy-zenoh up` /
+# `run.sh jazzy-fastdds-bridge up`).
 
 name: s3ros2
 
@@ -43,5 +44,43 @@ services:
       # the router service instead. Multicast scouting off: nothing may leak
       # onto the LAN, and scouted peers advertise unreachable addresses.
       ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["tcp/router:7447"];scouting/multicast/enabled=false'
+    command: bash -c 'source /opt/ros/jazzy/setup.bash && exec python3 /usr/local/lib/s3/sensor_pub.py'
+    restart: 'no'
+
+  bridge:
+    # Step 2 sidecar: zenoh 1.10.1-compatible bridge (Docker Hub, pinned).
+    # Router mode, pinned zenoh id so the admin space (@/57a9ed/ros2/**) is
+    # addressable; zenoh multicast scouting off; DDS-side multicast stays on
+    # inside this network for Fast DDS discovery. ROS_DISTRO=jazzy silences
+    # the bridge's iron-assumption warning (ros_discovery_info parsing).
+    image: eclipse/zenoh-bridge-ros2dds:1.10.1
+    profiles: ['fastdds']
+    environment:
+      ROS_DOMAIN_ID: '0'
+      ROS_DISTRO: jazzy
+      RUST_LOG: info
+    command: ['-i', '57a9ed', '-d', '0', '-l', 'tcp/0.0.0.0:7447', '--no-multicast-scouting']
+    ports:
+      - '127.0.0.1:7447:7447'
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 7447"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    restart: 'no'
+
+  sensor-pub-dds:
+    # Step 2 publishers: identical script/rates/QoS as sensor-pub, but over
+    # the Jazzy default RMW (Fast DDS), discovered by the bridge over
+    # multicast on this network.
+    build: ..
+    image: s3-ros2-zenoh:jazzy-1
+    profiles: ['fastdds']
+    depends_on:
+      bridge:
+        condition: service_healthy
+    environment:
+      RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+      ROS_DOMAIN_ID: '0'
     command: bash -c 'source /opt/ros/jazzy/setup.bash && exec python3 /usr/local/lib/s3/sensor_pub.py'
     restart: 'no'

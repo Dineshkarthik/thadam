@@ -234,3 +234,134 @@ Suggested step-2 starting point: reuse `docker/` to add a `bridge` service (`ecl
 - Lyrical/Humble/Cyclone and the zenoh-bridge-ros2dds runs: step 2 scope.
 - ARM measurements: owner reference hardware, later (see §6.5).
 - Golden CDR fixtures across distributions, fuzz-in-CI: already tracked in ADR-0007's evidence list (unaffected).
+
+---
+
+# Step 2: Jazzy + Fast DDS reached through the `zenoh-bridge-ros2dds` sidecar
+
+Everything in §1–§10 is the step-1 record; this section is step 2, run on the same day with the same harness. Every number comes from a recorded run in `results/` (`capture-bridge-*`, `sniff-bridge-*`, `probe-bridge-*`, plus `capture-rmw-baseline-60s-rerun.*` for the step-1 regression).
+
+## 11.1 Scope, images, versions
+
+| Item | Value |
+|---|---|
+| Bridge image | `eclipse/zenoh-bridge-ros2dds:`**`1.10.1`** (Docker Hub, exact tag matching the host client `zenoh =1.10.1`; digest `sha256:74fae6a9d4f449c53d1ee6f0faaca97d01c1e68dfcafd785b657f01907157d22`, 54.3 MB) |
+| Publishers | same rebuilt image `s3-ros2-zenoh:jazzy-1` (FROM `ros:jazzy-ros-base`), `RMW_IMPLEMENTATION=rmw_fastrtps_cpp`: `ros-jazzy-fastrtps` 2.14.6-1noble.20260902.013353, `ros-jazzy-rmw-fastrtps-cpp` 8.4.4-1noble.20260902.140744 (version stamps baked into the image's `versions.txt` at build) |
+| Bridge side | The bridge's DDS participant **embeds CycloneDDS** (per its CLI: "Configure CycloneDDS to use …"); the measured topology is `rmw_fastrtps_cpp` publishers ↔ RTPS multicast discovery ↔ CycloneDDS (bridge) ↔ zenoh TCP ↔ host client |
+| Bridge launch | router mode, `-i 57a9ed` (pinned ZID so the admin space `@/57a9ed/ros2/**` is addressable), `-d 0`, `-l tcp/0.0.0.0:7447`, `--no-multicast-scouting`, env `ROS_DOMAIN_ID=0`, `ROS_DISTRO=jazzy` (silences the iron-assumption warning in `ros_discovery_info` parsing) |
+| Setup select | `docker/run.sh jazzy-zenoh up` ↔ `docker/run.sh jazzy-fastdds-bridge up` (down cleans both); `docker/compose.yaml` keeps the same recipes under a `fastdds` profile |
+| Network | one bridge network `s3ros2`; **Fast DDS multicast discovery works between containers on a user-defined Docker Desktop bridge network** (Fast DDS publishers discovered by the bridge's CycloneDDS in ~2 s; no static peers needed). Zenoh-side multicast stays off on the bridge; host session is client mode with explicit `connect/endpoints=["tcp/127.0.0.1:7447"]` exactly as step 1 |
+| Step-3 image (checked, not run) | **`ros:lyrical-ros-base` exists on Docker Hub** (HTTP 200; `last_updated 2026-10-02`, amd64 **and arm64** present). Exact tag for step 3: `ros:lyrical-ros-base` (also `ros:lyrical-ros-core`, `ros:lyrical-perception`) |
+
+## 11.2 The mapping, re-derived live (vs step 1 side by side)
+
+Evidence: `results/sniff-bridge-raw*.jsonl` (~6.7 k + 3 k samples), `results/probe-bridge-admin*.json` (39 admin replies), `results/sniff-bridge-duo-a.jsonl` + solo runs.
+
+| Aspect | Step 1: rmw_zenoh | Step 2: zenoh-bridge-ros2dds 1.10.1 |
+|---|---|---|
+| Data key expression | `<domain>/<fqn>/<dds_type>/<RIHS01_hash>` (4+ chunks) | **bare topic name** `imu`, `tf_static` with `namespace:"/"` default — no domain, no type, no hash, no GID; a non-root `namespace` option prefixes keys. Two publishers on one topic share one key |
+| Type name | in key (`pkg::msg::dds_::Type_`) | **not in key**; `route/topic/*` admin entries carry `ros2_type` |
+| RIHS01 type hash | in key | **not in key; recoverable** from DDS writer admin entries: endpoint QoS `user_data` bytes contain `typehash=RIHS01_<64hex>` (Jazzy Fast DDS). Recovered hashes for /imu, /joint_states, /tf, /tf_static **are byte-identical to step 1** — decoder keying is transport-independent |
+| Per-sample attachment | 33 B: i64 seq, i64 source ts ns, u8 gid_len + 16 B GID | **none** (0 attachments in ~13 k samples). An HLC timestamp is present on every sample but stamped **by the bridge at ingress** (`…/57a9ed`), not at DDS publish time — unusable for end-to-end latency |
+| Publisher GID | attachment | nowhere on the data path (all-zero in our records); admin space knows DDS GUIDs |
+| Per-publisher sequence | attachment seq (starts at 1) | **not forwarded** (no attachment; zenoh `source_sn` not set — its accessor is `unstable`-gated client-side so it stays unchecked, a dep-policy note not a blocker). **Exact drop accounting from zenoh transport metadata alone is impossible through the bridge** |
+| Source timestamp | attachment (publisher clock) | absent → latency uses the decoded `header.stamp` (validated in step 1 to agree with attachment stamps <0.1 ms) |
+| Discovery | `@ros2_lv/<domain>/...` liveliness tokens (`MP` carries topic/type/hash/QoS) | **no liveliness tokens** (`@ros2_lv/0/**` probe: 0 replies). Admin space `@/<zid>/ros2/**` (queryables, read=true default): `config`, `version`, `route/topic/{pub,sub}/<topic>` (payload JSON: `ros2_name`, `ros2_type`, `zenoh_key_expr`, `is_active`, `local_nodes`, `remote_routes`), `dds/<participant>/{writer,reader}/<gid>/{rt,rq,rr}/<n>` (`topic_name`, `type_name`, full QoS, `user_data` hash). `@`-chunk hermeticity means the ZID must be known (spike pins `-i`; production: config entry) |
+| transient_local late join | client must query the zenoh-ext `AdvancedCache` (`<data_ke>/@adv/**` + `_anyke` + consolidation None + target All; §5.4) | **zero client protocol work**: bridge keeps a DDS-side cache (`transient_local_cache_multiplier: 10` × KEEP_LAST depth) and replays as ordinary Puts on **zenoh interest activation**; queries on the data key return 0 replies (no history queryable). Semantics measured: replay fires at **0→1 subscriber transition per route** as one DDS-redelivery wave (results §11.5) |
+| QoS visibility | `MP` token compact encoding | full DDS QoS in admin writer entries (`durability`, `reliability`, `user_data`) |
+
+## 11.3 Drop accounting through the bridge (design + proof)
+
+The owner criterion needs counted drops on the best_effort sensor topic under overload. The bridge removes the per-publisher sequence from the transport, so the spike embeds an **exact per-topic monotone counter in the publisher payload** (`docker/sensor_pub.py`: imu `angular_velocity.x`, joint_states `effort[-1]`, tf `transforms[*].transform.rotation.x`; float64, exact past 2^53). `capture.rs` extracts it after the same `thadam-ros2-msg` CDR decode it already runs for latency and feeds the identical gap-accounting machinery (`seq_source: "payload"` in the summary vs `"attachment"`). Semantics preserved: like the rmw_zenoh attachment, it measures "emitted by publisher, not received by subscriber". Producer-side drops above the application (there are none here) are invisible to both mechanisms. Verified: baseline windows dense (0 missing), overload windows dense mid-stream; startup-burst region drops bounded via publisher ground truth (§11.5.2). The same counters ride the rmw_zenoh runs unchanged (cross-check).
+
+## 11.4 transient_local /tf_static through the bridge — measured semantics
+
+1. A plain `**` subscriber joining minutes after the one-shot publish receives exactly one replayed Put (route activation). No `@adv`, no `_anyke`, no query. `/tf_static` decode = `world → mount_link`, matching the publisher.
+2. **Replay is addressed as a broadcast Put at activation time**: a second zenoh subscriber joining an *already-active* topic route receives **no history** (duo run: sniff-on-`**` held the route; the capture joining 4 s later on `tf_static` got 0; after all sessions dropped, a fresh solo capture got exactly 1). Consequence for Thadam: **whatever process subscribes first owns the replay; two separately-subscribing Thadam components would not both get late-join data.** rmw_zenoh's queryable cache serves every late joiner on demand — semantically stronger.
+3. Delivery is interest-driven, not QoS-driven: the bridge replay arrives even when the subscriber profile is VOLATILE (`--no-late-join` control: `tf_static recv=1`). Zenoh interest carries no QoS, so the flag is a declared-intent marker only.
+4. Ordering note: replay Puts are indistinguishable from live Puts; the spike flags `late_join` heuristically (transient_local topic + arrival <1 s after subscribe — sharp here because replay fires within ~10 ms of interest; measured t=8 ms).
+
+## 11.5 Results (60 s runs, host client, RUST_LOG=warn)
+
+### 11.5.1 Bridge baseline (`results/capture-bridge-baseline-60s.*`, offset −0.60 ms ±0.22)
+
+| topic | recv | decode err | drops (payload-seq gaps) | header-stamp latency p50 | p99 | max | publisher Δ (ground truth, ±5 s window) |
+|---|---|---|---|---|---|---|---|
+| `/imu` (best_effort ~998 Hz) | 59 719 / 59 719 | 0 | **0 (0 gaps)** | 1.63 ms | 4.31 ms | 28.0 ms | 448 008 → 507 707 (≈59.7 k) |
+| `/joint_states` (reliable 100 Hz) | 5 993 / 5 993 | 0 | **0** | 1.56 ms | 4.40 ms | 27.0 ms | 44 986 → 50 979 (≈6 k) |
+| `/tf` (reliable 30 Hz) | 1 799 / 1 799 | 0 | **0** | 1.60 ms | 4.22 ms | 15.6 ms | 13 500 → 15 299 (1 800) |
+| `/tf_static` (late join, no query) | **1 (late_join=1)** | 0 | 0 | n/a | n/a | n/a | 1 |
+
+- Capture process: avg 6.3 % of one core (max 8.5 %), RSS 10.7 MiB — statistically the same as step 1 (6.9 %, 10 MiB) decoding the same 59.7 k Imu messages.
+- **Bridge container** (`docker stats` every 2 s): **avg 7.9 % of a VM core (max 10.3 %), RSS ~8 MiB** — the relay is a second process doing its own CDR-free forwarding; total wall cost of the bridged path ≈ 14 % of one core vs 7 % direct.
+- Baseline discovery snapshot (admin space): 6 adverts incl. `/parameter_events`, `/rosout`; RIHS01 hashes identical to step 1.
+
+### 11.5.2 Bridge overload (`results/capture-bridge-overload-60s.*`, collector sleeps 2 ms/msg → drain ≈ 300 msg/s aggregate offered 1 130 msg/s)
+
+| topic | recv | expected (seq window) | mid-window gaps | startup-burst unseen¹ | tail undrained at cutoff¹ | latency p50 | p99 |
+|---|---|---|---|---|---|---|---|
+| `/imu` (best_effort) | 15 534 | 15 534 | **0** | ≈5 967 (≥ ~1 k) | ≈43 309 | 7.40 s | 28.5 s |
+| `/joint_states` (reliable) | 1 993 | 1 993 | **0** | ≈600 (≥ ~100) | ≈3 908 | 12.44 s | 39.4 s |
+| `/tf` (reliable) | 598 | 598 | **0** | ≈180 (≥ ~30) | ≈1 173 | 12.43 s | 39.5 s |
+| `/tf_static` | 1 (late_join=1) | 1 | 0 | 0 | 0 | n/a | n/a |
+
+¹ Publisher ground truth vs payload-seq window; the publisher's own 5 s log granularity bounds startup-region precision (§11.5.1's ±5 s window rule). "Tail" = published during the run but still buffered in the congested chain when the 60 s capture ended (discarded at session close; client-side cannot distinguish from dropped).
+
+**Key behavioral difference from rmw_zenoh**: once the pipes filled, the bridge chain **blocked end-to-end** — mid-stream delivery was dense (zero gaps on all topics) with backlog latency growing to ~29–40 s, and loss concentrated in the startup catch-up burst. In step 1 the router egress dropped mid-stream (548 / 685 / 205 counted). Fast DDS `best_effort` loss semantics therefore do **not** survive this relay under sustained subscriber backpressure in our topology: you get effective-blocking + edge truncation instead of steady mid-stream thinning. Whether that is acceptable is an ADR-0007 decision input, not a code bug — and the payload-counter accounting proved exact in both regimes (every published message lands in exactly one bucket: received, startup-destroyed, tail-at-cutoff).
+
+- Capture process under overload: avg 2.1 % CPU, RSS 22 MiB (bounded by channel capacities; no growth). Bridge container: avg 3.9 % CPU (max 9.2 %), RSS 8.6 MiB — it idles on its blocked egress.
+
+### 11.5.3 Bridge late-join controls (§11.4 runs) and step-1 regression
+
+- Solo `--only /tf_static --duration-secs 5` started well after the one-shot publish: **exactly 1** sample (route-activation replay). `--no-late-join` 15 s full matrix: `/tf_static` **recv=1** (interest-driven regardless of declared durability), `/imu` 14 953/14 953 dense. Together with §11.4.2 this fully characterizes bridge late join.
+- **Step-1 regression re-run** with the rebuilt publisher (payload counters now embedded; attachment accounting unchanged): `results/capture-rmw-baseline-60s-rerun.*` — `/imu` 59 896/59 896, `/joint_states` 6 000/6 000, `/tf` 1 800/1 800, `/tf_static` 1 via the §5.4 query; attachment latency p50 1.92–1.98 ms, p99 2.28–2.38; capture CPU avg 5.9 %, RSS 10.6 MiB. **Step 1 still passes**, unchanged conclusions.
+
+### 11.5.4 Owner criteria scoreboard (step-2 rows; step-1 rows unchanged in §6.5)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Jazzy via zenoh-bridge-ros2dds + Fast DDS (required) | **PASS** | §11.5.1–11.5.3 |
+| reliable topics behave as configured | **PASS w/ caveat** (0 drops unloaded; under sustained overload the chain blocks rather than delivering late-stream losses — §11.5.2) | §11.5.1–2 |
+| best_effort sensor topic behaves as configured, drops counted under overload | **PARTIAL** — drops exist (startup burst, counted exactly via payload counters + publisher ground truth) but steady-state overload turns into backpressure blocking through the bridge, i.e. fast thinning → delayed dense delivery instead of steady mid-stream loss as configured by ROS QoS. Recorded as a fidelity deviation for ADR-0007 | §11.5.2 |
+| transient_local `/tf_static` behaves as configured (late join) | **PASS w/ semantic note** (exactly-once per route activation; only the first/sole zenoh interest triggers the replay — two co-subscribing consumers don't both get it; no client query needed) | §11.4 |
+| `Gap` marker / counted-drop plumbing | **PASS** (payload-counter accounting reuses the same gap machinery; `seq_source` distinguishes attachment vs payload) | §11.3, summaries |
+| CycloneDDS on Jazzy via the same bridge (best effort) | **NOT RUN** — the `ros:jazzy-ros-base` base lacks `rmw_cyclonedds_cpp`; one apt line (`ros-jazzy-rmw-cyclonedds-cpp`) + `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` in the same compose/run.sh recipe covers it. The bridge side is already CycloneDDS | §11.8 |
+
+## 11.6 Answer: can ONE Thadam mapping layer serve both rmw_zenoh and the bridge?
+
+**Yes — with per-transport envelopes behind the trait, and the data plane unchanged.** Proof-by-construction in this spike: `src/zenoh_impl.rs` and `src/bridge_impl.rs` are two impls of the same `LiveRos2Transport`; `capture.rs`/`metrics.rs`/decodec are transport-agnostic (the whole measurement matrix ran through both). What differs is confined to connect/subscribe/discover:
+
+1. **Key expression**: `{domain}/{fqn}/**` with type+hash parsed from the key (rmw) vs bare `{fqn}` with type/hash out-of-band (bridge).
+2. **Per-publisher metadata**: attachment seq/ts/GID (rmw) vs none (bridge) → drop accounting falls back to a payload-level counter (or publisher ground truth); GID unavailable.
+3. **Discovery**: `@ros2_lv` liveliness listener (rmw) vs admin-space query `@/<zid>/ros2/**` (bridge) that needs the bridge ZID.
+4. **Late join**: client-issued `@adv` cache query with 4 strictures (rmw) vs automatic interest-activation replay (bridge) with first-subscriber-only semantics.
+5. **Latency stamps**: attachment source_ts (rmw) vs decoded `header.stamp` (bridge).
+
+What a **user** would set in the config surface: `transport: rmw_zenoh | bridge`, zenoh `endpoint` + `domain`, and for bridge mode: bridge `namespace` (key prefix) + bridge `zid` (admin space), plus the willingness to embed/enable a payload sequence for exact drop accounting (or accept publisher-log accounting). The identical data path (CDR + RIHS01 decoder keying, hashes byte-identical across both) needs no per-transport code.
+
+## 11.7 Operations burden vs step 1
+
+| | Step 1 (rmw_zenoh) | Step 2 (bridge + Fast DDS) |
+|---|---|---|
+| Deployed components | rmw_zenohd router (1 container) + ROS nodes | **zenoh-bridge-ros2dds (1 container) + ROS nodes (no rmw swap needed — stock Jazzy default)**; no rmw packages to install anywhere |
+| Client-side ROS | none (raw zenoh either way) | none |
+| Network needs | TCP to router port; no multicast anywhere | TCP to bridge port **+ UDP multicast between bridge and every DDS participant** (fine container-to-container in Docker Desktop; across hosts/vlans multicast usually needs DDS discovery config — static peers or a discovery server — an extra config step per site) |
+| Config steps | ZENOH_CONFIG_OVERRIDE endpoints on ROS side; host client endpoint | bridge CLI (`-i` pin, domain, listen, scout off) + ROS_DOMAIN_ID/DISTRO env + RMW choice on publishers; **admin ZID needed by every discovery client** |
+| Failure surface | router down ⇒ all traffic stops; publisher crash ⇒ its @adv cache gone with it | **bridge down ⇒ ALL ROS traffic stops and its transient_local cache is lost**; DDS discovery flap ⇒ phantom topics; Fast DDS ↔ CycloneDDS interop sits in the data path (two DDSI vendors) up to the bridge |
+| Throughput shape | router-assisted drops at congestion edges | extra relay hop (+8 % CPU, +8 MiB) and end-to-end blocking under overload (§11.5.2) |
+| QoS fidelity | exact (we attach at the rmw layer) | reliability/durability survive; **best_effort thinning does not** (blocks instead); best_effort on ARM is exactly the owner-criterion topic, so this matters |
+
+## 11.8 Problems and caveats (step 2)
+
+1. File-edit racing in the dev environment (same as §8.1) silently reverted several edits — detected by the compiler/`grep` and fixed by whole-file rewrites; all reported runs are from the final binary/images.
+2. `Sample::source_info()` (zenoh source_sn) is `#[zenoh_macros::unstable]`-gated; the spike keeps `unstable` off (step-1 dep policy), so "does the bridge set a source SN?" is answered architecturally (no — no attachment info either) rather than by that accessor.
+3. The overload tail (≈43 k `/imu` messages published-but-undelivered at capture cutoff) is client-side indistinguishable from dropped; bounded and reported, see §11.5.2.
+4. `rosout`/`parameter_events` also traverse the bridge (visible in sniff/admin); a production mapping should default-deny non-requested topics (the bridge supports allow regexes).
+5. CycloneDDS publishers on Jazzy: not run (base image lacks the rmw package; see scoreboard row).
+
+## 11.9 What step 3 (Lyrical: rmw_zenoh + default DDS via bridge) must do
+
+1. Base image: **`ros:lyrical-ros-base`** (exists on Docker Hub as of 2026-10-02, amd64+arm64). Rebuild the spike image FROM it; check `ros-lyrical-rmw-zenoh-cpp` availability/version and verify Lyrical's default RMW (expected Fast DDS — re-verify, the default RMW can change per distro).
+2. Re-run BOTH stacks (rmw_zenoh and bridge) against Lyrical with this same harness — the harness, trait, bridge impl, counter publisher, and scripts are distro-agnostic; only the image + vendored `.msg` hash baselines change. Pay attention to REP-2016 hash drift for the vendored types (record new RIHS01s) and any rmw_zenoh Lyrical attachment/keyexpr evolution (re-sniff before measuring).
+3. Also re-pin the bridge image against the Lyrical zenoh version if the lockstep zenoh release moves beyond 1.10.x.
+4. Cyclone (best-effort) on Jazzy folds in cheaply here: add `ros-jazzy-rmw-cyclonedds-cpp` to the image, rerun `jazzy-fastdds-bridge` with `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`.

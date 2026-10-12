@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Spike S3 sensor-mix publisher (Jazzy + rmw_zenoh_cpp).
+"""Spike S3 sensor-mix publisher (Jazzy: rmw_zenoh_cpp or rmw_fastrtps_cpp).
 
 Publishes, from a single node:
   /imu          sensor_msgs/Imu        1 kHz   best_effort, volatile, depth 5
@@ -9,6 +9,14 @@ Publishes, from a single node:
 
 header.stamp of every published message is set to the node's clock at publish
 time. The publisher logs per-topic publish counts every 5 s as ground truth.
+
+Every streaming topic also embeds an EXACT per-topic monotone sequence counter
+in a harmless payload field (imu: angular_velocity.x, joint_states: effort[-1],
+tf: transforms[*].transform.rotation.x). zenoh-bridge-ros2dds (step 2) forwards
+no per-publisher sequence number, so drop accounting through the bridge uses
+these payload counters; float64 holds exact integers past 2^53. rmw_zenoh
+(step 1) ignores them (its attachment carries the authoritative sequence) and
+they serve there as an independent cross-check.
 """
 
 import math
@@ -64,7 +72,8 @@ class SensorPub(Node):
         self.tf_static_pub = self.create_publisher(TFMessage, "/tf_static", qos_static)
 
         self.counts = {"imu": 0, "joint_states": 0, "tf": 0, "tf_static": 0}
-        self.seq = 0
+        # Exact per-topic sequence counters embedded in the payload (module doc).
+        self.send_seq = {"imu": 0, "joint_states": 0, "tf": 0}
         self._static_done = False
 
         self.create_timer(IMU_PERIOD, self.publish_imu)
@@ -83,12 +92,12 @@ class SensorPub(Node):
         msg.header.stamp = self.now()
         msg.header.frame_id = "imu_link"
         msg.orientation.w = 1.0
-        # Identifiable rolling value for sanity checks at decode time.
-        msg.angular_velocity.x = float(self.seq % 1000) * 0.001
+        # Exact payload sequence counter (module doc: bridge drop accounting).
+        msg.angular_velocity.x = float(self.send_seq["imu"])
         msg.angular_velocity.z = 0.1
         msg.linear_acceleration.z = 9.81
         self.imu_pub.publish(msg)
-        self.seq += 1
+        self.send_seq["imu"] += 1
         self.counts["imu"] += 1
 
     def publish_joint_states(self):
@@ -98,8 +107,10 @@ class SensorPub(Node):
         msg.name = [f"joint_{i}" for i in range(1, 7)]
         msg.position = [math.sin(t + i) for i in range(6)]
         msg.velocity = [math.cos(t + i) for i in range(6)]
-        msg.effort = [0.0] * 6
+        # effort[-1] carries the exact payload sequence counter.
+        msg.effort = [0.0] * 5 + [float(self.send_seq["joint_states"])]
         self.js_pub.publish(msg)
+        self.send_seq["joint_states"] += 1
         self.counts["joint_states"] += 1
 
     def make_transform(self, child: str, stamp: Time) -> TransformStamped:
@@ -121,7 +132,12 @@ class SensorPub(Node):
             self.make_transform("laser_link", stamp),
             self.make_transform("camera_link", stamp),
         ]
+        # rotation.x carries the exact payload sequence counter (unused
+        # quaternion field for these synthetic transforms).
+        for tf in msg.transforms:
+            tf.transform.rotation.x = float(self.send_seq["tf"])
         self.tf_pub.publish(msg)
+        self.send_seq["tf"] += 1
         self.counts["tf"] += 1
 
     def publish_tf_static_once(self):

@@ -50,6 +50,9 @@ pub struct TopicStats {
     /// Type hash observed on this topic's samples (last writer wins; all
     /// samples for a topic must agree in a healthy graph).
     pub observed_type_hash: Option<String>,
+    /// Which sequence feeds drop accounting on this topic: the rmw_zenoh
+    /// attachment, the payload-embedded counter (bridge transport), or none.
+    pub seq_source: Option<&'static str>,
 }
 
 fn latency_histogram() -> Histogram<u64> {
@@ -73,17 +76,25 @@ impl TopicStats {
             first_decoded: None,
             decode_error_samples: Vec::new(),
             observed_type_hash: None,
+            seq_source: None,
         }
     }
 
     /// Account one received message. Latency arguments must already be
     /// offset-corrected by the caller; unrepresentable values (no stamp or
     /// negative latency) are counted in `no_stamp`.
+    ///
+    /// Drop-accounting sequence: the rmw_zenoh per-publisher attachment when
+    /// present (`msg.seq >= 0`); otherwise the payload-embedded counter the
+    /// caller decoded (`payload_seq`, bridge transport). Both are exact
+    /// per-sender monotone sequences, gap-accounted identically through
+    /// SenderStats.
     pub fn record_message(
         &mut self,
         msg: &crate::transport::RawRos2Message,
         lat_attachment_ns: Option<i64>,
         lat_header_ns: Option<i64>,
+        payload_seq: Option<i64>,
     ) {
         self.received += 1;
         if msg.late_join {
@@ -103,20 +114,26 @@ impl TopicStats {
         {
             let _ = self.lat_header.record(ns as u64);
         }
-        if msg.seq >= 0 {
+        let (seq, source) = if msg.seq >= 0 {
+            (Some(msg.seq), "attachment")
+        } else {
+            (payload_seq, "payload")
+        };
+        if let Some(seq) = seq {
+            self.seq_source.get_or_insert(source);
             let sender = self.senders.entry(msg.gid).or_default();
             if sender.first_seq.is_none() {
-                sender.first_seq = Some(msg.seq);
+                sender.first_seq = Some(seq);
             }
             if let Some(last) = sender.last_seq {
-                if msg.seq > last + 1 {
+                if seq > last + 1 {
                     sender.gap_events += 1;
-                    sender.gap_missing_total += (msg.seq - last - 1) as u64;
-                } else if msg.seq <= last {
+                    sender.gap_missing_total += (seq - last - 1) as u64;
+                } else if seq <= last {
                     sender.duplicates += 1;
                 }
             }
-            sender.last_seq = Some(sender.last_seq.map_or(msg.seq, |l| l.max(msg.seq)));
+            sender.last_seq = Some(sender.last_seq.map_or(seq, |l| l.max(seq)));
             sender.received += 1;
         }
     }
@@ -148,6 +165,7 @@ pub struct TopicSummary {
     pub ros_type: String,
     pub nominal_hz: f64,
     pub observed_type_hash: Option<String>,
+    pub seq_source: Option<&'static str>,
     pub received: u64,
     pub late_join_received: u64,
     pub decode_errors: u64,
@@ -186,6 +204,7 @@ impl From<&Histogram<u64>> for LatSummary {
 #[derive(Serialize)]
 pub struct RunSummary {
     pub scenario: String,
+    pub transport: String,
     pub duration_secs: u64,
     pub endpoint: String,
     pub session_mode: String,
@@ -201,6 +220,7 @@ pub struct RunSummary {
 pub fn summarize(scenario: &str, run: &RunParams, stats: &[TopicStats]) -> RunSummary {
     RunSummary {
         scenario: scenario.to_string(),
+        transport: run.transport.clone(),
         duration_secs: run.duration_secs,
         endpoint: run.endpoint.clone(),
         session_mode: run.session_mode.clone(),
@@ -219,6 +239,7 @@ pub fn summarize(scenario: &str, run: &RunParams, stats: &[TopicStats]) -> RunSu
                     ros_type: t.ros_type.clone(),
                     nominal_hz: t.nominal_hz,
                     observed_type_hash: t.observed_type_hash.clone(),
+                    seq_source: t.seq_source,
                     received: t.received,
                     late_join_received: t.late_join_received,
                     decode_errors: t.decode_errors,
@@ -256,6 +277,7 @@ pub fn summarize(scenario: &str, run: &RunParams, stats: &[TopicStats]) -> RunSu
 }
 
 pub struct RunParams {
+    pub transport: String,
     pub duration_secs: u64,
     pub endpoint: String,
     pub session_mode: String,
