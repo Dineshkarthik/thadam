@@ -64,7 +64,7 @@ mod writer;
 
 pub use catalog::{
     CatalogVersion, LocalRetention, ReleaseReport, SegmentCatalog, SegmentId, SegmentRecord,
-    SegmentTotals, StateTotal,
+    SegmentTotals, StateTotal, UploadedSegment,
 };
 pub use config::{
     Compression, ParquetSinkConfig, ParquetSinkOptions, QuarantineConfig, RotationConfig,

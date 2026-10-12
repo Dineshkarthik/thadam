@@ -63,6 +63,10 @@ pub fn build_registry() -> Registry {
     registry.service(Box::new(
         thadam_object_store::ObjectStoreShipperFactory::new(),
     ));
+    // The Iceberg registrar (`kind: iceberg`, P2 experimental): same
+    // sinks:-entry service shape, registering uploaded segments in tables.
+    #[cfg(feature = "iceberg")]
+    registry.service(Box::new(thadam_iceberg::IcebergRegistrarFactory::new()));
 
     registry
 }
@@ -235,6 +239,19 @@ mod tests {
                 .sink_kinds
                 .as_ref()
                 .is_some_and(|k| k.iter().any(|s| s == "object_store"))
+        );
+    }
+
+    #[cfg(feature = "iceberg")]
+    #[test]
+    fn build_registry_registers_iceberg_service() {
+        let registry = build_registry();
+        let policy = registry.kind_policy();
+        assert!(
+            policy
+                .sink_kinds
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|s| s == "iceberg"))
         );
     }
 

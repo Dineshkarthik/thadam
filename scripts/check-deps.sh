@@ -52,7 +52,7 @@ def arrow_re: "^(arrow|arrow-.+|parquet)$";
     "thadam-mqtt": ["thadam-cli", "thadam-python"],
     "thadam-http": ["thadam-cli", "thadam-python"],
     "thadam-grpc": ["thadam-cli", "thadam-python"],
-    "thadam-segments": ["thadam-cli", "thadam-object-store", "thadam-python"],
+    "thadam-segments": ["thadam-cli", "thadam-object-store", "thadam-iceberg", "thadam-python"],
     "thadam-object-store": ["thadam-cli", "thadam-python"],
     "thadam-clickhouse": ["thadam-cli"],
     "thadam-mcap": ["thadam-cli"],
@@ -62,12 +62,15 @@ def arrow_re: "^(arrow|arrow-.+|parquet)$";
     "thadam-kafka": ["thadam-cli"],
     "thadam-opcua": ["thadam-cli"],
     "thadam-ros2-live": ["thadam-cli"],
+    "thadam-iceberg": ["thadam-cli"],
     "thadam-testkit": []
   } as $allowed_dependents
 
 # thadam-python reads the sink layout with the parquet/arrow major pyo3-arrow
-# tracks (older than the workspace's; see sdk/python/README.md).
-| ["thadam-arrow", "thadam-segments", "thadam-clickhouse", "thadam-simulator", "thadam-python"] as $arrow_users
+# tracks (older than the workspace's; see sdk/python/README.md). thadam-iceberg
+# reads segment footers with the aliased `parquet58` inside iceberg's Arrow-58
+# tree (no arrow umbrella crate, no arrow types in its API).
+| ["thadam-arrow", "thadam-segments", "thadam-clickhouse", "thadam-simulator", "thadam-python", "thadam-iceberg"] as $arrow_users
 
 | [
     ($forbidden_transitive | to_entries[] | .key as $c | .value as $re

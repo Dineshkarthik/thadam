@@ -43,6 +43,7 @@
 
 - [Parquet segments](sinks/parquet.md)
 - [Object storage](sinks/object-store.md)
+- [Apache Iceberg (registrar)](sinks/iceberg.md)
 - [ClickHouse](sinks/clickhouse.md)
 - [NATS JetStream](sinks/nats.md)
 - [Apache Kafka](sinks/kafka.md)

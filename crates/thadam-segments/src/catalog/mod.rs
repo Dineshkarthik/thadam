@@ -182,6 +182,17 @@ impl SegmentTotals {
     }
 }
 
+/// One segment whose file is durably in the object store, with the object
+/// key the shipper recorded under `from` ([`SegmentCatalog::uploaded`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct UploadedSegment {
+    /// The segment.
+    pub record: SegmentRecord,
+    /// Its full object key (bucket-relative, store-url prefix included).
+    pub key: String,
+}
+
 struct Inner {
     root: PathBuf,
     node_id: String,
@@ -309,6 +320,34 @@ impl SegmentCatalog {
     /// The node id files were written under.
     pub fn node_id(&self) -> &str {
         &self.inner.node_id
+    }
+
+    /// Segments durably in the object store, with the object key the
+    /// shipper recorded — the Iceberg registrar's replay target
+    /// (`docs/design/iceberg-append.md`). Covers both `Uploaded` (still on
+    /// local disk) and `Deleted { uploaded: true }` (the local copy was
+    /// released by retention; the object and key remain valid) entries,
+    /// oldest WAL range first.
+    pub fn uploaded(&self) -> Vec<UploadedSegment> {
+        let state = lock(&self.inner.state);
+        let mut out: Vec<UploadedSegment> = state
+            .segments
+            .values()
+            .filter(|e| {
+                e.record.has_file()
+                    && e.key.is_some()
+                    && matches!(
+                        e.state,
+                        SegmentState::Uploaded { .. } | SegmentState::Deleted { uploaded: true }
+                    )
+            })
+            .map(|e| UploadedSegment {
+                record: e.record.clone(),
+                key: e.key.clone().unwrap_or_default(),
+            })
+            .collect();
+        out.sort_by_key(|u| (u.record.range.first(), u.record.dataset.clone()));
+        out
     }
 
     /// Segments ready for the shipper: `Finalized` and `Eligible` through
