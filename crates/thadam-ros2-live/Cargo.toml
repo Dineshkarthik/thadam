@@ -1,0 +1,32 @@
+[package]
+name = "thadam-ros2-live"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true }
+thadam-core = { workspace = true }
+thadam-ros2-msg = { path = "../thadam-ros2-msg" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tracing = { workspace = true }
+# Zenoh 1.10.1 (exact pin, matches the zenoh-c 1.10.x vendored by Jazzy and
+# Lyrical rmw_zenoh; spike S3 §12.2 — re-verify at each rmw_zenoh bump).
+# default-features = false + transport_tcp only (no TLS/QUIC/ws/udp/unixsock),
+# which keeps aws-lc-sys/openssl-sys out of the tree; attachments, liveliness
+# and insert_json5 are stable APIs in 1.10.1, so `unstable` stays off.
+# License EPL-2.0 OR Apache-2.0; Thadam elects Apache-2.0 (ADR-0020).
+zenoh = { version = "=1.10.1", default-features = false, features = ["transport_tcp"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full", "test-util"] }
+
+[lints]
+workspace = true
