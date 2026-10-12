@@ -1,0 +1,33 @@
+[package]
+name = "s3-ros2-live"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Thadam spike S3 step 1: raw-zenoh subscriber against Jazzy rmw_zenoh"
+
+# Standalone project: the root Thadam workspace excludes `spikes/`.
+[workspace]
+
+[dependencies]
+thadam-core = { path = "../../crates/thadam-core" }
+thadam-ros2-msg = { path = "../../crates/thadam-ros2-msg" }
+# Zenoh 1.10.1 (latest 1.x, exact pin). License EPL-2.0 OR Apache-2.0; Thadam
+# elects Apache-2.0 (ADR-0020). default-features = false cuts quic/tls/ws/udp/
+# unixsock/multilink/compression/auth transports out of the tree: over this
+# spike's topology (rmw_zenohd router on TCP 7447, sessions in peer mode)
+# only transport_tcp is needed. Attachments, liveliness, and insert_json5 are
+# STABLE APIs in 1.10.1 (verified against the crate source), so the `unstable`
+# feature is NOT enabled. No OpenSSL / aws-lc: TLS features stay off entirely.
+zenoh = { version = "=1.10.1", default-features = false, features = ["transport_tcp"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+clap = { version = "4.6", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hdrhistogram = { version = "7.5", default-features = false }
+# Diagnostics only (zenoh logs through `tracing`); fmt+env-filter is the
+# smallest useful prelude. Not part of a production Thadam transport dep set.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "std"] }
+
+[profile.release]
+debug = "line-tables-only"

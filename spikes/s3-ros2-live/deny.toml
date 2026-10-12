@@ -1,0 +1,53 @@
+# Spike S3 local dependency policy.
+#
+# Mirrors the root ../../deny.toml so the spike's dependency tree (zenoh
+# feature included) can be evaluated against the workspace rules. Expected
+# outcome: every zenoh crate is `EPL-2.0 OR Apache-2.0`, satisfied by the
+# Apache-2.0 allow — that is Thadam's documented election (ADR-0020). The
+# one known non-conformance is option-ext 0.2.0 (MPL-2.0, via
+# zenoh-util -> shellexpand -> dirs); it is left failing on purpose so the
+# check reproduces the finding the spike report records for an ADR-0020
+# decision.
+
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+]
+
+[advisories]
+yanked = "deny"
+unmaintained = "workspace"
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+
+[[licenses.exceptions]]
+crate = "target-lexicon"
+allow = ["Apache-2.0 WITH LLVM-exception"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+deny = [
+    { crate = "aws-lc-sys", reason = "rustls uses the ring provider; aws-lc needs a cmake/clang cross-compile toolchain" },
+    { crate = "openssl-sys", reason = "TLS is rustls only" },
+    { crate = "serde_yaml", reason = "deprecated and unmaintained" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

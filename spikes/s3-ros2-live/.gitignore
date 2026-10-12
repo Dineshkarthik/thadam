@@ -1,0 +1,7 @@
+# Opt-in corporate proxy CA (see docker/Makefile target secrets/ca.pem)
+docker/secrets/ca.pem
+# Run captures
+results/
+# Rust build artifacts (root .gitignore `target/` already covers this; kept
+# explicit so the spike stays self-contained if moved)
+target/

@@ -1,0 +1,47 @@
+# Spike S3 step 1: Jazzy + rmw_zenoh stack.
+#
+#   docker compose -f docker/compose.yaml build
+#   docker compose -f docker/compose.yaml up -d
+#   docker compose -f docker/compose.yaml down [-v]
+#
+# Services:
+#   router        rmw_zenohd Zenoh router, TCP 7447 published on host localhost
+#   sensor-pub    one rclpy node publishing /imu (1 kHz, best_effort),
+#                 /joint_states (100 Hz, reliable), /tf (30 Hz, reliable) and
+#                 /tf_static (one shot, transient_local) via rmw_zenoh_cpp
+#
+# The Rust subscriber runs natively on the host and connects to
+# tcp/127.0.0.1:7447.
+
+name: s3ros2
+
+services:
+  router:
+    build: ..
+    image: s3-ros2-zenoh:jazzy-1
+    command: bash -c 'source /opt/ros/jazzy/setup.bash && exec ros2 run rmw_zenoh_cpp rmw_zenohd'
+    ports:
+      - '127.0.0.1:7447:7447'
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/7447'"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    # Local router only: no need to keep it alive beyond the demo run.
+    restart: 'no'
+
+  sensor-pub:
+    build: ..
+    image: s3-ros2-zenoh:jazzy-1
+    depends_on:
+      router:
+        condition: service_healthy
+    environment:
+      RMW_IMPLEMENTATION: rmw_zenoh_cpp
+      ROS_DOMAIN_ID: '0'
+      # Default rmw_zenoh sessions connect to tcp/localhost:7447; point them at
+      # the router service instead. Multicast scouting off: nothing may leak
+      # onto the LAN, and scouted peers advertise unreachable addresses.
+      ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["tcp/router:7447"];scouting/multicast/enabled=false'
+    command: bash -c 'source /opt/ros/jazzy/setup.bash && exec python3 /usr/local/lib/s3/sensor_pub.py'
+    restart: 'no'
