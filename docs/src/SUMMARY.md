@@ -35,6 +35,7 @@
 - [MQTT](sources/mqtt.md)
 - [Modbus](sources/modbus.md)
 - [CAN](sources/can.md)
+- [OPC UA](sources/opcua.md)
 - [ROS 2](sources/ros2.md)
 
 # Sinks

@@ -10,6 +10,20 @@ yanked = "deny"
 # cargo-deny has no "warn" level for unmaintained advisories: they either fail
 # or are ignored. Fail only for direct workspace dependencies.
 unmaintained = "workspace"
+ignore = [
+    # RUSTSEC-2023-0071 (`rsa` 0.9: Marvin timing attack), pulled by
+    # async-opcua-crypto 0.19, which every secured OPC UA security policy
+    # needs. Accepted deliberately (owner decision): RSA is used only in the
+    # OPC UA secure-channel handshake, never per message; thadam-opcua
+    # rate-limits handshakes (reconnect.max_handshakes_per_minute, default
+    # 12/min) which bounds the timing samples an observer can collect; the
+    # AES policies (Aes256_Sha256_RsaPss, Aes128_Sha256_RsaOaep) are
+    # preferred in the docs; and authentication failures are fatal so a
+    # misconfigured secret cannot be retried into a sampling oracle.
+    # Revisit: migrate to `rsa` 0.10 when async-opcua adopts it.
+    # REVIEW BY 2027-04-01.
+    { id = "RUSTSEC-2023-0071", reason = "rsa 0.9 via async-opcua-crypto (OPC UA secure-channel handshake only); handshake rate bounded by thadam-opcua reconnect.max_handshakes_per_minute; AES security policies preferred; migrate to rsa 0.10 when async-opcua adopts it; REVIEW BY 2027-04-01" },
+]
 
 [licenses]
 allow = [
@@ -29,13 +43,58 @@ unused-allowed-license = "allow"
 crate = "target-lexicon"
 allow = ["Apache-2.0 WITH LLVM-exception"]
 
+# MPL-2.0, scoped to the async-opcua crates (owner decision; they are the
+# only MPL crates in the tree and stay out unless thadam-cli is built with
+# --features opcua). MPL-2.0 is a file-level copyleft: linked as separate
+# compilation units in the thadam binary, and any upstream modification
+# would have to be published.
+[[licenses.exceptions]]
+crate = "async-opcua"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "async-opcua-client"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "async-opcua-core"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "async-opcua-crypto"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "async-opcua-types"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "async-opcua-macros"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "async-opcua-nodes"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "async-opcua-server"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "async-opcua-core-namespace"
+allow = ["MPL-2.0"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "allow"
 deny = [
     { crate = "aws-lc-sys", reason = "rustls uses the ring provider; aws-lc needs a cmake/clang cross-compile toolchain" },
     { crate = "openssl-sys", reason = "TLS is rustls only" },
-    { crate = "serde_yaml", reason = "deprecated and unmaintained" },
+    # serde_yaml is deprecated and unmaintained. It is still banned for
+    # workspace code; the one accepted wrapper is async-opcua-core 0.19,
+    # which uses it only to parse its own YAML client-config files — a code
+    # path thadam-opcua never calls (the client is built programmatically).
+    { crate = "serde_yaml", reason = "deprecated and unmaintained", wrappers = ["async-opcua-core"] },
 ]
 
 [sources]

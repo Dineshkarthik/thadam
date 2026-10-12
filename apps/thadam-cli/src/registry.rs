@@ -14,6 +14,8 @@ use thadam_runtime::Registry;
 /// - MCAP file source factory ([`thadam_mcap::McapSourceFactory`])
 /// - Modbus TCP source factory ([`thadam_modbus::ModbusSourceFactory`])
 /// - SocketCAN source factory ([`thadam_can::CanSourceFactory`])
+/// - OPC UA subscription source factory (`thadam_opcua::OpcUaSourceFactory`,
+///   behind the default-off `opcua` feature)
 /// - Parquet segment sink factory ([`thadam_segments::ParquetSegmentSinkFactory`])
 /// - Quarantine segment sink factory ([`thadam_segments::QuarantineSinkFactory`])
 /// - NATS JetStream batch sink factory ([`thadam_nats::NatsSinkFactory`])
@@ -34,6 +36,8 @@ pub fn build_registry() -> Registry {
     registry.source(Box::new(thadam_mcap::McapSourceFactory::new()));
     registry.source(Box::new(thadam_modbus::ModbusSourceFactory::new()));
     registry.source(Box::new(thadam_can::CanSourceFactory::new()));
+    #[cfg(feature = "opcua")]
+    registry.source(Box::new(thadam_opcua::OpcUaSourceFactory::new()));
 
     registry.segment_sink(Box::new(thadam_segments::ParquetSegmentSinkFactory::new()));
     registry.quarantine_sink(Box::new(thadam_segments::QuarantineSinkFactory::new()));
@@ -130,6 +134,19 @@ mod tests {
                 .source_kinds
                 .as_ref()
                 .is_some_and(|k| k.iter().any(|s| s == "can"))
+        );
+    }
+
+    #[cfg(feature = "opcua")]
+    #[test]
+    fn build_registry_registers_opcua_source() {
+        let registry = build_registry();
+        let policy = registry.kind_policy();
+        assert!(
+            policy
+                .source_kinds
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|s| s == "opcua"))
         );
     }
 

@@ -18,6 +18,7 @@ members = [
     "crates/thadam-nats",
     "crates/thadam-can",
     "crates/thadam-clickhouse",
+    "crates/thadam-opcua",
     "crates/thadam-testkit",
     "apps/thadam-cli",
     "tools/thadam-simulator",
@@ -43,6 +44,7 @@ default-members = [
     "crates/thadam-nats",
     "crates/thadam-can",
     "crates/thadam-clickhouse",
+    "crates/thadam-opcua",
     "crates/thadam-testkit",
     "apps/thadam-cli",
     "tools/thadam-simulator",
@@ -73,6 +75,14 @@ arrow-buffer = "60"
 arrow-ipc = "60"
 arrow-schema = "60"
 async-trait = "0.1.92"
+# OPC UA subscription source (thadam-opcua), client only (owner decision). Pure
+# Rust (ring + rsa, no OpenSSL/aws-lc); MPL-2.0. Pinned exactly: the RSA key
+# exchange pulls rsa 0.9 (RUSTSEC-2023-0071, Marvin; see deny.toml), and 0.19
+# is the newest line. The `server` feature is used only by thadam-opcua's
+# dev-dependency for the in-process test server.
+async-opcua = { version = "=0.19.0", default-features = false }
+# ByteString payload encoding in thadam-opcua (OPC UA JSON, Part 6).
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 bitflags = "2.13"
 bytes = "1.12"
 bytesize = "2.7"
@@ -82,6 +92,8 @@ socketcan = { version = "4", default-features = false }
 # DBC parsing for the CAN source's `emit: decoded` mode. `serde` and
 # `encodings` stay off: we parse UTF-8 files and keep encoding_rs out.
 can-dbc = { version = "10", default-features = false }
+# OPC UA DateTime values (thadam-opcua): UTC conversion and RFC 3339 text.
+chrono = { version = "0.4", default-features = false, features = ["alloc"] }
 clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 crc32c = "0.6.8"
 csv = "1.4"

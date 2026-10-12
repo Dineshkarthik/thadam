@@ -16,6 +16,10 @@ default = ["clickhouse"]
 # works out of the box; `--no-default-features` builds a binary without the
 # ClickHouse client and its HTTP stack.
 clickhouse = ["dep:thadam-clickhouse"]
+# The OPC UA subscription source (`kind: opcua`). Off by default (owner
+# decision): `thadam validate`/`thadam run` only accept `kind: opcua` with
+# `--features opcua`, which pulls the MPL-2.0 async-opcua client.
+opcua = ["dep:thadam-opcua"]
 
 [dependencies]
 bytes = { workspace = true }
@@ -34,6 +38,7 @@ thadam-wal = { path = "../../crates/thadam-wal" }
 thadam-object-store = { path = "../../crates/thadam-object-store" }
 thadam-nats = { path = "../../crates/thadam-nats" }
 thadam-clickhouse = { path = "../../crates/thadam-clickhouse", optional = true }
+thadam-opcua = { path = "../../crates/thadam-opcua", optional = true }
 thadam-core = { workspace = true }
 rustls = { workspace = true }
 serde_json = { workspace = true }

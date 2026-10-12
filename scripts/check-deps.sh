@@ -59,6 +59,7 @@ def arrow_re: "^(arrow|arrow-.+|parquet)$";
     "thadam-modbus": ["thadam-cli"],
     "thadam-can": ["thadam-cli"],
     "thadam-nats": ["thadam-cli"],
+    "thadam-opcua": ["thadam-cli"],
     "thadam-testkit": []
   } as $allowed_dependents
 
