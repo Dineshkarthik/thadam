@@ -16,9 +16,12 @@ use thadam_runtime::Registry;
 /// - SocketCAN source factory ([`thadam_can::CanSourceFactory`])
 /// - OPC UA subscription source factory (`thadam_opcua::OpcUaSourceFactory`,
 ///   behind the default-off `opcua` feature)
+/// - Live ROS 2 source factory (`thadam_ros2_live::Ros2LiveSourceFactory`,
+///   behind the default-off `ros2-live` feature)
 /// - Parquet segment sink factory ([`thadam_segments::ParquetSegmentSinkFactory`])
 /// - Quarantine segment sink factory ([`thadam_segments::QuarantineSinkFactory`])
 /// - NATS JetStream batch sink factory ([`thadam_nats::NatsSinkFactory`])
+/// - Apache Kafka batch sink factory ([`thadam_kafka::KafkaSinkFactory`])
 /// - MQTT publish batch sink factory ([`thadam_mqtt::sink::MqttPublishSinkFactory`])
 /// - ClickHouse batch sink factory (`thadam_clickhouse::ClickHouseSinkFactory`,
 ///   behind the default-on `clickhouse` feature)
@@ -38,12 +41,16 @@ pub fn build_registry() -> Registry {
     registry.source(Box::new(thadam_can::CanSourceFactory::new()));
     #[cfg(feature = "opcua")]
     registry.source(Box::new(thadam_opcua::OpcUaSourceFactory::new()));
+    #[cfg(feature = "ros2-live")]
+    registry.source(Box::new(thadam_ros2_live::Ros2LiveSourceFactory::new()));
 
     registry.segment_sink(Box::new(thadam_segments::ParquetSegmentSinkFactory::new()));
     registry.quarantine_sink(Box::new(thadam_segments::QuarantineSinkFactory::new()));
 
     // Batch sinks: JetStream publish with per-event Nats-Msg-Id dedupe.
     registry.batch_sink(Box::new(thadam_nats::NatsSinkFactory::new()));
+    // Batch sink: one Kafka record per event, acks=all, at-least-once.
+    registry.batch_sink(Box::new(thadam_kafka::KafkaSinkFactory::new()));
     // Batch sink: one MQTT message per event, at-least-once at QoS 1.
     registry.batch_sink(Box::new(thadam_mqtt::sink::MqttPublishSinkFactory::new()));
     // Batch sink: Native inserts into an existing ClickHouse table, deduped by
@@ -150,6 +157,19 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ros2-live")]
+    #[test]
+    fn build_registry_registers_ros2_live_source() {
+        let registry = build_registry();
+        let policy = registry.kind_policy();
+        assert!(
+            policy
+                .source_kinds
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|s| s == "ros2_live"))
+        );
+    }
+
     #[test]
     fn build_registry_registers_nats_batch_sink() {
         let registry = build_registry();
@@ -159,6 +179,18 @@ mod tests {
                 .sink_kinds
                 .as_ref()
                 .is_some_and(|k| k.iter().any(|s| s == "nats"))
+        );
+    }
+
+    #[test]
+    fn build_registry_registers_kafka_batch_sink() {
+        let registry = build_registry();
+        let policy = registry.kind_policy();
+        assert!(
+            policy
+                .sink_kinds
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|s| s == "kafka"))
         );
     }
 

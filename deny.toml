@@ -23,6 +23,20 @@ ignore = [
     # Revisit: migrate to `rsa` 0.10 when async-opcua adopts it.
     # REVIEW BY 2027-04-01.
     { id = "RUSTSEC-2023-0071", reason = "rsa 0.9 via async-opcua-crypto (OPC UA secure-channel handshake only); handshake rate bounded by thadam-opcua reconnect.max_handshakes_per_minute; AES security policies preferred; migrate to rsa 0.10 when async-opcua adopts it; REVIEW BY 2027-04-01" },
+    # RUSTSEC-2026-0041 (`lz4_flex` 0.10.0: LZ4 *block-API* offset
+    # validation), pulled by zenoh-transport 1.10.x = the pinned zenoh
+    # 1.10.1 of thadam-ros2-live (rmw_zenoh wire lockstep; no fixed 0.10.x
+    # exists, and zenoh-transport requires `^0.10`). Accepted with the same
+    # scope as the zenoh feature itself: thadam builds zenoh with
+    # `transport_tcp` only (no compression features), so no compression is
+    # negotiated on the wire and the block API is never exercised at
+    # runtime; lz4_flex is additionally resolved with its default
+    # `safe-decode` on (only the unsafe-implementation scenario is fully
+    # excluded by that); the remaining reused-buffer scenario needs
+    # attacker-controlled compressed frames from the router, which is the
+    # same LAN trust boundary as the ROS graph itself. Re-pin when a zenoh
+    # release accepts lz4_flex >= 0.11.6. REVIEW BY 2027-04-01.
+    { id = "RUSTSEC-2026-0041", reason = "lz4_flex 0.10 via zenoh-transport (pinned zenoh 1.10.1, ^0.10 requirement, no fixed 0.10.x); thadam enables no zenoh compression features so the block API is not exercised; safe-decode is on in the resolved graph; exposure is the ROS LAN trust boundary; re-pin when zenoh accepts lz4_flex >= 0.11.6; REVIEW BY 2027-04-01" },
 ]
 
 [licenses]
@@ -84,6 +98,14 @@ allow = ["MPL-2.0"]
 crate = "async-opcua-core-namespace"
 allow = ["MPL-2.0"]
 
+# MPL-2.0, scoped to option-ext (owner decision 2026-10-12): pulled in only
+# when thadam-cli is built with --features ros2-live (zenoh-util 1.10.1 ->
+# shellexpand -> dirs -> dirs-sys -> option-ext). File-level copyleft: the
+# thadam binary links it as a separate, unmodified compilation unit.
+[[licenses.exceptions]]
+crate = "option-ext"
+allow = ["MPL-2.0"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "allow"
@@ -91,10 +113,15 @@ deny = [
     { crate = "aws-lc-sys", reason = "rustls uses the ring provider; aws-lc needs a cmake/clang cross-compile toolchain" },
     { crate = "openssl-sys", reason = "TLS is rustls only" },
     # serde_yaml is deprecated and unmaintained. It is still banned for
-    # workspace code; the one accepted wrapper is async-opcua-core 0.19,
+    # workspace code; the accepted wrappers are (1) async-opcua-core 0.19,
     # which uses it only to parse its own YAML client-config files — a code
-    # path thadam-opcua never calls (the client is built programmatically).
-    { crate = "serde_yaml", reason = "deprecated and unmaintained", wrappers = ["async-opcua-core"] },
+    # path thadam-opcua never calls (the client is built programmatically) —
+    # and (2) zenoh-config 1.10.1, for which serde_yaml is a *mandatory*
+    # dependency (owner decision 2026-10-12; dead config-parsing code for
+    # us: thadam-ros2-live configures zenoh programmatically via
+    # insert_json5, never from YAML). Re-check at each zenoh bump for an
+    # upstream release that makes it optional.
+    { crate = "serde_yaml", reason = "deprecated and unmaintained", wrappers = ["async-opcua-core", "zenoh-config"] },
 ]
 
 [sources]

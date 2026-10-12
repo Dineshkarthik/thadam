@@ -16,9 +16,11 @@ members = [
     "crates/thadam-mcap",
     "crates/thadam-modbus",
     "crates/thadam-nats",
+    "crates/thadam-kafka",
     "crates/thadam-can",
     "crates/thadam-clickhouse",
     "crates/thadam-opcua",
+    "crates/thadam-ros2-live",
     "crates/thadam-testkit",
     "apps/thadam-cli",
     "tools/thadam-simulator",
@@ -42,9 +44,11 @@ default-members = [
     "crates/thadam-mcap",
     "crates/thadam-modbus",
     "crates/thadam-nats",
+    "crates/thadam-kafka",
     "crates/thadam-can",
     "crates/thadam-clickhouse",
     "crates/thadam-opcua",
+    "crates/thadam-ros2-live",
     "crates/thadam-testkit",
     "apps/thadam-cli",
     "tools/thadam-simulator",
@@ -120,6 +124,17 @@ rand_chacha = "0.9"
 # cannot reach the patched 0.103.x (RUSTSEC-2026-0049/-0098/-0099/-0104). TLS is
 # terminated in thadam-mqtt with tokio-rustls + ring (crates/thadam-mqtt/src/tls.rs).
 rumqttc = { version = "=0.25.1", default-features = false }
+# Kafka batch sink (thadam-kafka, owner decision: pure Rust, no OpenSSL, no
+# librdkafka, no aws-lc-sys — ADR-0020; the evaluation lives in the crate
+# docs). Pinned exactly: 0.6.0 (2025-03-20) is the newest release. TLS
+# via `transport-tls`: rskafka 0.6.0 takes a caller-built
+# Arc<rustls::ClientConfig> and enables no crypto provider of its own, so the
+# provider is the workspace's rustls+ring (ADR-0020) and aws-lc-sys stays out.
+# SASL (PLAIN, SCRAM-SHA-256/512) is built
+# in via rsasl over pure-Rust RustCrypto crates. Only the gzip
+# (miniz_oxide) and snappy (snap) codecs are enabled: the crate's lz4 and
+# zstd codecs are C bindings (`lz4-sys`, `zstd-sys`).
+rskafka = { version = "=0.6.0", default-features = false, features = ["transport-tls", "compression-gzip", "compression-snappy"] }
 rustix = { version = "1.1.5", default-features = false, features = ["std", "fs"] }
 rustls-native-certs = "0.8"
 rustls-pki-types = { version = "1.15", features = ["std"] }
@@ -150,6 +165,16 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json", "env-filter", "ansi", "std"] }
 tracing-appender = "0.2"
 twox-hash = { version = "2.1", default-features = false, features = ["xxhash3_128"] }
+# Live ROS 2 source (thadam-ros2-live, ADR-0007 stage 4, rmw_zenoh transport).
+# Exact pin matching the zenoh-c 1.10.x vendored by Jazzy and Lyrical
+# rmw_zenoh (spike S3 §12.2: byte-identical wire mapping); re-verify at each
+# rmw_zenoh bump. default-features = false + `transport_tcp` only — no TLS,
+# QUIC, ws, udp, unixsock — keeps aws-lc-sys/openssl-sys out of the tree.
+# Attachments, liveliness and insert_json5 are stable APIs in 1.10.1, so the
+# `unstable` feature stays off. License EPL-2.0 OR Apache-2.0; Thadam elects
+# Apache-2.0 (ADR-0020). serde_yaml (banned) is a mandatory dependency of
+# zenoh-config 1.10.1 and is exceptioned in deny.toml for that crate only.
+zenoh = { version = "=1.10.1", default-features = false, features = ["transport_tcp"] }
 
 criterion = { version = "0.8", default-features = false }
 insta = "1.49"

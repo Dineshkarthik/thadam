@@ -17,10 +17,16 @@ path = "junit.xml"
 wal-crash-loop = { max-threads = 1 }
 # Parallel EMQX containers starve each other and flake session-loss tests.
 emqx-docker = { max-threads = 1 }
+# Each Kafka broker is a JVM; two at a time keeps a laptop responsive.
+kafka-docker = { max-threads = 2 }
 
 [[profile.default.overrides]]
 filter = "package(thadam-mqtt) & test(/^emqx_/)"
 test-group = "emqx-docker"
+
+[[profile.default.overrides]]
+filter = "package(thadam-kafka) & (binary(docker_kafka) | binary(conformance))"
+test-group = "kafka-docker"
 
 [[profile.default.overrides]]
 filter = "package(thadam-wal) & test(kill_dash_nine_crash_loop)"

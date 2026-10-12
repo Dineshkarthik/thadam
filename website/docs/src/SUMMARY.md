@@ -37,6 +37,7 @@
 - [CAN](sources/can.md)
 - [OPC UA](sources/opcua.md)
 - [ROS 2](sources/ros2.md)
+- [ROS 2 live](sources/ros2-live.md)
 
 # Sinks
 
@@ -44,6 +45,7 @@
 - [Object storage](sinks/object-store.md)
 - [ClickHouse](sinks/clickhouse.md)
 - [NATS JetStream](sinks/nats.md)
+- [Apache Kafka](sinks/kafka.md)
 - [MQTT publish](sinks/mqtt-publish.md)
 
 # Transforms

@@ -1,0 +1,41 @@
+[package]
+name = "thadam-kafka"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The Kafka client (owner decision: pure Rust, no OpenSSL, no librdkafka, no
+# aws-lc-sys — rustls + ring only, ADR-0020). See the crate docs (lib.rs) for
+# the full evaluation. rskafka's `transport-tls` pulls rustls and tokio-rustls
+# with the `ring` provider (no aws-lc). `compression-gzip` and
+# `compression-snappy` are the codecs without a native dependency (rskafka's
+# lz4 wraps the C lz4-sys and zstd the C zstd-sys — both stay off).
+rskafka = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+thadam-core = { workspace = true }
+rustls-native-certs = { workspace = true }
+rustls-pki-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# Re-exports the rustls 0.23 instance rskafka uses, so the client config
+# built here (ring provider) type-checks against `tls_config`.
+tokio-rustls = { workspace = true }
+tokio = { workspace = true, features = ["fs", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+bytes = { workspace = true }
+rcgen = { workspace = true }
+thadam-testkit = { path = "../thadam-testkit" }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true
