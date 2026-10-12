@@ -125,18 +125,20 @@ impl KafkaSink {
                 SaslMechanism::ScramSha512 => SaslConfig::ScramSha512(credentials),
             });
         }
-        let client = match tokio::time::timeout(self.config.request_timeout, builder.build()).await
-        {
+        // rskafka retries a failed connect for one `request_timeout` of
+        // backoff, plus the time its attempts take (a SCRAM attempt is a
+        // PBKDF2 round). The bound leaves room for that so the cause, a
+        // certificate or SASL rejection, gets through; only a handshake that
+        // never answers reaches it.
+        let bound = self.config.request_timeout * 3;
+        let client = match tokio::time::timeout(bound, builder.build()).await {
             Ok(Ok(client)) => client,
             Ok(Err(e)) => return Err(classify_connect(&e)),
             Err(_) => {
                 return Err(ThadamError::transient(
                     ErrorDomain::Connector,
                     codes::CONNECTOR_TIMEOUT,
-                    format!(
-                        "connecting to the bootstrap brokers took longer than `request_timeout` ({:?})",
-                        self.config.request_timeout
-                    ),
+                    format!("connecting to the bootstrap brokers took longer than {bound:?}"),
                 ));
             }
         };

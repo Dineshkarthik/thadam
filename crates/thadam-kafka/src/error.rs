@@ -6,10 +6,11 @@
 //!   retries the same batch. (Kafka has no server-side dedupe for a
 //!   non-idempotent producer, so a retried batch may land twice — the
 //!   reported `at_least_once`.)
-//! - **Fatal** — SASL authentication, authorization denials, a topic that
-//!   does not exist (the sink never creates topics), and capability/config
-//!   mismatches: retrying cannot help; the component is marked `Failed` for
-//!   an operator fix.
+//! - **Fatal** — SASL authentication, authorization denials, a certificate
+//!   the sink does not trust or a client certificate the broker refuses, a
+//!   topic that does not exist (the sink never creates topics), and
+//!   capability/config mismatches: retrying cannot help; the component is
+//!   marked `Failed` for an operator fix.
 //! - **Per-event permanent** — an illegal topic name that survived client
 //!   validation, a record over the broker's size limit, or a record the
 //!   broker refuses on its own merits: the event is rejected into
@@ -75,14 +76,62 @@ fn unknown_topic(p: &ProtocolError) -> bool {
     matches!(p, ProtocolError::UnknownTopicOrPartition)
 }
 
-/// A topic that does not exist. Fatal config: the sink never creates topics
-/// (rskafka asks brokers for auto-creation on every named lookup, so the sink
-/// avoids named lookups for topics it has not seen in the metadata snapshot),
-/// and retrying cannot make the operator's topic appear.
+/// A topic that is missing or was deleted. Fatal config: the sink never
+/// creates topics (rskafka asks brokers for auto-creation on every named
+/// lookup, so the sink avoids named lookups for topics it has not seen in the
+/// metadata snapshot), and retrying cannot make the operator's topic appear.
 pub(crate) fn missing_topic(topic: &str) -> ThadamError {
     fatal_config(format!(
-        "topic `{topic}` does not exist; the sink never creates topics, so create it before starting the sink"
+        "topic `{topic}` is missing or was deleted; the sink never creates topics, so restore or create it, then restart the sink"
     ))
+}
+
+/// The verdicts rskafka 0.6.0 reports only as text. Its connect and
+/// reconnect loops retry every failure until their deadline, then return
+/// `RetryFailed`, which flattens the broker's answer into a message. A
+/// rejected certificate or SASL login cannot be fixed by retrying, so the
+/// message decides it.
+// shortcut: matches rskafka 0.6.0 message text, pinned by the docker_kafka secure tests; switch to typed `ConnectionError` matches once rskafka stops flattening its retries
+fn retry_verdict(err: &Error) -> Option<ThadamError> {
+    if !matches!(
+        err,
+        Error::RetryFailed(_) | Error::Connection(ConnectionError::RetryFailed(_))
+    ) {
+        return None;
+    }
+    let text = err.to_string();
+    if text.contains("invalid peer certificate") {
+        return Some(ThadamError::fatal(
+            ErrorDomain::Config,
+            codes::CONFIG_INVALID,
+            "the broker's certificate is not trusted: check `tls.ca_file` and that the certificate names the bootstrap host",
+        ));
+    }
+    if ["CertificateRequired", "BadCertificate", "UnknownCA"]
+        .iter()
+        .any(|alert| text.contains(&format!("received fatal alert: {alert}")))
+    {
+        return Some(fatal_auth(
+            codes::AUTH_FAILED,
+            "the broker rejected the TLS client certificate: check `tls.client_cert` and `tls.client_key`, and that the broker trusts their CA",
+        ));
+    }
+    if text.contains("Sasl handshake failed: unsupported sasl mechanism")
+        || text.contains("Sasl handshake failed: API error: UnsupportedSaslMechanism")
+    {
+        return Some(fatal_config(
+            "the broker does not offer the configured `sasl.mechanism`",
+        ));
+    }
+    if text.contains("Sasl handshake failed: API error: SaslAuthenticationFailed")
+        || text.contains("Sasl handshake failed: Sasl session error")
+    {
+        return Some(fatal_auth(
+            codes::AUTH_FAILED,
+            "the broker rejected the SASL credentials",
+        ));
+    }
+    None
 }
 
 /// The batch-level verdict for a client error outside a produce request
@@ -226,6 +275,9 @@ fn classify_sasl(sasl: &SaslError, err: &Error) -> ThadamError {
 
 /// Classifies any client error of the produce/metadata paths, never panics.
 pub(crate) fn classify_produce(err: &Error) -> ProduceFailure {
+    if let Some(verdict) = retry_verdict(err) {
+        return ProduceFailure::Batch(verdict);
+    }
     if let Error::ServerError { .. } = err {
         return protocol(
             &protocol_of(err)
@@ -276,6 +328,9 @@ pub(crate) fn classify_produce(err: &Error) -> ProduceFailure {
 
 /// Classifies a client-build failure at `open`.
 pub(crate) fn classify_connect(err: &Error) -> ThadamError {
+    if let Some(verdict) = retry_verdict(err) {
+        return verdict;
+    }
     match err {
         Error::Connection(ConnectionError::SaslFailed(sasl)) => classify_sasl(sasl, err),
         Error::Timeout => ThadamError::transient(
@@ -383,10 +438,75 @@ mod tests {
         );
         assert!(e.message.contains("telemetry.imu.r7"), "{e}");
         assert!(e.message.contains("never creates topics"), "{e}");
+        assert!(e.message.contains("was deleted"), "{e}");
 
         let e = missing_topic("telemetry.imu.r9");
         assert_eq!((e.domain, e.retry), (ErrorDomain::Config, Retry::Fatal));
         assert!(e.message.contains("telemetry.imu.r9"), "{e}");
+    }
+
+    fn retry_failed(cause: &str) -> Error {
+        Error::Connection(ConnectionError::RetryFailed(
+            BackoffError::DeadlineExceded {
+                deadline: std::time::Duration::from_secs(1),
+                source: cause.into(),
+            },
+        ))
+    }
+
+    #[test]
+    fn retried_rejections_are_fatal_with_their_domain() {
+        // rskafka 0.6.0's texts. The first three were seen from the broker in
+        // the docker_kafka secure tests; the session error follows its format.
+        let cases = [
+            (
+                "error connecting to broker \"127.0.0.1:9094\": IO Error: invalid peer certificate: UnknownIssuer",
+                ErrorDomain::Config,
+                codes::CONFIG_INVALID,
+            ),
+            (
+                "cannot sync versions: Request error: Connection is poisoned: Cannot read data: received fatal alert: CertificateRequired",
+                ErrorDomain::Auth,
+                codes::AUTH_FAILED,
+            ),
+            (
+                "Sasl handshake failed: API error: SaslAuthenticationFailed",
+                ErrorDomain::Auth,
+                codes::AUTH_FAILED,
+            ),
+            (
+                "Sasl handshake failed: Sasl session error: invalid proof",
+                ErrorDomain::Auth,
+                codes::AUTH_FAILED,
+            ),
+            (
+                "Sasl handshake failed: unsupported sasl mechanism",
+                ErrorDomain::Config,
+                codes::CONFIG_INVALID,
+            ),
+        ];
+        for (cause, domain, code) in cases {
+            let e = classify_connect(&retry_failed(cause));
+            assert_eq!(
+                (e.domain, e.code, e.retry),
+                (domain, code, Retry::Fatal),
+                "{cause}"
+            );
+            let e = unwrap_batch(classify_produce(&retry_failed(cause)));
+            assert_eq!(
+                (e.domain, e.code, e.retry),
+                (domain, code, Retry::Fatal),
+                "{cause}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sasl_io_failure_mid_handshake_stays_transient() {
+        let e = classify_connect(&retry_failed(
+            "Sasl handshake failed: Request error: IO Error: connection reset",
+        ));
+        assert!(e.is_transient(), "{e}");
     }
 
     #[test]
