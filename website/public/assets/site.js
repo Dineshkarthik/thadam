@@ -27,7 +27,7 @@
     var buttons = document.querySelectorAll("[data-theme-toggle]");
     for (var i = 0; i < buttons.length; i++) {
       var next = mode === "dark" ? "light" : "dark";
-      buttons[i].textContent = mode === "dark" ? "Light" : "Dark";
+      buttons[i].title = mode === "dark" ? "Light theme" : "Dark theme";
       buttons[i].setAttribute("aria-label", "Switch to " + next + " theme");
     }
   }

@@ -4,9 +4,9 @@
 
 Concretely, Thadam is a single Rust binary that runs next to your data producers — on an industrial PC, a robot's edge computer, a factory server, or a laptop — and takes responsibility for the whole journey of a telemetry message:
 
-1. **Capture.** Messages from sources such as MQTT brokers are appended to a local, durable write-ahead log (WAL) and flushed to disk *before* the source is acknowledged. Nothing that Thadam acknowledged is lost to a crash or a restart.
+1. **Capture.** Messages from sources such as MQTT brokers are appended to a local, durable write-ahead log (WAL) and flushed to disk *before* the source is acknowledged. Acknowledged data survives a process crash when `fsync` is enabled ([claims register](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0011-delivery-guarantees-and-claims-register.md)).
 2. **Process.** Each sink reads the log independently: messages are decoded, normalized into typed, declared datasets *while keeping device identity, time domains, and data quality as first-class columns*.
-3. **Deliver.** Processed datasets are written as Parquet segment files and shipped to S3-compatible object storage, with ClickHouse available as the first analytical database sink. Delivery survives outages: data is replayed from the log when the downstream system comes back.
+3. **Deliver.** Processed datasets are written as Parquet segment files and shipped to S3-compatible object storage. ClickHouse is the first analytical database sink (P1, in progress). While a downstream system is unavailable, data stays in the local log within the configured disk budget, and delivery resumes when it returns; the [delivery guarantees](concepts/delivery-guarantees.md) page gives the conditions.
 
 Thadam is open source (Apache-2.0), Rust-first, and designed for the edge: unreliable networks, limited CPU and memory, intermittent power, and long periods of disconnection. Durability is a design input, not a bolt-on: the delivery guarantees Thadam makes (and the ones it explicitly refuses to make) are recorded in [ADR-0011](design/index.md) and every public claim is gated on benchmark or spike evidence.
 
@@ -38,4 +38,4 @@ For the current milestone (M1 / MVP v0.1) that boundary narrows further: no HTTP
 
 ## Project status
 
-Thadam is pre-alpha. The status banner in the repository [README](getting-started/installation.md#checking-your-build) summarizes what works, and the detailed per-component state is tracked in the design documents. Wherever a feature described here is not yet wired end to end, its page says **Planned** or **In progress** explicitly.
+Thadam is pre-alpha. The status banner in the repository [README](https://github.com/Dineshkarthik/thadam/blob/main/README.md) summarizes what works, and the detailed per-component state is tracked in the [readiness tracker](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md). Each page marks its status with the same labels as the homepage: <span class="pill">Available</span> <span class="pill pill-progress">In progress</span> <span class="pill pill-planned">Planned</span>. Wherever a feature described here is not yet wired end to end, its page says **Planned** or **In progress** explicitly.
