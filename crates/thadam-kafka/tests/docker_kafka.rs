@@ -14,6 +14,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
+#[path = "docker_kafka/secure.rs"]
+mod secure;
 
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
@@ -312,5 +314,53 @@ async fn the_sink_never_creates_a_missing_topic_even_when_the_broker_auto_create
         None,
         "not created by the sink"
     );
+    sink.close().await.expect("close");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs Docker (apache/kafka)"]
+async fn produce_after_the_topic_is_deleted_is_a_fatal_missing_topic_error() {
+    init_tracing();
+    let broker = Broker::start(Opts {
+        auto_create_topics: false,
+        ..Opts::new("deleted")
+    })
+    .await;
+    let client = broker.client().await;
+    create_topic(&client, TOPIC, 1).await;
+
+    let mut sink = build_sink(&broker, json!({}));
+    let dir = TempDir::new().expect("tempdir");
+    sink.open(&sink_context(&dir)).await.expect("open");
+    sink.write(&make_batch(0, 2, "r7"))
+        .await
+        .expect("first write");
+
+    // The sink has cached the topic's partition count and producer, so the
+    // next write goes straight to produce, which the broker answers with
+    // UNKNOWN_TOPIC_OR_PARTITION once the deletion has completed.
+    client
+        .controller_client()
+        .expect("controller client")
+        .delete_topic(TOPIC, 10_000)
+        .await
+        .expect("delete topic");
+    let started = Instant::now();
+    while partition_count(&client, TOPIC).await.is_some() {
+        assert!(started.elapsed() < RETRY_TIMEOUT, "topic never disappeared");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    let e = sink
+        .write(&make_batch(2, 2, "r7"))
+        .await
+        .expect_err("the topic was deleted");
+    assert_eq!(
+        (e.domain, e.retry),
+        (ErrorDomain::Config, Retry::Fatal),
+        "{e}"
+    );
+    assert!(e.message.contains(TOPIC), "{e}");
+    assert!(e.message.contains("was deleted"), "{e}");
     sink.close().await.expect("close");
 }
