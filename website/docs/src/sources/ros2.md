@@ -8,8 +8,8 @@ Thadam's ROS 2 support is staged (ADR-0007). Stage 1 (`thadam-ros2-msg`, the tra
 | Stage 2: MCAP / rosbag2 file source (`thadam-mcap`) | **Done** |
 | Stage 2: `thadam export --mcap` ([`thadam export`](../cli/export.md)) | **Done** |
 | Stage 2, rest: [`examples/ros2-mcap-to-parquet`](https://github.com/Dineshkarthik/thadam/tree/main/examples/ros2-mcap-to-parquet) (MCAP to decoded, validated Parquet and back) | **Done** |
-| Stage 3: live-transport spike (Zenoh-native, sidecar, `r2r`) | Planned |
-| Stage 4: live ROS 2 source | Planned |
+| Stage 3: live-transport spike (Zenoh-native, sidecar, `r2r`) | **Done** (spike S3: rmw_zenoh primary, bridge mapped) |
+| Stage 4: live ROS 2 source ([`ros2_live`](ros2-live.md)) | **In progress** (rmw_zenoh transport, experimental) |
 
 ## How it works
 
