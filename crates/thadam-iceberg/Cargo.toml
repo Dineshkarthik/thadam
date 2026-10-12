@@ -1,0 +1,61 @@
+[package]
+name = "thadam-iceberg"
+version.workspace = true
+edition.workspace = true
+# iceberg 0.10.x requires Rust 1.94 (dependency audit, docs/design/iceberg-append.md);
+# the pinned toolchain (1.99) builds it. Every other crate stays at the workspace MSRV.
+rust-version = "1.94"
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true }
+futures = { version = "0.3", default-features = false, features = ["std"] }
+iceberg = { workspace = true }
+iceberg-catalog-rest = { workspace = true }
+object_store = { workspace = true }
+# Pin family 58: `iceberg` 0.10.1 depends on arrow/parquet 58 while the
+# workspace is on 60 (the measured duplicate tree). Footer reads and the
+# parquet->arrow->iceberg schema conversion happen entirely inside the 58
+# tree; no arrow types cross into the workspace.
+parquet58 = { package = "parquet", version = "58", default-features = false, features = ["arrow"] }
+# Required by the typetag-powered `iceberg::io::Storage` trait impls.
+typetag = { version = "0.2", default-features = false }
+# Neither reqwest is named in code. The workspace reqwest 0.13 keeps its
+# `rustls-no-provider` features unified for `object_store` (its TLS code does
+# not compile without them when this crate is built alone, e.g. -p
+# thadam-iceberg). reqwest012 unifies rustls (native roots, no compiled-in
+# provider) onto the reqwest 0.12 that `iceberg`/`iceberg-catalog-rest` build
+# their REST client with. The crypto provider for both is the process default
+# `ring` provider thadam-cli installs at startup (ADR-0020).
+reqwest = { workspace = true }
+reqwest012 = { package = "reqwest", version = "0.12", default-features = false, features = ["rustls-tls-native-roots-no-provider"] }
+thadam-core = { workspace = true }
+thadam-segments = { path = "../thadam-segments" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tracing = { workspace = true }
+uuid = { version = "1", default-features = false, features = ["v7"] }
+
+[dev-dependencies]
+arrow-array = { workspace = true }
+arrow-array58 = { package = "arrow-array", version = "58" }
+futures-util = "0.3"
+parquet = { workspace = true }
+thadam-arrow = { path = "../thadam-arrow" }
+thadam-object-store = { path = "../thadam-object-store" }
+thadam-testkit = { path = "../thadam-testkit" }
+# ring provider, mirroring workspace tokio-rustls (ADR-0020): the Docker tests
+# install it explicitly so reqwest never sees aws-lc.
+rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

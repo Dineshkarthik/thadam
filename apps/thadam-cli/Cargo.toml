@@ -24,6 +24,11 @@ opcua = ["dep:thadam-opcua"]
 # transport). Off by default (owner decision): pulls zenoh 1.10.1, whose
 # zenoh-config depends on the banned serde_yaml (deny.toml exception).
 ros2-live = ["dep:thadam-ros2-live"]
+# The Iceberg registrar (`kind: iceberg`, P2 experimental;
+# docs/design/iceberg-append.md). Off by default: pulls `iceberg` 0.10.1,
+# which builds a second arrow/parquet tree (58 next to the workspace's 60)
+# and reqwest 0.12 next to 0.13.
+iceberg = ["dep:thadam-iceberg"]
 
 [dependencies]
 bytes = { workspace = true }
@@ -45,6 +50,7 @@ thadam-kafka = { path = "../../crates/thadam-kafka" }
 thadam-clickhouse = { path = "../../crates/thadam-clickhouse", optional = true }
 thadam-opcua = { path = "../../crates/thadam-opcua", optional = true }
 thadam-ros2-live = { path = "../../crates/thadam-ros2-live", optional = true }
+thadam-iceberg = { path = "../../crates/thadam-iceberg", optional = true }
 thadam-core = { workspace = true }
 rustls = { workspace = true }
 serde_json = { workspace = true }

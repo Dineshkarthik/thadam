@@ -12,6 +12,7 @@ use thadam_core::{
 };
 use thadam_testkit::{test_event, test_segment_batch_across};
 
+use crate::catalog::LocalRetention;
 use crate::config::RotationConfig;
 use crate::tests::fixture::{ParquetFixture, files_of};
 
@@ -494,6 +495,41 @@ async fn eligibility_lifecycle_and_upload_marks() {
     catalog.mark_uploaded(&id, "obj/k1", None).await.unwrap();
     assert!(catalog.eligible_for_upload().is_empty());
     catalog.mark_uploaded(&id, "obj/k1", None).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uploaded_lists_key_before_and_after_local_release() {
+    let fixture = ParquetFixture::new(&ONE, RotationConfig::never(), 4);
+    let ctx = fixture.ctx();
+    let mut sink = fixture.open_sink();
+    sink.recover(&ctx).await.unwrap();
+    sink.append(batch(&ONE, 1, 4)).await.unwrap();
+    sink.finalize_all().await.unwrap();
+    sink.cursor_committed(WalPos::new(4));
+    sink.poll_commit().await.unwrap();
+    let catalog = sink.catalog().unwrap().clone();
+    assert!(catalog.uploaded().is_empty());
+
+    let id = catalog.eligible_for_upload()[0].id.clone();
+    catalog
+        .mark_uploaded(&id, "lake/thadam/v1/p/d/k1", Some("e1"))
+        .await
+        .unwrap();
+    let uploaded = catalog.uploaded();
+    assert_eq!(uploaded.len(), 1);
+    assert_eq!(uploaded[0].key, "lake/thadam/v1/p/d/k1");
+    assert_eq!(uploaded[0].record.range.last(), WalPos::new(4));
+
+    // Local retention turns `Uploaded` into `Deleted { uploaded: true }`;
+    // the key must survive (the S3 object is still the registrar's target).
+    let report = catalog
+        .release_local(&LocalRetention::delete_after_upload())
+        .await
+        .unwrap();
+    assert_eq!(report.deleted_files, 1);
+    let uploaded = catalog.uploaded();
+    assert_eq!(uploaded.len(), 1, "released uploads keep their key");
+    assert_eq!(uploaded[0].key, "lake/thadam/v1/p/d/k1");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

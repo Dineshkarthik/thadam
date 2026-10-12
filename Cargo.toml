@@ -22,6 +22,7 @@ members = [
     "crates/thadam-opcua",
     "crates/thadam-ros2-live",
     "crates/thadam-testkit",
+    "crates/thadam-iceberg",
     "apps/thadam-cli",
     "tools/thadam-simulator",
     "tools/thadam-bench",
@@ -50,6 +51,7 @@ default-members = [
     "crates/thadam-opcua",
     "crates/thadam-ros2-live",
     "crates/thadam-testkit",
+    "crates/thadam-iceberg",
     "apps/thadam-cli",
     "tools/thadam-simulator",
     "tools/thadam-bench",
@@ -113,6 +115,17 @@ mcap = "0.25"
 # provider (ADR-0020). reqwest's `rustls-no-provider` with the single
 # compiled-in ring provider keeps `aws-lc-sys` and `openssl-sys` out.
 object_store = { version = "0.14", default-features = false, features = ["aws-base", "reqwest", "ring"] }
+# Iceberg table registration (thadam-iceberg, P2; docs/design/iceberg-append.md).
+# Pinned exactly: 0.10.1 (2026-09) is the newest release and the one ADR-0013
+# planned `fast_append` against. Apache-2.0, MSRV 1.94, rust-version surfaced
+# on thadam-iceberg itself. iceberg builds arrow/parquet 58 (the workspace is
+# on 60 — a measured duplicate tree) and reqwest 0.12 with no TLS defaults;
+# thadam-iceberg unifies reqwest 0.12's rustls (native roots, no compiled-in
+# provider) so the crypto provider stays the workspace's rustls `ring`
+# (ADR-0020). `iceberg-storage-opendal` is deliberately not used: it resolves
+# reqwest's default rustls stacks through opendal and pulls aws-lc-sys.
+iceberg = { version = "=0.10.1" }
+iceberg-catalog-rest = { version = "=0.10.1" }
 parquet = { version = "60", default-features = false, features = ["arrow", "snap", "zstd", "lz4"] }
 reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls-no-provider"] }
 prost = { version = "0.14.4", default-features = false, features = ["derive", "std"] }
