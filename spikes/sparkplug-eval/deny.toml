@@ -1,0 +1,52 @@
+# Spike-local dependency policy.
+#
+# Mirrors the root ../../deny.toml so the spike's dependency tree (prost,
+# prost-build + protox build deps, rumqttc) is evaluated against the workspace
+# rules (ADR-0020). Expected outcome: all licenses are on the allow-list
+# (prost tree is MIT/Apache-2.0) and nothing banned appears. The vendored
+# sparkplug_b.proto is EPL-2.0 — a schema file, not a crate — so cargo deny
+# does not see it; the spike report flags it as an owner-decision candidate
+# (ADR-0020 allows EPL-2.0 only after legal review).
+
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+]
+
+[advisories]
+yanked = "deny"
+unmaintained = "workspace"
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+
+[[licenses.exceptions]]
+crate = "target-lexicon"
+allow = ["Apache-2.0 WITH LLVM-exception"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+deny = [
+    { crate = "aws-lc-sys", reason = "rustls uses the ring provider; aws-lc needs a cmake/clang cross-compile toolchain" },
+    { crate = "openssl-sys", reason = "TLS is rustls only" },
+    { crate = "serde_yaml", reason = "deprecated and unmaintained" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

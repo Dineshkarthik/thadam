@@ -1,0 +1,36 @@
+[package]
+name = "sparkplug-eval"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+publish = false
+description = "Thadam spike: Sparkplug B / OPC UA PubSub evaluation (product.md Phase 3); report at ../../docs/design/spikes/sparkplug-b-and-opcua-pubsub.md"
+
+# Standalone project: the root Thadam workspace excludes `spikes/`.
+[workspace]
+
+[dependencies]
+# prost is the workspace's protobuf codec (tonic depends on it; pinned in the
+# root Cargo.toml as 0.14.4). Decoder only: no reflection, no protoc at
+# runtime or build time.
+prost = { version = "0.14.4", default-features = false, features = ["derive", "std"] }
+# prost's `bytes` field type.
+bytes = { version = "1.12" }
+# The exact crate and version thadam-mqtt is built on (ADR-0006). No features:
+# TLS is terminated in thadam-mqtt via tokio-rustls + ring (ADR-0006
+# amendment), and the spike talks plain MQTT to a local broker.
+rumqttc = { version = "=0.25.1", default-features = false }
+
+[build-dependencies]
+# protox compiles the vendored .proto in pure Rust (the thadam-grpc pattern):
+# no `protoc` binary needed.
+protox = "0.10.0"
+prost-build = "0.14.4"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

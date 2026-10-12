@@ -1,0 +1,4 @@
+# EPL-2.0 (Eclipse Tahu); not committed until open question O-1 is decided.
+# Fetch: eclipse-tahu/tahu sparkplug_b/sparkplug_b.proto -> proto/sparkplug_b.proto
+proto/sparkplug_b.proto
+target/
