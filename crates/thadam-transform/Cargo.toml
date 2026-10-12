@@ -28,5 +28,9 @@ tempfile = { workspace = true }
 name = "chain"
 harness = false
 
+[[bench]]
+name = "ros2_decode"
+harness = false
+
 [lints]
 workspace = true

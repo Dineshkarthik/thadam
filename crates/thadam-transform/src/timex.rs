@@ -1,7 +1,8 @@
 //! Source-time extraction: units, domains, and skew flagging.
 
 use thadam_core::{
-    Attributes, ErrorDomain, QualityFlags, ThadamError, TimeDomain, Times, Timestamp, codes,
+    Attributes, ErrorDomain, QualityFlags, Record, ThadamError, TimeDomain, Times, Timestamp, Value,
+    codes,
 };
 use serde_json::Value as Json;
 
@@ -51,6 +52,36 @@ fn json_kind(j: &Json) -> &'static str {
     }
 }
 
+/// [`json_kind`] for a decoded record value: the word the JSON bridge's
+/// spelling would have produced (`Ts` and every number are "number"; the
+/// array variants are "array").
+fn value_kind(v: &Value) -> &'static str {
+    match v {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::I8(_)
+        | Value::I16(_)
+        | Value::I32(_)
+        | Value::I64(_)
+        | Value::U8(_)
+        | Value::U16(_)
+        | Value::U32(_)
+        | Value::U64(_)
+        | Value::F32(_)
+        | Value::F64(_)
+        | Value::Ts(_) => "number",
+        Value::Str(_) => "string",
+        Value::Bytes(_)
+        | Value::F32s(_)
+        | Value::F64s(_)
+        | Value::I32s(_)
+        | Value::I64s(_)
+        | Value::List(_) => "array",
+        Value::Record(_) => "object",
+        _ => "unknown",
+    }
+}
+
 impl TimeParser {
     pub(crate) fn compile(unit: &str, default_offset: Option<&str>) -> Result<Self, String> {
         if unit == "rfc3339" {
@@ -84,6 +115,39 @@ impl TimeParser {
                 parse_rfc3339(s, *offset).map_err(TimeIssue::Text)
             }
             (_, other) => Err(TimeIssue::Type(json_kind(other))),
+        }
+    }
+
+    /// Reads a decoded record value as nanoseconds since the epoch — the
+    /// direct-read counterpart of [`TimeParser::parse`]. The ROS 2 decoder's
+    /// `builtin_interfaces/Time` stamp is a `Ts` already: with `unit: ns`
+    /// it is taken as-is; with another epoch unit its nanosecond count is
+    /// read in that unit, which is what the JSON bridge spelled.
+    pub(crate) fn parse_value(&self, v: &Value) -> Result<i64, TimeIssue> {
+        match (self, v) {
+            (TimeParser::Epoch(EpochUnit::Nanos), Value::Ts(ts)) => Ok(ts.as_nanos()),
+            (TimeParser::Epoch(unit), Value::Ts(ts)) => {
+                unit.int_to_nanos(ts.as_nanos()).ok_or(TimeIssue::Range)
+            }
+            (TimeParser::Epoch(unit), Value::F32(x)) => {
+                unit.float_to_nanos(f64::from(*x)).ok_or(TimeIssue::Range)
+            }
+            (TimeParser::Epoch(unit), Value::F64(x)) => {
+                unit.float_to_nanos(*x).ok_or(TimeIssue::Range)
+            }
+            (TimeParser::Epoch(unit), other) => {
+                if let Some(i) = other.as_i64() {
+                    unit.int_to_nanos(i).ok_or(TimeIssue::Range)
+                } else if other.as_u64().is_some() {
+                    Err(TimeIssue::Range)
+                } else {
+                    Err(TimeIssue::Type(value_kind(other)))
+                }
+            }
+            (TimeParser::Rfc3339(offset), Value::Str(s)) => {
+                parse_rfc3339(s.as_str(), *offset).map_err(TimeIssue::Text)
+            }
+            (_, other) => Err(TimeIssue::Type(value_kind(other))),
         }
     }
 
@@ -167,6 +231,28 @@ impl TimePlan {
         self.domain
     }
 
+    /// Whether the payload side of this plan names one flattened record
+    /// field. An attribute source always qualifies: it never touches the
+    /// payload.
+    pub(crate) fn uses_flat_pointer(&self) -> bool {
+        match &self.source {
+            TimeSource::Field(path) => path.sole_token().is_some(),
+            TimeSource::Attr(_) => true,
+        }
+    }
+
+    /// An attribute's text as nanoseconds, or `None` when absent.
+    fn parse_attr(&self, key: &str, attrs: &Attributes) -> Result<Option<i64>, ThadamError> {
+        attrs
+            .get(key)
+            .map(|text| {
+                self.parser
+                    .parse_text(text)
+                    .map_err(|issue| issue.into_error(&format!("time attribute `{key}`")))
+            })
+            .transpose()
+    }
+
     /// The source time, or `None` if the message carries none. A payload
     /// field is read from `scope`; an attribute is read from `attrs`. Absent
     /// or null is `None`; a present value that does not parse is an error.
@@ -184,15 +270,48 @@ impl TimePlan {
                     .parse(j)
                     .map_err(|issue| issue.into_error("time field")),
             },
-            TimeSource::Attr(key) => match attrs.get(key) {
-                None => return Ok(None),
-                Some(text) => self
-                    .parser
-                    .parse_text(text)
-                    .map_err(|issue| issue.into_error(&format!("time attribute `{key}`"))),
-            },
+            TimeSource::Attr(key) => {
+                return self
+                    .parse_attr(key, attrs)
+                    .map(|opt| opt.map(Timestamp::from_nanos));
+            }
         };
         parsed.map(|ns| Some(Timestamp::from_nanos(ns)))
+    }
+
+    /// The direct-read counterpart of [`TimePlan::extract`]: the payload
+    /// field resolves to one named field of the decoded record, without the
+    /// JSON bridge. `scope` works as in
+    /// [`FieldPlan::extract_record`](crate::decode::FieldPlan::extract_record).
+    pub(crate) fn extract_record(
+        &self,
+        scope: Option<&Record>,
+        root: &Record,
+        attrs: &Attributes,
+    ) -> Result<Option<Timestamp>, ThadamError> {
+        match &self.source {
+            TimeSource::Field(path) => {
+                let record = if path.is_parent() { Some(root) } else { scope };
+                let Some(token) = path.sole_token() else {
+                    return Err(ThadamError::fatal(
+                        ErrorDomain::Config,
+                        codes::CONFIG_MISSING,
+                        "a direct-read time plan is one pointer token (the compile gate missed it)",
+                    ));
+                };
+                match record.and_then(|r| r.get(token)) {
+                    None | Some(Value::Null) => Ok(None),
+                    Some(v) => self
+                        .parser
+                        .parse_value(v)
+                        .map(|ns| Some(Timestamp::from_nanos(ns)))
+                        .map_err(|issue| issue.into_error("time field")),
+                }
+            }
+            TimeSource::Attr(key) => self
+                .parse_attr(key, attrs)
+                .map(|opt| opt.map(Timestamp::from_nanos)),
+        }
     }
 
     /// The times and quality flags for an event received at `ingest`.
@@ -483,6 +602,72 @@ mod tests {
                 .unwrap()
                 .as_nanos(),
             1_000_000_000
+        );
+    }
+
+    /// The result with nanos or the issue kind only, so the two parsers
+    /// compare equal.
+    fn outcome(r: Result<i64, TimeIssue>) -> String {
+        format!("{r:?}")
+    }
+
+    #[test]
+    fn parse_value_matches_the_json_spelling() {
+        use thadam_core::Value;
+
+        let plan = TimeParser::compile("ns", None).unwrap();
+        let nano_rows = [
+            Value::Ts(Timestamp::from_nanos(1_758_000_000_123_456_789)),
+            Value::I64(42),
+            Value::U64(u64::MAX),
+            Value::F64(1.5),
+            Value::I32(-3),
+        ];
+        // What the record bridge made of each value.
+        let spellings = [
+            json!(1_758_000_000_123_456_789i64),
+            json!(42),
+            json!(u64::MAX),
+            json!(1.5),
+            json!(-3),
+        ];
+        for (value, json) in nano_rows.iter().zip(spellings.iter()) {
+            assert_eq!(
+                outcome(plan.parse_value(value)),
+                outcome(plan.parse(json)),
+                "{value:?}"
+            );
+        }
+        // The documented spelling: a nanosecond `Ts` read as-is, passthrough.
+        assert_eq!(
+            plan.parse_value(&Value::Ts(Timestamp::from_nanos(7)))
+                .unwrap(),
+            7
+        );
+
+        // Another epoch unit reads the Ts' nanosecond number, as the bridge
+        // spelled it.
+        let secs = TimeParser::compile("s", None).unwrap();
+        let stamp = Value::Ts(Timestamp::from_nanos(2_000_000_000));
+        assert_eq!(
+            outcome(secs.parse_value(&stamp)),
+            outcome(secs.parse(&json!(2_000_000_000i64)))
+        );
+
+        let rfc = TimeParser::compile("rfc3339", None).unwrap();
+        let text = Value::str("1970-01-01T00:00:01Z");
+        assert_eq!(
+            outcome(rfc.parse_value(&text)),
+            outcome(rfc.parse(&json!("1970-01-01T00:00:01Z")))
+        );
+        // A wrong-shaped value names the same kind on both paths.
+        assert_eq!(
+            outcome(rfc.parse_value(&Value::Bool(true))),
+            outcome(rfc.parse(&json!(true)))
+        );
+        assert_eq!(
+            outcome(secs.parse_value(&Value::Bool(true))),
+            outcome(secs.parse(&json!(true)))
         );
     }
 

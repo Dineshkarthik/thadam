@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use thadam_core::{
     AssetPath, ErrorDomain, Event, EventId, FieldDef, FieldType, Quality, QualityFlags, Record,
-    ThadamError, Shape, ShapeRef, ShapeRegistry, SourceId, Sym, TimeDomain, Times, codes,
+    ThadamError, Shape, ShapeRef, ShapeRegistry, SourceId, Sym, TimeDomain, Times, Value, codes,
 };
 use serde_json::Value as Json;
 
@@ -15,7 +15,8 @@ use crate::dedup::DedupWindow;
 use crate::eventid::{IdBuf, positional_id, sample_id};
 use crate::input::{RawRecordView, RejectedRaw};
 use crate::limits::ChainLimits;
-use crate::paths::{FieldPath, PathError, Template, TemplateContext, TopicFilter};
+use crate::paths::{FieldPath, PathError, Template, TemplateContext, TemplatePart, TopicFilter};
+use crate::ros2::record_to_json;
 use crate::spec::{DatasetSpec, DecodeSpec, FieldSpec, parse_field_type};
 use crate::steps::{EnrichmentInfo, Step, StepResult};
 use crate::timex::{TimeParser, TimePlan};
@@ -89,6 +90,48 @@ impl TemplateContext for Ctx<'_> {
     }
 }
 
+/// The template context of a decoded ROS 2 record: payload placeholders
+/// resolve a single flattened token to one record field, rendered the way
+/// the JSON bridge spelled it (integers and booleans as-is, floats through
+/// `serde_json`'s number formatting, a timestamp as its nanoseconds). Lists
+/// and records render as `None`, like the bridge's arrays and objects.
+struct RecordCtx<'a> {
+    view: &'a RawRecordView<'a>,
+    record: &'a Record,
+}
+
+impl TemplateContext for RecordCtx<'_> {
+    fn topic(&self) -> Option<&str> {
+        self.view.topic()
+    }
+    fn source(&self) -> &str {
+        self.view.source.as_str()
+    }
+    fn attr(&self, key: &str) -> Option<&str> {
+        self.view.attrs.get(key)
+    }
+    fn payload_text(&self, path: &FieldPath) -> Option<String> {
+        let token = path.sole_token()?;
+        let value = self.record.get(token)?;
+        match value {
+            Value::Str(s) => Some(s.as_str().to_owned()),
+            Value::Bool(b) => Some(b.to_string()),
+            Value::I8(v) => Some(v.to_string()),
+            Value::I16(v) => Some(v.to_string()),
+            Value::I32(v) => Some(v.to_string()),
+            Value::I64(v) => Some(v.to_string()),
+            Value::U8(v) => Some(v.to_string()),
+            Value::U16(v) => Some(v.to_string()),
+            Value::U32(v) => Some(v.to_string()),
+            Value::U64(v) => Some(v.to_string()),
+            Value::F32(v) => serde_json::Number::from_f64(f64::from(*v)).map(|n| n.to_string()),
+            Value::F64(v) => serde_json::Number::from_f64(*v).map(|n| n.to_string()),
+            Value::Ts(t) => Some(t.as_nanos().to_string()),
+            _ => None,
+        }
+    }
+}
+
 enum KeyPart {
     Level(usize),
     Field(FieldPlan),
@@ -128,6 +171,11 @@ pub(crate) struct Dataset {
     pub(crate) stats: DatasetStats,
     pub(crate) warm_evictions: (u64, u64),
     explode_limit: usize,
+    /// `decode: ros2` with every payload pointer (fields, event-id fields,
+    /// `time.field`, identity placeholders, `explode.path`) a single
+    /// flattened token, so records are read directly without the JSON
+    /// bridge.
+    pub(crate) ros2_direct: bool,
 }
 
 fn schema_error(path: &str, code: &'static str, message: impl Into<String>) -> ThadamError {
@@ -570,6 +618,24 @@ impl Dataset {
             .intern(declared)
             .map_err(|e| vec![schema_error(path, codes::SCHEMA_SHAPE_LIMIT, e.to_string())])?;
 
+        let key_field = |part: &KeyPart| match part {
+            KeyPart::Level(_) => true,
+            KeyPart::Field(plan) => plan.path.sole_token().is_some(),
+        };
+        let ros2_direct = spec.decode == DecodeSpec::Ros2
+            && fields.iter().all(|p| p.path.sole_token().is_some())
+            && key.as_ref().is_none_or(|parts| parts.iter().all(key_field))
+            && time.as_ref().is_none_or(TimePlan::uses_flat_pointer)
+            && identity.iter().all(|(_, t)| {
+                t.parts().iter().all(|part| match part {
+                    TemplatePart::Payload(path) => path.sole_token().is_some(),
+                    _ => true,
+                })
+            })
+            && explode
+                .as_ref()
+                .is_none_or(|e| e.path.sole_token().is_some());
+
         Ok(Dataset {
             id: Sym::from(spec.id.as_str()),
             decode: spec.decode,
@@ -590,6 +656,7 @@ impl Dataset {
             stats: DatasetStats::default(),
             warm_evictions: (0, 0),
             explode_limit: limits.max_explode_samples,
+            ros2_direct,
         })
     }
 
@@ -629,10 +696,10 @@ impl Dataset {
         }
     }
 
-    fn build_asset(
+    fn build_asset_ctx(
         &mut self,
         view: &RawRecordView<'_>,
-        root: &Json,
+        ctx: &dyn TemplateContext,
     ) -> Result<AssetPath, ThadamError> {
         if let Some(fixed) = &self.fixed_asset {
             return Ok(fixed.clone());
@@ -643,10 +710,9 @@ impl Dataset {
         {
             return Ok(hit.clone());
         }
-        let ctx = Ctx { view, root };
         let mut levels = Vec::with_capacity(self.identity.len());
         for (name, template) in &self.identity {
-            let text = template.render(&ctx).map_err(|e| {
+            let text = template.render(ctx).map_err(|e| {
                 ThadamError::permanent(
                     ErrorDomain::Schema,
                     codes::SCHEMA_MISSING_FIELD,
@@ -672,6 +738,22 @@ impl Dataset {
         Ok(path)
     }
 
+    fn build_asset(
+        &mut self,
+        view: &RawRecordView<'_>,
+        root: &Json,
+    ) -> Result<AssetPath, ThadamError> {
+        self.build_asset_ctx(view, &Ctx { view, root })
+    }
+
+    fn build_asset_record(
+        &mut self,
+        view: &RawRecordView<'_>,
+        record: &Record,
+    ) -> Result<AssetPath, ThadamError> {
+        self.build_asset_ctx(view, &RecordCtx { view, record })
+    }
+
     fn content_id(&self, root: &Json, asset: &AssetPath) -> Result<Option<EventId>, ThadamError> {
         let Some(parts) = &self.key else {
             return Ok(None);
@@ -690,16 +772,50 @@ impl Dataset {
                 KeyPart::Field(plan) => {
                     let value = plan.extract(root, root)?;
                     if !buf.value(&value) {
-                        return Err(ThadamError::permanent(
-                            ErrorDomain::Schema,
-                            codes::SCHEMA_TYPE_MISMATCH,
-                            format!("key field `{}` cannot form an event id", plan.name),
-                        ));
+                        return Err(Self::key_type_error(plan));
                     }
                 }
             }
         }
         Ok(Some(buf.finish()))
+    }
+
+    fn content_id_record(
+        &self,
+        root: &Record,
+        asset: &AssetPath,
+    ) -> Result<Option<EventId>, ThadamError> {
+        let Some(parts) = &self.key else {
+            return Ok(None);
+        };
+        let mut buf = IdBuf::content(&self.id);
+        for part in parts {
+            match part {
+                KeyPart::Level(i) => {
+                    let value = asset
+                        .levels()
+                        .get(*i)
+                        .map(|(_, v)| v.as_str())
+                        .unwrap_or_default();
+                    buf.level(value);
+                }
+                KeyPart::Field(plan) => {
+                    let value = plan.extract_record(Some(root), root)?;
+                    if !buf.value(&value) {
+                        return Err(Self::key_type_error(plan));
+                    }
+                }
+            }
+        }
+        Ok(Some(buf.finish()))
+    }
+
+    fn key_type_error(plan: &FieldPlan) -> ThadamError {
+        ThadamError::permanent(
+            ErrorDomain::Schema,
+            codes::SCHEMA_TYPE_MISMATCH,
+            format!("key field `{}` cannot form an event id", plan.name),
+        )
     }
 
     fn reject(
@@ -724,6 +840,16 @@ impl Dataset {
         rejects: &mut Vec<RejectedRaw>,
     ) {
         self.stats.messages += 1;
+        self.process_json(view, root, out, rejects);
+    }
+
+    fn process_json(
+        &mut self,
+        view: &RawRecordView<'_>,
+        root: &Json,
+        out: &mut Vec<Event>,
+        rejects: &mut Vec<RejectedRaw>,
+    ) {
         let asset = match self.build_asset(view, root) {
             Ok(a) => a,
             Err(e) => return self.reject(view, None, e, rejects),
@@ -784,6 +910,96 @@ impl Dataset {
         }
     }
 
+    /// Runs one routed ROS 2 message held as a decoded record — the
+    /// bridge-free path for [`Dataset::ros2_direct`] datasets. Every payload
+    /// pointer resolves to one field lookup. The single runtime case that
+    /// needs the JSON spelling is an `explode` over a typed array or raw
+    /// bytes (which the bridge spelled as a JSON array): only then is
+    /// `bridge` materialized, and this message runs through
+    /// [`Dataset::process_json`].
+    pub(crate) fn process_record(
+        &mut self,
+        view: &RawRecordView<'_>,
+        record: &Record,
+        bridge: &mut Option<Json>,
+        out: &mut Vec<Event>,
+        rejects: &mut Vec<RejectedRaw>,
+    ) {
+        self.stats.messages += 1;
+        let asset = match self.build_asset_record(view, record) {
+            Ok(a) => a,
+            Err(e) => return self.reject(view, None, e, rejects),
+        };
+        let id = match self.content_id_record(record, &asset) {
+            Ok(id) => id,
+            Err(e) => return self.reject(view, None, e, rejects),
+        };
+        if let (Some(window), Some(id)) = (&mut self.dedup, id)
+            && window.is_duplicate(id, view.ingest_time)
+        {
+            self.stats.deduped += 1;
+            return;
+        }
+        let msg = MsgRecord {
+            view,
+            id,
+            asset: &asset,
+        };
+
+        let Some(explode) = &self.explode else {
+            self.emit_record(&msg, record, Some(record), None, out, rejects);
+            return;
+        };
+        let Some(token) = explode.path.sole_token() else {
+            let e = ThadamError::fatal(
+                ErrorDomain::Config,
+                codes::CONFIG_MISSING,
+                "a direct-read explode path is one pointer token (the compile gate missed it)",
+            );
+            return self.reject(view, None, e, rejects);
+        };
+        match record.get(token) {
+            None | Some(Value::Null) => {
+                let e = ThadamError::permanent(
+                    ErrorDomain::Schema,
+                    codes::SCHEMA_MISSING_FIELD,
+                    format!("explode path `{}` is missing", explode.path.as_str()),
+                );
+                self.reject(view, None, e, rejects);
+            }
+            Some(Value::List(samples)) => {
+                if samples.len() > self.explode_limit {
+                    let e = ThadamError::permanent(
+                        ErrorDomain::Decode,
+                        codes::DECODE_TOO_LARGE,
+                        "message has more samples than the explode limit",
+                    )
+                    .with_context("limit", self.explode_limit.to_string());
+                    return self.reject(view, None, e, rejects);
+                }
+                for (i, sample) in samples.iter().enumerate() {
+                    self.stats.exploded += 1;
+                    let idx = u32::try_from(i).unwrap_or(u32::MAX);
+                    self.emit_record(&msg, record, sample.as_record(), Some(idx), out, rejects);
+                }
+            }
+            Some(
+                Value::F32s(_) | Value::F64s(_) | Value::I32s(_) | Value::I64s(_) | Value::Bytes(_),
+            ) => {
+                let root = bridge.get_or_insert_with(|| record_to_json(record));
+                self.process_json(view, root, out, rejects);
+            }
+            Some(_) => {
+                let e = ThadamError::permanent(
+                    ErrorDomain::Schema,
+                    codes::SCHEMA_TYPE_MISMATCH,
+                    format!("explode path `{}` is not an array", explode.path.as_str()),
+                );
+                self.reject(view, None, e, rejects);
+            }
+        }
+    }
+
     fn emit(
         &mut self,
         msg: &Msg<'_>,
@@ -830,13 +1046,85 @@ impl Dataset {
             ),
         };
 
-        let id = match (msg.id, sample) {
+        self.finish_event(
+            view, msg.id, msg.asset, record, times, flags, sample, out, rejects,
+        );
+    }
+
+    /// The record-read counterpart of [`Dataset::emit`]: `scope` is the
+    /// nested record of an exploded sample, or `None` for a sample that is
+    /// not a record (which resolves like a JSON scalar scope).
+    fn emit_record(
+        &mut self,
+        msg: &MsgRecord<'_>,
+        root: &Record,
+        scope: Option<&Record>,
+        sample: Option<u32>,
+        out: &mut Vec<Event>,
+        rejects: &mut Vec<RejectedRaw>,
+    ) {
+        let view = msg.view;
+        let mut values = Vec::with_capacity(self.fields.len());
+        let mut failure = None;
+        for field in &self.fields {
+            match field.extract_record(scope, root) {
+                Ok(v) => values.push(v),
+                Err(e) => {
+                    failure = Some(e);
+                    break;
+                }
+            }
+        }
+        if let Some(e) = failure {
+            return self.reject(view, sample, e, rejects);
+        }
+        let record = match Record::new(self.declared.clone(), values) {
+            Ok(r) => r,
+            Err(e) => {
+                let e = ThadamError::permanent(
+                    ErrorDomain::Schema,
+                    codes::SCHEMA_INVALID_SHAPE,
+                    e.to_string(),
+                );
+                return self.reject(view, sample, e, rejects);
+            }
+        };
+
+        let (times, flags) = match &self.time {
+            Some(plan) => match plan.extract_record(scope, root, view.attrs) {
+                Ok(source) => plan.times(view.ingest_time, source),
+                Err(e) => return self.reject(view, sample, e, rejects),
+            },
+            None => (
+                Times::new(view.ingest_time, TimeDomain::Unknown),
+                QualityFlags::empty(),
+            ),
+        };
+        self.finish_event(
+            view, msg.id, msg.asset, record, times, flags, sample, out, rejects,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish_event(
+        &mut self,
+        view: &RawRecordView<'_>,
+        id: Option<EventId>,
+        asset: &AssetPath,
+        record: Record,
+        times: Times,
+        flags: QualityFlags,
+        sample: Option<u32>,
+        out: &mut Vec<Event>,
+        rejects: &mut Vec<RejectedRaw>,
+    ) {
+        let id = match (id, sample) {
             (Some(m), Some(i)) => sample_id(m, i),
             (Some(m), None) => m,
             (None, s) => positional_id(view.epoch, view.pos, view.record_index, s),
         };
         let mut builder = Event::builder(id, view.pos, times)
-            .asset(msg.asset.clone())
+            .asset(asset.clone())
             .quality(Quality {
                 flags,
                 ..Quality::good()
@@ -879,6 +1167,12 @@ impl Dataset {
 struct Msg<'a> {
     view: &'a RawRecordView<'a>,
     root: &'a Json,
+    id: Option<EventId>,
+    asset: &'a AssetPath,
+}
+
+struct MsgRecord<'a> {
+    view: &'a RawRecordView<'a>,
     id: Option<EventId>,
     asset: &'a AssetPath,
 }

@@ -4,10 +4,11 @@
 //! `mcap.schema_hash` attribute ([`SCHEMA_HASH_ATTR`]) the source stamped it
 //! with when it durably wrote the schema to the pipeline's
 //! [`SchemaStore`]. [`Ros2Decode`] resolves the schema text by hash,
-//! compiles it with `thadam-ros2-msg` (compiled messages are cached per
-//! hash — the store itself is content-addressed, so a hash always means
-//! one definition), and decodes the payload into a [`Record`] whose fields
-//! are the flattened dotted names (`header.stamp`, `pose.position.x`, …).
+//! compiles it with `thadam-ros2-msg`, and decodes the payload into a
+//! [`Record`] whose fields are the flattened dotted names (`header.stamp`,
+//! `pose.position.x`, …). The store is content-addressed, so a hash always
+//! means one definition: the compiled message, keyed by hash, is the only
+//! per-schema work, and a cache hit costs no store read at all.
 //!
 //! Every failure is a classified reject reason, never a silent drop, and
 //! error text never contains payload bytes:
@@ -21,13 +22,17 @@
 //! - the schema does not compile or the payload does not decode: the
 //!   `schema.*` / `decode.*` errors `thadam-ros2-msg` classifies already.
 //!
-//! [`record_to_json`] then bridges the record into the chain's
-//! JSON-pointer-shaped machinery: each flattened dotted name is **one**
-//! object key, exactly as decoded, so `/header.stamp` is a single JSON
-//! Pointer token. Declaring the dotted names as first-class dataset fields
-//! typed by the decode itself (no JSON detour) is a later step; the bridge
-//! is what makes `decode: ros2` useful through the declared-field pipeline
-//! today.
+//! Datasets then read the record **directly**: a payload pointer that is a
+//! single JSON Pointer token (`/header.stamp`, `/pose.position.x`, care of
+//! [`Dataset::ros2_direct`]) resolves to one named field lookup, with the
+//! declared-field coercion running on the record's own values — a `Ts`
+//! stays a timestamp, `Bytes` stay bytes, and non-finite floats stay
+//! non-finite. [`record_to_json`] remains only for the pointers the record
+//! cannot serve: nested/indexed multi-token pointers (`/transforms/0/…`),
+//! and `explode` over a typed array, which the JSON spelling treats as an
+//! array of scalars.
+//!
+//! [`Dataset::ros2_direct`]: crate::dataset::Dataset::ros2_direct
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -70,28 +75,28 @@ impl Ros2Decode {
                 format!("the message carries no `{SCHEMA_HASH_ATTR}` attribute"),
             )
         })?;
-        let schema = self.store.get(hash)?.ok_or_else(|| {
-            ThadamError::permanent(
-                ErrorDomain::Decode,
-                codes::DECODE_UNKNOWN_SCHEMA,
-                "the referenced schema is not in the schema store",
-            )
-            .with_context("schema_hash", hash)
-        })?;
-        if &*schema.encoding != "ros2msg" {
-            return Err(ThadamError::permanent(
-                ErrorDomain::Decode,
-                codes::DECODE_UNSUPPORTED_ENCODING,
-                format!(
-                    "the stored schema encoding is `{}` where `ros2msg` was expected",
-                    schema.encoding
-                ),
-            )
-            .with_context("schema_hash", hash));
-        }
         let compiled = match self.compiled.get(hash) {
             Some(c) => Arc::clone(c),
             None => {
+                let schema = self.store.get(hash)?.ok_or_else(|| {
+                    ThadamError::permanent(
+                        ErrorDomain::Decode,
+                        codes::DECODE_UNKNOWN_SCHEMA,
+                        "the referenced schema is not in the schema store",
+                    )
+                    .with_context("schema_hash", hash)
+                })?;
+                if &*schema.encoding != "ros2msg" {
+                    return Err(ThadamError::permanent(
+                        ErrorDomain::Decode,
+                        codes::DECODE_UNSUPPORTED_ENCODING,
+                        format!(
+                            "the stored schema encoding is `{}` where `ros2msg` was expected",
+                            schema.encoding
+                        ),
+                    )
+                    .with_context("schema_hash", hash));
+                }
                 let main = self.registry.register_ros2msg(&schema.name, &schema.text)?;
                 let c = self.registry.compile(&main.to_string())?;
                 self.compiled.insert(hash.into(), Arc::clone(&c));
@@ -102,8 +107,13 @@ impl Ros2Decode {
     }
 }
 
-/// One decoded record as the JSON-root object the dataset pipeline reads;
-/// see the module docs for the bridge's exact spelling.
+/// One decoded record spelled as the JSON-root object the bridge fallback
+/// reads: each flattened dotted name is **one** object key, exactly as
+/// decoded, so `/header.stamp` is a single JSON Pointer token. Used only
+/// for pointers [`Dataset::process_record`] cannot serve directly; a
+/// dataset whose pointers are all single tokens never pays for it.
+///
+/// [`Dataset::process_record`]: crate::dataset::Dataset::process_record
 pub(crate) fn record_to_json(record: &Record) -> Json {
     let fields = record.shape().fields();
     let mut map = serde_json::Map::with_capacity(fields.len());
@@ -561,6 +571,356 @@ float64[] effort
         chain.process(&input, &mut out, &mut rejects);
         assert_eq!(rejects.len(), 1);
         assert_eq!(rejects[0].error.code, codes::DECODE_UNKNOWN_SCHEMA);
+    }
+
+    const RAW_BYTES_MSG: &str = "std_msgs/Header header\nuint8[] data\n";
+    const RAW_BYTES_NAME: &str = "demo_msgs/msg/RawBytes";
+
+    fn attrs_on(topic: &str, hash: Option<&str>) -> Attributes {
+        let mut attrs = Attributes::new();
+        attrs.insert("topic", topic);
+        if let Some(hash) = hash {
+            attrs.insert(SCHEMA_HASH_ATTR, hash);
+        }
+        attrs
+    }
+
+    fn raw_bytes_schema() -> String {
+        let rest = join_docs(&[
+            ("std_msgs/Header", HEADER_MSG),
+            ("builtin_interfaces/Time", TIME_MSG),
+        ]);
+        format!("{RAW_BYTES_MSG}{rest}")
+    }
+
+    fn raw_bytes_payload() -> Vec<u8> {
+        let mut enc = Enc::new();
+        enc.header(1_758_000_099, 111, "cam");
+        enc.u32(3);
+        enc.buf.extend_from_slice(&[1, 2, 250]);
+        enc.finish()
+    }
+
+    fn pose_payload(position: [f64; 3], orientation: [f64; 4]) -> Vec<u8> {
+        let mut enc = Enc::new();
+        enc.header(1_758_000_001, 987_654_321, "map");
+        enc.f64(position[0]).f64(position[1]).f64(position[2]);
+        enc.f64(orientation[0])
+            .f64(orientation[1])
+            .f64(orientation[2])
+            .f64(orientation[3]);
+        enc.finish()
+    }
+
+    fn joint_payload(position: &[f64], velocity: &[f64]) -> Vec<u8> {
+        let mut enc = Enc::new();
+        enc.header(1_758_000_000, 123_456_789, "arm");
+        enc.u32(2).string("hip").string("knee");
+        enc.u32(position.len() as u32);
+        for v in position {
+            enc.f64(*v);
+        }
+        enc.u32(velocity.len() as u32);
+        for v in velocity {
+            enc.f64(*v);
+        }
+        enc.u32(0);
+        enc.finish()
+    }
+
+    /// Runs one message through `chain`, returning events and rejects.
+    fn run_one(
+        chain: &mut crate::Chain,
+        topic: &str,
+        hash: &str,
+        payload: Vec<u8>,
+        log_time: i64,
+    ) -> (crate::ChainOutput, Vec<crate::RejectedRaw>) {
+        use crate::FrameInput;
+
+        let source = SourceId::new("bag");
+        let mut message_attrs = attrs_on(topic, Some(hash));
+        message_attrs.insert("mcap.log_time", log_time.to_string());
+        let messages = [thadam_core::RawMessage {
+            ingest_time: Timestamp::from_nanos(log_time),
+            attrs: message_attrs,
+            payload: Bytes::from(payload),
+        }];
+        let views: Vec<RawRecordView<'_>> = messages
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                RawRecordView::new(&source, m, WalEpoch::new(1), WalPos::new(1), i as u32)
+            })
+            .collect();
+        let input = FrameInput::new(&views, true);
+        let origin = input.origin().expect("origin");
+        let mut out = chain.new_output(origin, true);
+        let mut rejects = Vec::new();
+        chain.process(&input, &mut out, &mut rejects);
+        (out, rejects)
+    }
+
+    fn compile(spec: serde_json::Value, schema_dir: &std::path::Path) -> crate::Chain {
+        use crate::spec::ChainSpec;
+
+        let spec = ChainSpec::from_value(spec)
+            .expect("spec")
+            .with_schema_dir(schema_dir);
+        crate::Chain::compile(&spec, crate::ChainLimits::default()).expect("compile")
+    }
+
+    #[test]
+    fn non_finite_floats_reach_the_pose_step_as_non_finite() {
+        use thadam_core::QualityFlags;
+
+        let dir = tempfile::tempdir().unwrap();
+        let pose_hash = SchemaStore::hash(POSE_STAMPED_NAME, "ros2msg", &pose_stamped_schema());
+        let store = store_with(
+            &dir,
+            &[(POSE_STAMPED_NAME, "ros2msg", pose_stamped_schema())],
+        );
+        let schema_dir = store.dir().to_path_buf();
+        let mut chain = compile(
+            serde_json::json!({
+                "datasets": [{
+                    "id": "poses",
+                    "match": { "topic": "/pose" },
+                    "decode": "ros2",
+                    "identity": [{ "robot": "arm-1" }],
+                    "time": { "field": "/header.stamp", "unit": "ns", "domain": "utc" },
+                    "fields": [
+                        { "name": "header.stamp", "type": "ts", "unit": "ns" },
+                        { "name": "header.frame_id", "type": "str" },
+                        { "name": "pose.position.x", "type": "f64" },
+                        { "name": "pose.position.y", "type": "f64" },
+                        { "name": "pose.position.z", "type": "f64" },
+                        { "name": "pose.orientation.x", "type": "f64" },
+                        { "name": "pose.orientation.y", "type": "f64" },
+                        { "name": "pose.orientation.z", "type": "f64" },
+                        { "name": "pose.orientation.w", "type": "f64" }
+                    ]
+                }],
+                "transforms": [{ "kind": "pose", "dataset": "poses" }]
+            }),
+            &schema_dir,
+        );
+
+        // NaN position.x: the JSON bridge nulled it and the pose step read
+        // a missing field; the direct read passes it through.
+        let (out, rejects) = run_one(
+            &mut chain,
+            "/pose",
+            &pose_hash,
+            pose_payload([f64::NAN, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0]),
+            1_758_000_001_000_000_042,
+        );
+        assert!(rejects.is_empty(), "{rejects:?}");
+        let events = &out.batch("poses").expect("poses batch").events;
+        assert_eq!(events.len(), 1);
+        let quality = events[0].quality();
+        assert_eq!(quality.flags, QualityFlags::INVALID);
+        assert_eq!(quality.reason.as_deref(), Some("pose_not_finite"));
+        let record = events[0].payload().as_record().expect("record");
+        assert!(
+            record
+                .get("pose.position.x")
+                .and_then(Value::as_f64)
+                .expect("f64")
+                .is_nan(),
+            "the event record keeps the NaN"
+        );
+        // The timestamp field and the event time come straight from `Ts`.
+        assert_eq!(
+            record.get("header.stamp").and_then(Value::as_ts),
+            Some(Timestamp::from_nanos(1_758_000_001_987_654_321))
+        );
+        assert_eq!(
+            events[0].times().source(),
+            Some(Timestamp::from_nanos(1_758_000_001_987_654_321))
+        );
+    }
+
+    #[test]
+    fn non_finite_arrays_reach_the_joint_state_step() {
+        use thadam_core::QualityFlags;
+
+        let dir = tempfile::tempdir().unwrap();
+        let joint_hash = SchemaStore::hash(JOINT_STATE_NAME, "ros2msg", &joint_state_schema());
+        let store = store_with(&dir, &[(JOINT_STATE_NAME, "ros2msg", joint_state_schema())]);
+        let schema_dir = store.dir().to_path_buf();
+        let mut chain = compile(
+            serde_json::json!({
+                "datasets": [{
+                    "id": "joints",
+                    "match": { "topic": "/joint_states" },
+                    "decode": "ros2",
+                    "identity": [{ "robot": "arm-1" }],
+                    "time": { "attr": "mcap.log_time", "unit": "ns", "domain": "utc" },
+                    "fields": [
+                        { "name": "header.frame_id", "type": "str" },
+                        { "name": "name", "type": "list<str>" },
+                        { "name": "position", "type": "list<f64>" },
+                        { "name": "velocity", "type": "list<f64>" },
+                        { "name": "effort", "type": "list<f64>" }
+                    ]
+                }],
+                "transforms": [{ "kind": "joint_state", "dataset": "joints" }]
+            }),
+            &schema_dir,
+        );
+
+        // NaN in `position`: the bridge spelled it as a JSON null element,
+        // which made extraction reject the message outright; the direct
+        // read keeps the typed array, so the step flags it instead.
+        let (out, rejects) = run_one(
+            &mut chain,
+            "/joint_states",
+            &joint_hash,
+            joint_payload(&[f64::NAN, -0.2], &[1.5, 2.5]),
+            1_758_000_000_000_000_043,
+        );
+        assert!(rejects.is_empty(), "{rejects:?}");
+        let events = &out.batch("joints").expect("joints batch").events;
+        assert_eq!(events.len(), 1);
+        let quality = events[0].quality();
+        assert_eq!(quality.flags, QualityFlags::INVALID);
+        assert_eq!(quality.reason.as_deref(), Some("joint_state_not_finite"));
+        let record = events[0].payload().as_record().expect("record");
+        let position = record
+            .get("position")
+            .and_then(Value::as_f64s)
+            .expect("f64s");
+        assert!(position[0].is_nan() && position[1] == -0.2);
+    }
+
+    #[test]
+    fn bytes_and_timestamps_stay_whole_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw_hash = SchemaStore::hash(RAW_BYTES_NAME, "ros2msg", &raw_bytes_schema());
+        let store = store_with(&dir, &[(RAW_BYTES_NAME, "ros2msg", raw_bytes_schema())]);
+        let schema_dir = store.dir().to_path_buf();
+        let mut chain = compile(
+            serde_json::json!({
+                "datasets": [{
+                    "id": "raw",
+                    "match": { "topic": "/raw" },
+                    "decode": "ros2",
+                    "identity": [{ "frame": "{payload:/header.frame_id}" }],
+                    "time": { "field": "/header.stamp", "unit": "ns", "domain": "utc" },
+                    "fields": [
+                        { "name": "stamp", "type": "ts", "unit": "ns", "from": "/header.stamp" },
+                        { "name": "data", "type": "list<u8>", "from": "/data" }
+                    ]
+                }]
+            }),
+            &schema_dir,
+        );
+        let (out, rejects) = run_one(
+            &mut chain,
+            "/raw",
+            &raw_hash,
+            raw_bytes_payload(),
+            1_758_000_099_000_000_044,
+        );
+        assert!(rejects.is_empty(), "{rejects:?}");
+        let events = &out.batch("raw").expect("raw batch").events;
+        assert_eq!(events.len(), 1);
+        let record = events[0].payload().as_record().expect("record");
+        assert_eq!(
+            record.get("data").and_then(Value::as_list),
+            Some(&[Value::U8(1), Value::U8(2), Value::U8(250)][..])
+        );
+        assert_eq!(
+            record.get("stamp").and_then(Value::as_ts),
+            Some(Timestamp::from_nanos(1_758_000_099_000_000_111))
+        );
+        // An identity placeholder renders the record field as the bridge did.
+        let levels: Vec<(&str, &str)> = events[0]
+            .asset()
+            .levels()
+            .iter()
+            .map(|(n, v)| (&**n, v.as_str()))
+            .collect();
+        assert_eq!(levels, [("frame", "cam")]);
+    }
+
+    #[test]
+    fn a_multi_token_pointer_uses_the_json_bridge() {
+        let dir = tempfile::tempdir().unwrap();
+        let joint_hash = SchemaStore::hash(JOINT_STATE_NAME, "ros2msg", &joint_state_schema());
+        let store = store_with(&dir, &[(JOINT_STATE_NAME, "ros2msg", joint_state_schema())]);
+        let schema_dir = store.dir().to_path_buf();
+        let mut chain = compile(
+            serde_json::json!({
+                "datasets": [{
+                    "id": "joints",
+                    "match": { "topic": "/joint_states" },
+                    "decode": "ros2",
+                    "identity": [{ "robot": "arm-1" }],
+                    "time": { "attr": "mcap.log_time", "unit": "ns", "domain": "utc" },
+                    "fields": [
+                        { "name": "first", "type": "str", "from": "/name/0" },
+                        { "name": "frame", "type": "str", "from": "/header.frame_id" }
+                    ]
+                }]
+            }),
+            &schema_dir,
+        );
+        let (out, rejects) = run_one(
+            &mut chain,
+            "/joint_states",
+            &joint_hash,
+            joint_state_payload(),
+            1_758_000_000_000_000_045,
+        );
+        assert!(rejects.is_empty(), "{rejects:?}");
+        let events = &out.batch("joints").expect("joints batch").events;
+        assert_eq!(events.len(), 1);
+        let record = events[0].payload().as_record().expect("record");
+        assert_eq!(record.get("first").and_then(Value::as_str), Some("hip"));
+        assert_eq!(record.get("frame").and_then(Value::as_str), Some("arm"));
+    }
+
+    #[test]
+    fn explode_over_a_typed_array_materializes_the_bridge_for_that_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let joint_hash = SchemaStore::hash(JOINT_STATE_NAME, "ros2msg", &joint_state_schema());
+        let store = store_with(&dir, &[(JOINT_STATE_NAME, "ros2msg", joint_state_schema())]);
+        let schema_dir = store.dir().to_path_buf();
+        let mut chain = compile(
+            serde_json::json!({
+                "datasets": [{
+                    "id": "joints",
+                    "match": { "topic": "/joint_states" },
+                    "decode": "ros2",
+                    "identity": [{ "robot": "arm-1" }],
+                    "explode": { "path": "/position", "index_field": "idx" },
+                    "time": { "attr": "mcap.log_time", "unit": "ns", "domain": "utc" },
+                    "fields": [
+                        { "name": "frame", "type": "str", "from": "^/header.frame_id" }
+                    ]
+                }]
+            }),
+            &schema_dir,
+        );
+        let (out, rejects) = run_one(
+            &mut chain,
+            "/joint_states",
+            &joint_hash,
+            joint_state_payload(),
+            1_758_000_000_000_000_046,
+        );
+        assert!(rejects.is_empty(), "{rejects:?}");
+        let events = &out.batch("joints").expect("joints batch").events;
+        // `position` is a typed F64 array with two elements: two samples,
+        // each reading the parent message's frame id.
+        assert_eq!(events.len(), 2);
+        for (i, event) in events.iter().enumerate() {
+            assert_eq!(event.sample_idx(), Some(i as u32));
+            let record = event.payload().as_record().expect("record");
+            assert_eq!(record.get("frame").and_then(Value::as_str), Some("arm"));
+        }
     }
 
     #[test]

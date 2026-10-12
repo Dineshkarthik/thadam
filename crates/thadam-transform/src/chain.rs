@@ -5,8 +5,8 @@ use std::collections::HashSet;
 use std::marker::PhantomData;
 
 use thadam_core::{
-    ErrorDomain, EventBatch, ThadamError, SchemaStore, ShapeRef, ShapeRegistry, Sym, TimeDomain,
-    WalRange, codes,
+    ErrorDomain, EventBatch, Record, ThadamError, SchemaStore, ShapeRef, ShapeRegistry, Sym,
+    TimeDomain, WalRange, codes,
 };
 use serde_json::Value as Json;
 
@@ -283,7 +283,10 @@ impl Chain {
             // Decode failures are cached per record so every matching
             // dataset rejects the message with the same error.
             let mut json_root: Option<Result<Json, ThadamError>> = None;
-            let mut ros2_root: Option<Result<Json, ThadamError>> = None;
+            let mut ros2_root: Option<Result<Record, ThadamError>> = None;
+            // The JSON spelling of the ROS 2 record, materialized only when
+            // a matching dataset is not served by direct record reads.
+            let mut ros2_bridge: Option<Json> = None;
             let mut matched = false;
             for (i, ds) in self.datasets.iter_mut().enumerate() {
                 if !ds.matches(view) {
@@ -293,27 +296,48 @@ impl Chain {
                 let Some(slot) = out.batches.get_mut(i) else {
                     continue;
                 };
-                let root = match ds.decode {
+                match ds.decode {
                     DecodeSpec::Json => {
-                        json_root.get_or_insert_with(|| parse_json(view.payload, limits))
+                        match json_root.get_or_insert_with(|| parse_json(view.payload, limits)) {
+                            Ok(root) => ds.process(view, root, &mut slot.batch.events, rejects),
+                            Err(e) => {
+                                ds.stats.messages += 1;
+                                ds.stats.rejected += 1;
+                                rejects.push(RejectedRaw::new(view, Some(&ds.id), None, e.clone()));
+                            }
+                        }
                     }
-                    DecodeSpec::Ros2 => ros2_root.get_or_insert_with(|| match ros2.as_mut() {
-                        Some(decode) => decode
-                            .decode(view.attrs, view.payload)
-                            .map(|r| record_to_json(&r)),
-                        None => Err(ThadamError::fatal(
-                            ErrorDomain::Config,
-                            codes::CONFIG_MISSING,
-                            "`decode: ros2` has no schema store (compile-time check missed it)",
-                        )),
-                    }),
-                };
-                match root {
-                    Ok(root) => ds.process(view, root, &mut slot.batch.events, rejects),
-                    Err(e) => {
-                        ds.stats.messages += 1;
-                        ds.stats.rejected += 1;
-                        rejects.push(RejectedRaw::new(view, Some(&ds.id), None, e.clone()));
+                    DecodeSpec::Ros2 => {
+                        let root = ros2_root.get_or_insert_with(|| match ros2.as_mut() {
+                            Some(decode) => decode.decode(view.attrs, view.payload),
+                            None => Err(ThadamError::fatal(
+                                ErrorDomain::Config,
+                                codes::CONFIG_MISSING,
+                                "`decode: ros2` has no schema store (compile-time check missed it)",
+                            )),
+                        });
+                        match root {
+                            Ok(record) => {
+                                if ds.ros2_direct {
+                                    ds.process_record(
+                                        view,
+                                        record,
+                                        &mut ros2_bridge,
+                                        &mut slot.batch.events,
+                                        rejects,
+                                    );
+                                } else {
+                                    let bridged =
+                                        ros2_bridge.get_or_insert_with(|| record_to_json(record));
+                                    ds.process(view, bridged, &mut slot.batch.events, rejects);
+                                }
+                            }
+                            Err(e) => {
+                                ds.stats.messages += 1;
+                                ds.stats.rejected += 1;
+                                rejects.push(RejectedRaw::new(view, Some(&ds.id), None, e.clone()));
+                            }
+                        }
                     }
                 }
             }

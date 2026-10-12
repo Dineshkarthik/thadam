@@ -427,6 +427,17 @@ impl FieldPath {
         self.parent
     }
 
+    /// The single token's text when the pointer is exactly one token long —
+    /// the flattened dotted spelling a ROS 2 decoder writes; `None` for any
+    /// other shape (whole value, or nested/indexed).
+    #[must_use]
+    pub(crate) fn sole_token(&self) -> Option<&str> {
+        match &self.tokens[..] {
+            [token] => Some(&token.text),
+            _ => None,
+        }
+    }
+
     /// Returns the original path text.
     #[must_use]
     pub fn as_str(&self) -> &str {
