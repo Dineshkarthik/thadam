@@ -20,6 +20,10 @@ clickhouse = ["dep:thadam-clickhouse"]
 # decision): `thadam validate`/`thadam run` only accept `kind: opcua` with
 # `--features opcua`, which pulls the MPL-2.0 async-opcua client.
 opcua = ["dep:thadam-opcua"]
+# The live ROS 2 source (`kind: ros2_live`, ADR-0007 stage 4, rmw_zenoh
+# transport). Off by default (owner decision): pulls zenoh 1.10.1, whose
+# zenoh-config depends on the banned serde_yaml (deny.toml exception).
+ros2-live = ["dep:thadam-ros2-live"]
 
 [dependencies]
 bytes = { workspace = true }
@@ -37,8 +41,10 @@ thadam-segments = { path = "../../crates/thadam-segments" }
 thadam-wal = { path = "../../crates/thadam-wal" }
 thadam-object-store = { path = "../../crates/thadam-object-store" }
 thadam-nats = { path = "../../crates/thadam-nats" }
+thadam-kafka = { path = "../../crates/thadam-kafka" }
 thadam-clickhouse = { path = "../../crates/thadam-clickhouse", optional = true }
 thadam-opcua = { path = "../../crates/thadam-opcua", optional = true }
+thadam-ros2-live = { path = "../../crates/thadam-ros2-live", optional = true }
 thadam-core = { workspace = true }
 rustls = { workspace = true }
 serde_json = { workspace = true }
