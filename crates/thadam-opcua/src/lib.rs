@@ -21,7 +21,7 @@
 //! A data change with a non-Good status code is never silently lost: its
 //! value becomes `null` and the change is named as
 //! `name=StatusCode` in the message's `opcua.bad_status` attribute. Values
-//! outside the documented mapping (see `docs/src/sources/opcua.md`) become
+//! outside the documented mapping (see `website/docs/src/sources/opcua.md`) become
 //! `null` and are named in `opcua.unsupported`.
 //!
 //! # Security
