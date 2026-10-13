@@ -19,7 +19,7 @@ data_dir/
 ├── quarantine/<sink>/   # each sink's quarantine instance (own budget); rejects.staging holds rejects until their segment is durable
 ├── schemas/             # the schema store: <sha-256 hash>.schema, content-addressed (see below)
 ├── sparkplug/births/<sink>/  # Sparkplug birth store: latest BIRTH per node/device, one directory per sink chain (see below)
-├── sources/<id>/        # source state (connectors decide)
+├── sources/<id>/        # source state (connectors decide; an `mcap` source keeps resume.json, its per-file resume positions)
 ├── services/<id>/       # service state (e.g. the shipper)
 └── replays/<id>/        # replay output — never the production directories (planned)
 ```
