@@ -10,7 +10,7 @@ ClickHouse is a column-oriented database used for low-latency analytics. It is a
 
 **This ADR is deferred until the M1 gate.** ARCHITECTURE.md section 21 places the work in M3 (PR19 benchmark B8, PR20 `thadam-clickhouse`, PR21 example), and PR19 is the benchmark that decides this ADR. If capacity tightens, the whole block moves beyond the MVP and nothing in M1 depends on it. Nothing here may be built before the M1 gate passes.
 
-**Product conflict, resolved by the owner (B2, D-B2-3, 2026-10-07).** product.md sections 14, 40, and 46 still use ClickHouse in Demo A (MQTT to ClickHouse) and Demo C (ROS 2 to ClickHouse), and section 46 defines MVP done to include them. The owner decided that ClickHouse is P1 and starts after the M1 reliability gate, and approved the amendments that rewrite those sections to the P0 path (`docs/design/product-amendments.md`, Part A). The amendments are not yet applied to product.md, so product.md still shows the old text until the owner applies them.
+**Product conflict, resolved by the owner (B2, D-B2-3, 2026-10-07).** product.md sections 14, 40, and 46 originally used ClickHouse in Demo A (MQTT to ClickHouse) and Demo C (ROS 2 to ClickHouse), and section 46 defined MVP done to include them. The owner decided that ClickHouse is P1 and starts after the M1 reliability gate, and approved the amendments that rewrite those sections to the P0 path (`docs/design/product-amendments.md`, Part A; applied to product.md on 2026-10-13).
 
 ### Scope
 
