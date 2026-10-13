@@ -347,6 +347,40 @@ pub(crate) fn io_error(op: &str, path: &Path, e: &io::Error) -> ThadamError {
     )
 }
 
+/// Replaces `path` with `body` atomically and durably: write a sibling
+/// temporary file, fsync it, rename it over `path`, fsync the directory
+/// (the discipline [`SchemaStore::put`] uses). A crash leaves either the old
+/// content or the new, plus at worst a torn `.<name>.tmp-*` that readers
+/// must ignore. Creates the parent directory. A failure is a classified
+/// `buffer.io` error and removes the temporary file.
+pub fn write_atomic(path: &Path, body: &[u8]) -> Result<(), ThadamError> {
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    fs::create_dir_all(dir).map_err(|e| io_error("create directory", dir, &e))?;
+    let unique = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp = dir.join(format!(".{name}.tmp-{}-{unique}", std::process::id()));
+    let write = || -> io::Result<()> {
+        {
+            let mut f = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&tmp)?;
+            f.write_all(body)?;
+            sync_file(&f)?;
+        }
+        fs::rename(&tmp, path)?;
+        sync_dir(dir)
+    };
+    write().map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        io_error("write", path, &e)
+    })
+}
+
 pub(crate) fn sync_file(f: &File) -> io::Result<()> {
     #[cfg(target_vendor = "apple")]
     rustix::fs::fcntl_fullfsync(f)?;
@@ -474,6 +508,20 @@ mod tests {
         let bytes = fs::read(&path).unwrap();
         fs::write(&path, &bytes[..bytes.len() - 3]).unwrap();
         assert_eq!(store.get(&other).unwrap_err().code, codes::BUFFER_CORRUPT);
+    }
+
+    #[test]
+    fn write_atomic_replaces_content_and_leaves_no_temporary_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("state.json");
+        write_atomic(&path, b"one").unwrap();
+        write_atomic(&path, b"two").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"two");
+        let entries: Vec<_> = fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("state.json")]);
     }
 
     #[test]

@@ -2,8 +2,9 @@
 //!
 //! The `mcap` source replays one or more [MCAP](https://mcap.dev) files —
 //! including rosbag2's MCAP storage format — as one finite stream, merged in
-//! log-time order. It is a *file* source: replay is idempotent because the
-//! input re-reads identically from the start.
+//! log-time order. It is a *file* source, finite, and resumable: re-reading a
+//! file would put its messages at new WAL positions (duplicate rows), so the
+//! source remembers per file how much of it was durably committed.
 //!
 //! ```yaml
 //! sources:
@@ -37,10 +38,23 @@
 //! `{topic.N}` identity templates read. With `pace: max` the ingest time is
 //! the message's log time, so replays are byte-deterministic; paced replays
 //! stamp the wall clock, like a live capture. The source is finite
-//! (`next_batch` returns `None` at the end) and ack-free
-//! ([`AckMode::None`](thadam_core::AckMode::None)) — files are re-readable,
-//! so there is nothing to acknowledge and a crash mid-replay loses nothing
-//! on re-run.
+//! (`next_batch` returns `None` at the end).
+//!
+//! # Resume
+//!
+//! Built with a data directory (the runtime always does), the source
+//! acknowledges after the WAL commit
+//! ([`AckMode::OnCommit`](thadam_core::AckMode::OnCommit)) and writes
+//! `resume.json` into its component directory on every ack: per file, its
+//! identity (path, size, modification time) and how many of its messages the
+//! committed batches cover. A restart skips completed files and continues the
+//! others after their last committed message; uncommitted batches are read
+//! again, so no uncommitted message is skipped, and a crash inside the window between a WAL
+//! commit and the state write may repeat that window's batches
+//! (at-least-once). A changed file, or changed `topics`/`start`/`end`, is
+//! replayed from the start with a warning; delete `resume.json` to force
+//! that. Built without a data directory the source has no resume and acks
+//! are no-ops ([`AckMode::None`](thadam_core::AckMode::None)).
 //!
 //! # Export
 //!
@@ -58,6 +72,7 @@ mod error;
 mod export;
 mod factory;
 mod file_reader;
+mod resume;
 mod source;
 
 pub use config::{DecodeMode, McapConfig, Pace, TimeBound, TopicFilter, config_schema};

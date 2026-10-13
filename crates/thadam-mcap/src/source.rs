@@ -9,10 +9,20 @@
 //!   log time, so a replay of the same inputs lands byte-identical in the
 //!   WAL — the choice that makes replays deterministic. With a paced replay
 //!   the ingest time is the wall clock at emission, like a live capture.
-//! - **Acknowledgement.** Files are re-readable, so replay is idempotent
-//!   from the input: after a restart the source simply reads the files
-//!   again. Acks are therefore no-ops ([`AckMode::None`]) and a crash
-//!   mid-replay replays from the start, never skipping data.
+//! - **Acknowledgement and resume.** Re-reading a file is not idempotent
+//!   for the pipeline: every re-read message lands at a new WAL position,
+//!   so its default event id differs and sinks see duplicates. With a data
+//!   directory the source acknowledges after the WAL commit
+//!   ([`AckMode::OnCommit`]) and, on each ack, durably records per file how
+//!   many messages the committed batches cover (see the `resume` module). A
+//!   restart skips files that are complete and resumes the others after
+//!   their last committed message; batches that were not yet acknowledged
+//!   are read again, so no uncommitted message is skipped. A crash between the WAL commit and
+//!   the state write re-reads at most the batches in that window
+//!   (at-least-once). A file whose size or modification time changed, or a
+//!   changed `topics`/`start`/`end`, is read again from the start with a
+//!   warning. Without a data directory (direct use) there is no resume and
+//!   acks are no-ops ([`AckMode::None`]).
 //! - **Finite.** `next_batch` returns `Ok(None)` once every file is
 //!   exhausted, and keeps returning `None` until `close`.
 //! - **Cancel safety.** Messages a paced batch has already consumed live in
@@ -25,22 +35,23 @@
 //!   same classified error until `close`.
 
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BTreeMap, BinaryHeap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use thadam_core::{
-    AckMode, Attributes, BatchLimits, Clock, ErrorDomain, RawBatch, RawMessage, ThadamError,
-    SchemaStore, Shutdown, Source, SourceBatch, SourceCapabilities, SourceContext, SourceId,
-    Timestamp, codes,
+    AckHandle, AckMode, AckOutcome, AckTarget, AckToken, Attributes, BatchLimits, Clock,
+    ConnectionEpoch, EpochGate, ErrorDomain, RawBatch, RawMessage, ThadamError, SchemaStore,
+    Shutdown, Source, SourceBatch, SourceCapabilities, SourceContext, SourceId, Timestamp, codes,
 };
 use thadam_ros2_msg::{CompiledMessage, Registry};
 
 use crate::config::{DecodeMode, McapConfig, Pace};
 use crate::error::McapError;
 use crate::file_reader::{ChannelInfo, FileReader, Item, SchemaInfo};
+use crate::resume::{self, FileState, ResumeStore};
 
 /// The longest a pacing sleep ever waits. Gaps beyond a day in a recording
 /// are pathological; this also keeps `tokio::time::sleep` far from overflow.
@@ -91,6 +102,9 @@ struct HeapEntry {
     log_time: u64,
     file: usize,
     order: u64,
+    /// The file's `consumed()` count right after this message was read: the
+    /// resume position once the message is emitted.
+    next_index: u64,
     item: Item,
 }
 
@@ -127,6 +141,51 @@ struct Ros2State {
     channels: HashMap<(usize, u16), CachedShape>,
 }
 
+/// Persists the resume state as batches are acknowledged. The runtime
+/// completes handles in receive order after the WAL commit, so the state of
+/// the newest committed batch covers every earlier one.
+struct Checkpoint {
+    store: ResumeStore,
+    selection: String,
+    inner: Mutex<CheckpointInner>,
+}
+
+#[derive(Default)]
+struct CheckpointInner {
+    /// The per-file state at the end of each unacknowledged batch, by batch
+    /// number.
+    pending: BTreeMap<u64, Vec<FileState>>,
+    /// The first failed state write. A failed write only means a restart
+    /// re-reads data, but it must not pass silently: `next_batch` and
+    /// `close` return it.
+    error: Option<ThadamError>,
+}
+
+impl Checkpoint {
+    fn lock(&self) -> MutexGuard<'_, CheckpointInner> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+impl AckTarget for Checkpoint {
+    fn ack(&self, _epoch: ConnectionEpoch, token: AckToken, outcome: AckOutcome) {
+        let batch = token.a();
+        let files = {
+            let mut inner = self.lock();
+            let files = inner.pending.remove(&batch);
+            inner.pending = inner.pending.split_off(&batch);
+            files
+        };
+        let Some(files) = files.filter(|_| outcome == AckOutcome::Committed) else {
+            return;
+        };
+        if let Err(error) = self.store.save(&self.selection, &files) {
+            tracing::error!(%error, "cannot persist the MCAP resume state; a restart will re-read data");
+            self.lock().error.get_or_insert(error);
+        }
+    }
+}
+
 /// A finite source replaying MCAP files (ADR-0007 stage 2).
 ///
 /// Build with [`McapSource::new`] (or through the factory), then drive it
@@ -156,6 +215,16 @@ pub struct McapSource {
     /// The store hash of each seen `ros2msg` channel's schema, keyed like
     /// `Ros2State.channels` by `(file index, channel id)`.
     schema_hashes: HashMap<(usize, u16), Arc<str>>,
+    /// The source's component directory, where the resume state lives; `None`
+    /// disables resume.
+    resume_dir: Option<PathBuf>,
+    /// Set in `open` when `resume_dir` is.
+    checkpoint: Option<Arc<Checkpoint>>,
+    /// Per file, parallel to `files`: its identity and how much of it the
+    /// messages emitted so far cover.
+    progress: Vec<FileState>,
+    gate: EpochGate,
+    batch_no: u64,
     /// The first read error, returned on every call after the staged flush.
     error: Option<ThadamError>,
     /// Set once every file is exhausted; makes `None` stable.
@@ -180,9 +249,24 @@ impl McapSource {
             ros2: None,
             schema_store: None,
             schema_hashes: HashMap::new(),
+            resume_dir: None,
+            checkpoint: None,
+            progress: Vec::new(),
+            gate: EpochGate::new(),
+            batch_no: 0,
             error: None,
             exhausted: false,
         }
+    }
+
+    /// Makes the source resumable: it acknowledges after the WAL commit and
+    /// keeps its replay position in `dir` (the runtime passes the source's
+    /// component directory), so a restart does not re-emit committed
+    /// messages. Without it every run reads the files from the start.
+    #[must_use]
+    pub fn with_resume_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.resume_dir = Some(dir.into());
+        self
     }
 
     /// Sets the schema store `ros2msg` channel schemas are written to
@@ -328,7 +412,10 @@ impl McapSource {
         loop {
             let item = self.files[file].next_item()?;
             self.preflight(file)?;
-            let Some(item) = item else { return Ok(()) };
+            let Some(item) = item else {
+                self.progress[file].done = true;
+                return Ok(());
+            };
             if !self.config.topics.matches(&item.channel.topic) {
                 continue;
             }
@@ -341,6 +428,7 @@ impl McapSource {
                 log_time: item.log_time,
                 file,
                 order,
+                next_index: self.files[file].consumed(),
                 item,
             };
             self.live.push(entry);
@@ -442,10 +530,40 @@ impl McapSource {
         debug_assert!(!self.staged.is_empty());
         let messages = std::mem::take(&mut self.staged);
         self.staged_bytes = 0;
+        let ack = match &self.checkpoint {
+            Some(checkpoint) => {
+                self.batch_no += 1;
+                checkpoint
+                    .lock()
+                    .pending
+                    .insert(self.batch_no, self.progress.clone());
+                self.gate
+                    .issue(AckToken::new(self.batch_no, 0), checkpoint.clone())
+            }
+            None => AckHandle::noop(),
+        };
         SourceBatch {
             batch: RawBatch::new(source_id.clone(), messages, clock.synced()),
-            ack: thadam_core::AckHandle::noop(),
+            ack,
         }
+    }
+
+    /// The first failed resume-state write, if any.
+    fn checkpoint_error(&self) -> Option<ThadamError> {
+        self.checkpoint.as_ref()?.lock().error.clone()
+    }
+
+    /// What identifies the replay selection for resume: files are only
+    /// skipped when the messages they were skipped for would be selected
+    /// again.
+    fn selection(&self) -> String {
+        let nanos = |bound: Option<crate::config::TimeBound>| bound.map(|b| b.0.as_nanos());
+        serde_json::json!({
+            "topics": self.config.topics.0,
+            "start": nanos(self.config.start),
+            "end": nanos(self.config.end),
+        })
+        .to_string()
     }
 }
 
@@ -471,13 +589,33 @@ impl Source for McapSource {
                 channels: HashMap::new(),
             });
         }
+        let selection = self.selection();
+        let mut progress = files
+            .iter()
+            .map(|path| FileState::fresh(path))
+            .collect::<Result<Vec<_>, _>>()?;
+        if let Some(dir) = &self.resume_dir {
+            let store = ResumeStore::new(dir);
+            progress = resume::plan(store.load()?, &selection, progress);
+            self.checkpoint = Some(Arc::new(Checkpoint {
+                store,
+                selection,
+                inner: Mutex::new(CheckpointInner::default()),
+            }));
+        }
+        self.progress = progress;
         for path in files {
             self.files.push(FileReader::start(path)?);
         }
-        // Prime the merge: one filter-passing message per live file. This
-        // also surfaces unreadable headers and failing `ros2` schemas here,
-        // where configuration errors belong.
+        // Prime the merge: one filter-passing message per live file, after
+        // the position the resume state saved. This also surfaces unreadable
+        // headers and failing `ros2` schemas here, where configuration
+        // errors belong. Files the state marks complete are not read.
         for file in 0..self.files.len() {
+            if self.progress[file].done {
+                continue;
+            }
+            self.files[file].skip(self.progress[file].next_index)?;
             self.refill(file)?;
         }
         self.exhausted = self.live.is_empty();
@@ -499,6 +637,11 @@ impl Source for McapSource {
             (Some(id), Some(clock), Some(shutdown)) => (id, clock, shutdown),
             _ => return Err(McapError::State("next_batch called before open").into()),
         };
+        // A failed resume-state write stops the replay: staged messages are
+        // unacknowledged, so the next run reads them again.
+        if let Some(error) = self.checkpoint_error() {
+            return Err(error);
+        }
         // A sticky read error lets the staged remainder drain first, then
         // blocks every later call.
         if let Some(error) = &self.error {
@@ -535,6 +678,7 @@ impl Source for McapSource {
             }
             let Some(entry) = self.live.pop() else { break };
             let file = entry.file;
+            self.progress[file].next_index = entry.next_index;
             self.prev_log_time = Some(entry.log_time);
             self.staged_bytes += entry.item.payload.len();
             self.staged.push(self.raw_message(file, entry.item));
@@ -568,13 +712,21 @@ impl Source for McapSource {
         self.live.clear();
         self.staged.clear();
         self.staged_bytes = 0;
-        Ok(())
+        match self.checkpoint_error() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     fn capabilities(&self) -> SourceCapabilities {
-        // Files re-read idempotently from the start; there is no peer to
-        // acknowledge, so batches carry no-op ack handles.
-        SourceCapabilities::new(AckMode::None)
+        // With a resume directory the ack is what advances the saved
+        // position, after the WAL commit; without one there is nothing to
+        // acknowledge and batches carry no-op handles.
+        SourceCapabilities::new(if self.resume_dir.is_some() {
+            AckMode::OnCommit
+        } else {
+            AckMode::None
+        })
     }
 }
 
@@ -589,6 +741,7 @@ mod tests {
             log_time,
             file,
             order,
+            next_index: 0,
             item: Item {
                 channel: Arc::new(ChannelInfo {
                     id: 1,

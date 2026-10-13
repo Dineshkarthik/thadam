@@ -83,6 +83,9 @@ pub(crate) struct FileReader {
     /// Channels accumulated since the last drain, first-seen first. The
     /// source pre-flights their schemas in `ros2` mode.
     new_channels: Vec<Arc<ChannelInfo>>,
+    /// Messages returned by `next_item` so far: the file-order position
+    /// the source's resume state is expressed in.
+    consumed: u64,
 }
 
 impl FileReader {
@@ -103,6 +106,7 @@ impl FileReader {
             queue: VecDeque::new(),
             done: false,
             new_channels: Vec::new(),
+            consumed: 0,
         })
     }
 
@@ -119,7 +123,29 @@ impl FileReader {
     /// The next message, or `None` at the end of the data section.
     pub(crate) fn next_item(&mut self) -> Result<Option<Item>, ThadamError> {
         self.fill()?;
-        Ok(self.queue.pop_front())
+        let item = self.queue.pop_front();
+        self.consumed += u64::from(item.is_some());
+        Ok(item)
+    }
+
+    /// How many messages `next_item` has returned.
+    pub(crate) fn consumed(&self) -> u64 {
+        self.consumed
+    }
+
+    /// Reads past the first `n` messages without handing them out. A file
+    /// with fewer messages than the saved position is not the file the
+    /// position was saved for.
+    pub(crate) fn skip(&mut self, n: u64) -> Result<(), ThadamError> {
+        while self.consumed < n {
+            if self.next_item()?.is_none() {
+                return Err(self.corrupt(&format!(
+                    "the saved resume position ({n} messages) is past the end of the file ({}); delete the source's resume.json to replay from the start",
+                    self.consumed
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Reads until one message is queued or the data section is over.
