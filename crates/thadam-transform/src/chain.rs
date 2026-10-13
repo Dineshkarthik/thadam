@@ -460,6 +460,23 @@ impl Chain {
         self.datasets.iter().any(Dataset::holds_back)
     }
 
+    /// Marks every open `window` as having spanned a WAL gap, so its emitted
+    /// aggregate carries `quality.status = uncertain` (`reason = "window_gap"`).
+    pub fn on_gap(&mut self) {
+        for ds in &mut self.datasets {
+            ds.on_gap();
+        }
+    }
+
+    /// Marks the start of a range replay (`from > 1`), so the first window
+    /// opened for each asset carries `quality.status = uncertain`
+    /// (`reason = "window_range_start"`).
+    pub fn mark_range_start(&mut self) {
+        for ds in &mut self.datasets {
+            ds.mark_range_start();
+        }
+    }
+
     /// Rebuilds step state (dedup keys, last-kept values, sampling counters)
     /// from records already processed before the cursor, emitting nothing and
     /// leaving the counters as they were. `window` steps and the steps after

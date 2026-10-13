@@ -35,6 +35,8 @@ pub struct DatasetStats {
     /// Events dropped by a step (`filter`, `on_change`, `sample`, `enrich`),
     /// or absorbed into an open `window`.
     pub filtered: u64,
+    /// Events dropped because their event-time window already closed.
+    pub late: u64,
     /// Messages dropped as duplicates.
     pub deduped: u64,
     /// Messages or samples rejected to quarantine.
@@ -1215,6 +1217,10 @@ impl Dataset {
                     self.stats.filtered += 1;
                     return;
                 }
+                StepResult::Late => {
+                    self.stats.late += 1;
+                    return;
+                }
                 StepResult::Reject(e) => {
                     self.stats.rejected += 1;
                     rejects.push(RejectedRaw::new(view, Some(&self.id), sample, e));
@@ -1259,6 +1265,18 @@ impl Dataset {
         } else {
             None
         };
+    }
+
+    pub(crate) fn on_gap(&mut self) {
+        for s in &mut self.steps {
+            s.on_gap();
+        }
+    }
+
+    pub(crate) fn mark_range_start(&mut self) {
+        for s in &mut self.steps {
+            s.mark_range_start();
+        }
     }
 }
 

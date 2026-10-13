@@ -1228,6 +1228,31 @@ mod window {
                 "aggregates": [{ "field": "temp", "fn": "mean", "as": "temp_mean" }],
             })]
         );
+
+        let with_ingest = "{ kind: window, dataset: readings, size: 1m, time: ingest, aggregates: [{ field: temp, fn: mean, as: temp_mean }] }";
+        assert_ok(&[with_ingest]);
+        assert_eq!(
+            steps_json(&[with_ingest]),
+            [json!({
+                "kind": "window", "dataset": "readings", "size": "1m",
+                "aggregates": [{ "field": "temp", "fn": "mean", "as": "temp_mean" }],
+            })],
+            "default `time: ingest` is omitted so existing configs keep their hash"
+        );
+
+        let with_event = "{ kind: window, dataset: readings, size: 1m, time: event, allowed_lateness: 5s, aggregates: [{ field: temp, fn: mean, as: temp_mean }] }";
+        assert_ok(&[with_event]);
+        assert_eq!(
+            steps_json(&[with_event]),
+            [json!({
+                "kind": "window", "dataset": "readings", "size": "1m",
+                "time": "event", "allowed_lateness": "5s",
+                "aggregates": [{ "field": "temp", "fn": "mean", "as": "temp_mean" }],
+            })]
+        );
+        assert_ok(&[
+            "{ kind: window, dataset: readings, size: 1m, time: event, allowed_lateness: 0s, aggregates: [{ field: temp, fn: sum, as: s }] }",
+        ]);
     }
 
     #[test]
@@ -1298,10 +1323,24 @@ mod window {
         );
         assert_one_error(
             &[
-                "{ kind: window, dataset: readings, size: 1m, time: event, aggregates: [{ field: temp, fn: sum, as: s }] }",
+                "{ kind: window, dataset: readings, size: 1m, allowed_lateness: 5s, aggregates: [{ field: temp, fn: sum, as: s }] }",
+            ],
+            "transforms[0].allowed_lateness",
+            "applies only to `time: event` windows",
+        );
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 1m, time: ingest, allowed_lateness: 5s, aggregates: [{ field: temp, fn: sum, as: s }] }",
+            ],
+            "transforms[0].allowed_lateness",
+            "applies only to `time: event` windows",
+        );
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 1m, time: wall, aggregates: [{ field: temp, fn: sum, as: s }] }",
             ],
             "transforms[0].time",
-            "unknown key `time`",
+            "unknown variant `wall`",
         );
     }
 

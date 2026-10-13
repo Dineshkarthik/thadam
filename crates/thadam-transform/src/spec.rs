@@ -848,8 +848,21 @@ pub struct AggregateSpec {
     pub name: String,
 }
 
-/// `window`: tumbling windows on ingest time, one aggregate event per asset
-/// and window.
+/// Which timestamp a `window` step assigns events to windows and advances the
+/// watermark by.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum WindowTime {
+    /// WAL ingest time.
+    #[default]
+    Ingest,
+    /// UTC event time (`Times::event_time()`).
+    Event,
+}
+
+/// `window`: tumbling windows on ingest or event time, one aggregate event per
+/// asset and window.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
@@ -862,6 +875,13 @@ pub struct WindowSpec {
     pub sinks: Option<Vec<String>>,
     /// The window length.
     pub size: HumanDuration,
+    /// Which timestamp assigns an event to a window and advances the watermark.
+    #[serde(default)]
+    pub time: WindowTime,
+    /// How far behind the asset's maximum event time a window stays open
+    /// (`time: event` only).
+    #[serde(default)]
+    pub allowed_lateness: Option<HumanDuration>,
     /// Closes a silent asset's open window once another asset advances ingest
     /// time by this much.
     #[serde(default)]

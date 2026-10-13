@@ -314,7 +314,7 @@ Several violations at once settle on the first reason in this order; flags accum
 
 ## `kind: window` {#window}
 
-**Status: In progress (experimental).** Tumbling windows on **ingest time**, one aggregate event per asset and window. Event time, late-data handling, and sliding windows are not built yet; the design is in `docs/design/advanced-processing.md`.
+**Status: In progress (experimental).** Tumbling windows on **ingest time** (`time: ingest`, the default) or **event time** (`time: event`, with per-asset watermarks and `allowed_lateness`), one aggregate event per asset and window. Sliding windows and `first`/`last`/`stddev`/`range`/`delta`/`rms` are not built yet; the design is in `docs/design/advanced-processing.md`.
 
 ```yaml
 datasets:
@@ -332,6 +332,8 @@ transforms:
   - kind: window
     dataset: telemetry
     size: 1m
+    time: event                # or ingest (the default)
+    allowed_lateness: 5s       # event time only (0s when absent)
     aggregates:
       - { field: motor_temp_c, fn: mean, as: temp_mean }
       - { field: motor_temp_c, fn: max, as: temp_max }
@@ -340,8 +342,10 @@ transforms:
 
 | Key | Type | Required | Description |
 |---|---|---|---|
-| `size` | duration > 0 | yes | The window length. Windows are aligned to the epoch: `[k·size, (k+1)·size)` of the event's ingest time. |
-| `idle_close` | duration > 0 | no | Closes a silent asset's open window once another asset in the dataset sends an event at least `idle_close` in ingest time after that window's last event, releasing the cursor hold-back. |
+| `size` | duration > 0 | yes | The window length. Windows are aligned to the epoch: `[k·size, (k+1)·size)` of the chosen timestamp. |
+| `time` | `ingest`, `event` | no (default `ingest`) | Which timestamp assigns an event to a window and advances the watermark. Omitted from the canonical (hashed) form when `ingest`. |
+| `allowed_lateness` | duration ≥ 0 | no (default `0s`) | Valid only with `time: event` (`config.invalid` on `time: ingest`). How far behind an asset's maximum seen event time a window of that asset stays open for out-of-order events. |
+| `idle_close` | duration > 0 | no | Closes a silent asset's open windows once another asset in the dataset sends an event at least `idle_close` in ingest time after that asset's last event, releasing the cursor hold-back. |
 | `aggregates` | list (≥ 1) of `{ field, fn, as }` | yes | The output columns; see below. |
 
 Each aggregate:
@@ -352,27 +356,27 @@ Each aggregate:
 | `fn` | `count`, `sum`, `min`, `max`, `mean` | yes | `count` counts non-null values and accepts any field. The others need `i8`, `i16`, `i32`, `u8`, `u16`, `u32`, `f32`, or `f64`; `i64` and `u64` are refused because the `f64` result cannot hold them exactly. |
 | `as` | string | yes | The output column. Unique, not empty, and not `window_start` or `window_end`. |
 
-**What a window emits.** One event per asset when the asset's *next* window begins, that is, when it sends an event whose ingest time falls in a later window. The event has `window_start` and `window_end` (`ts`), then one column per aggregate: `count` is a `u64`, the rest are `f64` (null when the window saw no value). A null or `NaN` value is skipped. The event replaces the dataset's fields, so later steps see only these columns, and the asset identity stays. Its event time is the window start, its ingest time is the closing event's, and its WAL position is the closing event's frame. Its id is derived from the dataset, asset, window start, size, and column names, so a re-read after a restart gives the same id. The events that fed the window are not emitted.
+**What a window emits.** With `time: ingest`, an asset's window closes when the asset sends an event whose ingest time falls in a later window. With `time: event`, each asset tracks its own watermark (`max_event_time − allowed_lateness`); an out-of-order event within `allowed_lateness` joins its window (so an asset can hold more than one open pane at once), and open windows with `window_end ≤ watermark` close and emit in ascending `window_start` order. The emitted event has `window_start` and `window_end` (`ts`), then one column per aggregate: `count` is a `u64`, the rest are `f64` (null when the window saw no value). A null or `NaN` value is skipped. The event replaces the dataset's fields, so later steps see only these columns, and the asset identity stays. Its event time is the window start, its ingest time is the closing event's, and its WAL position is the closing event's frame. Its id is derived from the dataset, asset, window start, size, and column names, so a re-read after a restart gives the same id. The events that fed the window are not emitted.
 
-**Counters.** Events absorbed into an open window count as `filtered`.
+**Counters and quality.** Events absorbed into an open window, and events with no UTC event time under `time: event` (for example a `monotonic` or `sim` time domain), count as `filtered`. Under `time: event`, an event whose window has already closed (`window_end ≤ watermark`) is dropped without re-emitting and counted as `late` (`thadam_chain_events_total{outcome="late"}`). A window that was open across a WAL gap emits with `quality.status = uncertain` and `quality.reason = "window_gap"`; when `thadam replay` starts after frame 1 (`--from` > 1), the first window opened for each asset emits with `quality.status = uncertain` and `quality.reason = "window_range_start"`.
 
 **Columns reach Parquet only when declared.** The Parquet sink writes the columns the dataset declares, matched by name. A window's output columns are written only if the dataset declares fields with the same names (as in the example above, where the declared fields only exist to name and type the output columns; they read null from the payload). The same holds for columns added by `enrich`.
 
 **Open windows and the cursor.**
 
-- There are no wall-clock timers. Without `idle_close`, an asset's last window stays open until that asset sends another event; nothing is flushed on shutdown. With `idle_close`, another asset's event whose ingest time is at least `idle_close` past the silent asset's last event closes that window (ordered by `(first_pos, asset)` when several close on the same trigger) and releases its hold on the cursor.
+- There are no wall-clock timers. Without `idle_close`, an asset's open windows stay open until that asset sends an event that advances past them; nothing is flushed on shutdown. With `idle_close`, another asset's event whose ingest time is at least `idle_close` past the silent asset's last event closes all of that asset's open windows (ordered by `(first_pos, asset)` across assets and ascending `window_start` within an asset), advances its watermark to the last closed `window_end`, and releases its hold on the cursor.
 - Open windows are kept in memory only. To survive a restart without a new state file, the sink's WAL cursor is **held back**: it never moves to or past the first frame of a window whose aggregate the sink does not hold yet, and a restart re-reads from the cursor to rebuild the windows. Aggregates the sink already holds are skipped, so a restart neither drops an aggregate nor writes one twice.
-- The WAL therefore keeps data for at least the window length, plus the time any asset stays silent (bounded by `idle_close` when other assets in the dataset keep speaking). **Without `idle_close`, a silent asset's open window holds the cursor for every dataset in that sink's chain until the asset speaks again**, so the WAL grows (or, with `on_full: block`, blocks) in the meantime. State is bounded by the chain's per-step state limit (`max_state_keys`, 100,000 assets by default); beyond it, events of further assets are rejected to quarantine with a `transform.failed` reason rather than dropped.
-- If ingest time steps backwards, the event joins its asset's open window.
+- The WAL therefore keeps data for at least the window length (plus `allowed_lateness` under `time: event`), plus the time any asset stays silent (bounded by `idle_close` when other assets in the dataset keep speaking). **Without `idle_close`, a silent asset's open window holds the cursor for every dataset in that sink's chain until the asset speaks again**, so the WAL grows (or, with `on_full: block`, blocks) in the meantime. State is bounded by the chain's per-step state limit (`max_state_keys`, 100,000 assets by default); beyond it, events of further assets are rejected to quarantine with a `transform.failed` reason rather than dropped.
+- Under `time: ingest`, if ingest time steps backwards, the event joins its asset's open window.
 - Restarts are exact for the `window` step itself. A step before it that depends on history (`sample every_n`, `on_change`, dedup) is rebuilt from `warm_start_frames` of history, so a window behind such a step can differ from an uninterrupted run when the history is longer than that. Steps after a `window` start empty after a restart.
 
 **Limits in this release.**
 
 - Only segment sinks (such as `parquet`) support `window`. Building a pipeline that routes a windowed dataset to a batch sink is a configuration error.
-- A WAL gap inside a window is not flagged, and neither is the first window per asset when a range is replayed (`thadam replay` starts empty at the range start). Both produce aggregates over fewer events than the window held.
-- Only ingest time. `first`, `last`, `stddev`, `range`, `delta`, and `rms` are not implemented.
+- Late events under `time: event` are dropped and counted rather than emitting retractions or corrections.
+- Tumbling windows only; `first`, `last`, `stddev`, `range`, `delta`, and `rms` are not implemented.
 
-`thadam validate` checks `size`, the aggregates, and the field types, and the later steps are checked against the window's columns.
+`thadam validate` checks `size`, `time`, `allowed_lateness`, `idle_close`, the aggregates, and the field types, and the later steps are checked against the window's columns.
 
 ## Execution position
 

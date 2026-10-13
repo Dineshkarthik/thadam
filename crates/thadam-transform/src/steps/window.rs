@@ -25,14 +25,14 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use thadam_core::{
-    AssetPath, Event, FieldDef, FieldIdx, FieldType, Payload, Quality, Record, ThadamError, Shape,
-    ShapeRef, TimeDomain, Times, Timestamp, Value, WalPos,
+    AssetPath, Event, FieldDef, FieldIdx, FieldType, Payload, Quality, QualityFlags, QualityStatus,
+    Record, ThadamError, Shape, ShapeRef, TimeDomain, Times, Timestamp, Value, WalPos,
 };
 
 use super::fieldops::step_failed;
 use super::{Compiled, Step, StepCtx, StepResult, config_error, intern};
 use crate::eventid::IdBuf;
-use crate::spec::{AggFn, WindowSpec};
+use crate::spec::{AggFn, WindowSpec, WindowTime};
 
 const START: &str = "window_start";
 const END: &str = "window_end";
@@ -72,22 +72,35 @@ struct Pane {
     index: i64,
     first_pos: WalPos,
     last_ingest_ns: i64,
+    has_gap: bool,
+    range_start: bool,
     accs: Vec<Acc>,
 }
 
-// shortcut: ingest-time tumbling windows only (one open pane per asset, and
-// `idle_close` advances only when another asset speaks); upgrade to event-time
-// watermarks and `allowed_lateness` (design note S2) when out-of-order sources
-// need them.
+#[derive(Debug)]
+struct AssetState {
+    panes: BTreeMap<i64, Pane>,
+    last_ingest_ns: i64,
+    max_event_ns: Option<i64>,
+    watermark_ns: Option<i64>,
+    opened_any: bool,
+}
+
+// shortcut: tumbling windows only (`idle_close` advances only when another
+// asset speaks, and late events are dropped rather than re-emitting); upgrade
+// to sliding windows (design note S4) when overlapping windows are needed.
 #[derive(Debug)]
 struct Window {
     size_ns: i64,
+    time: WindowTime,
+    lateness_ns: i64,
     idle_ns: Option<i64>,
     aggs: Vec<Agg>,
     out: ShapeRef,
     ids: IdBuf,
     cap: usize,
-    panes: HashMap<AssetPath, Pane>,
+    range_start: bool,
+    assets: HashMap<AssetPath, AssetState>,
     /// First positions of the open panes, with how many panes share each.
     open: BTreeMap<u64, usize>,
 }
@@ -122,6 +135,26 @@ pub(super) fn compile(
             ));
             1
         }
+    };
+    let lateness_ns = match spec.allowed_lateness {
+        None => 0,
+        Some(_) if spec.time != WindowTime::Event => {
+            errs.push(config_error(
+                &format!("{path}.allowed_lateness"),
+                "`allowed_lateness` applies only to `time: event` windows",
+            ));
+            0
+        }
+        Some(d) => match i64::try_from(d.0.as_nanos()) {
+            Ok(n) if n >= 0 => n,
+            _ => {
+                errs.push(config_error(
+                    &format!("{path}.allowed_lateness"),
+                    "`allowed_lateness` must fit in 63 bits of nanoseconds",
+                ));
+                0
+            }
+        },
     };
     let idle_ns = match spec.idle_close {
         None => None,
@@ -206,12 +239,15 @@ pub(super) fn compile(
     Ok(Compiled::new(
         Window {
             size_ns,
+            time: spec.time,
+            lateness_ns,
             idle_ns,
             aggs,
             out: out.clone(),
             ids,
             cap: ctx.limits.max_state_keys.max(1),
-            panes: HashMap::new(),
+            range_start: false,
+            assets: HashMap::new(),
             open: BTreeMap::new(),
         },
         out,
@@ -239,28 +275,59 @@ fn accumulate(aggs: &[Agg], accs: &mut [Acc], record: &Record) {
     }
 }
 
-impl Window {
-    fn pane_opened(&mut self, pos: WalPos) {
-        *self.open.entry(pos.get()).or_default() += 1;
-    }
+fn pane_opened(open: &mut BTreeMap<u64, usize>, pos: WalPos) {
+    *open.entry(pos.get()).or_default() += 1;
+}
 
-    fn pane_closed(&mut self, pos: WalPos) {
-        if let Some(n) = self.open.get_mut(&pos.get()) {
-            *n -= 1;
-            if *n == 0 {
-                self.open.remove(&pos.get());
-            }
+fn pane_closed(open: &mut BTreeMap<u64, usize>, pos: WalPos) {
+    if let Some(n) = open.get_mut(&pos.get()) {
+        *n -= 1;
+        if *n == 0 {
+            open.remove(&pos.get());
         }
     }
+}
 
-    fn pane(&self, index: i64, pos: WalPos, ingest_ns: i64, record: &Record) -> Pane {
-        let mut accs = vec![Acc::EMPTY; self.aggs.len()];
-        accumulate(&self.aggs, &mut accs, record);
-        Pane {
-            index,
-            first_pos: pos,
-            last_ingest_ns: ingest_ns,
-            accs,
+fn new_pane(
+    aggs: &[Agg],
+    index: i64,
+    pos: WalPos,
+    ingest_ns: i64,
+    range_start: bool,
+    record: &Record,
+) -> Pane {
+    let mut accs = vec![Acc::EMPTY; aggs.len()];
+    accumulate(aggs, &mut accs, record);
+    Pane {
+        index,
+        first_pos: pos,
+        last_ingest_ns: ingest_ns,
+        has_gap: false,
+        range_start,
+        accs,
+    }
+}
+
+impl Window {
+    fn ensure_room(&mut self) -> bool {
+        if self.assets.len() < self.cap {
+            return true;
+        }
+        let victim = self
+            .assets
+            .iter()
+            .filter(|(_, state)| state.panes.is_empty())
+            .min_by(|(a_path, a_st), (b_path, b_st)| {
+                a_st.last_ingest_ns
+                    .cmp(&b_st.last_ingest_ns)
+                    .then_with(|| a_path.iter().cmp(b_path.iter()))
+            })
+            .map(|(asset, _)| asset.clone());
+        if let Some(asset) = victim {
+            self.assets.remove(&asset);
+            true
+        } else {
+            false
         }
     }
 
@@ -275,17 +342,28 @@ impl Window {
             return Ok(());
         };
         let mut due: Vec<(WalPos, AssetPath)> = self
-            .panes
+            .assets
             .iter()
-            .filter(|&(asset, pane)| {
-                asset != active && trigger_ingest_ns.saturating_sub(pane.last_ingest_ns) >= idle_ns
+            .filter_map(|(asset, state)| {
+                let first_pos = state.panes.values().map(|p| p.first_pos).min()?;
+                (asset != active
+                    && trigger_ingest_ns.saturating_sub(state.last_ingest_ns) >= idle_ns)
+                    .then(|| (first_pos, asset.clone()))
             })
-            .map(|(asset, pane)| (pane.first_pos, asset.clone()))
             .collect();
         due.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.iter().cmp(b.1.iter())));
         for (_, asset) in due {
-            if let Some(done) = self.panes.remove(&asset) {
-                self.pane_closed(done.first_pos);
+            let Some(state) = self.assets.get_mut(&asset) else {
+                continue;
+            };
+            let panes = std::mem::take(&mut state.panes);
+            for idx in panes.keys() {
+                if let Some((_, end)) = bounds(*idx, self.size_ns) {
+                    state.watermark_ns = Some(state.watermark_ns.map_or(end, |w| w.max(end)));
+                }
+            }
+            for (_, done) in panes {
+                pane_closed(&mut self.open, done.first_pos);
                 out.push(self.aggregate(&asset, &done, trigger)?);
             }
         }
@@ -321,13 +399,28 @@ impl Window {
         let times = Times::new(trigger.times().ingest(), TimeDomain::Utc)
             .with_source(Timestamp::from_nanos(start))
             .map_err(|e| step_failed(&e.to_string()))?;
+        let quality = if done.has_gap {
+            Quality {
+                status: QualityStatus::Uncertain,
+                flags: QualityFlags::empty(),
+                reason: Some("window_gap".into()),
+            }
+        } else if done.range_start {
+            Quality {
+                status: QualityStatus::Uncertain,
+                flags: QualityFlags::empty(),
+                reason: Some("window_range_start".into()),
+            }
+        } else {
+            Quality::good()
+        };
         Event::builder(
             self.ids.window_event(asset, start),
             trigger.wal_pos(),
             times,
         )
         .asset(asset.clone())
-        .quality(Quality::good())
+        .quality(quality)
         .payload(Payload::Record(record))
         .build()
         .map_err(|e| step_failed(&e.to_string()))
@@ -340,42 +433,184 @@ impl Step for Window {
             return StepResult::Reject(step_failed("event payload is not a record"));
         };
         let ingest_ns = event.times().ingest().as_nanos();
-        let index = ingest_ns.div_euclid(self.size_ns);
+        let t_ns = match self.time {
+            WindowTime::Ingest => ingest_ns,
+            WindowTime::Event => {
+                let Some(ts) = event.times().event_time() else {
+                    return StepResult::Filtered;
+                };
+                ts.as_nanos()
+            }
+        };
+        let index = t_ns.div_euclid(self.size_ns);
         let pos = event.wal_pos();
         let asset = event.asset();
 
         let mut out = Vec::new();
-        if let Some(pane) = self.panes.get_mut(asset)
-            && index <= pane.index
-        {
-            accumulate(&self.aggs, &mut pane.accs, record);
-            pane.last_ingest_ns = pane.last_ingest_ns.max(ingest_ns);
-        } else {
-            if bounds(index, self.size_ns).is_none() {
-                return StepResult::Reject(step_failed("window bounds overflow a timestamp"));
-            }
-            let next = self.pane(index, pos, ingest_ns, record);
-            if let Some(slot) = self.panes.get_mut(asset) {
-                let done = std::mem::replace(slot, next);
-                self.pane_closed(done.first_pos);
-                self.pane_opened(pos);
-                match self.aggregate(asset, &done, &event) {
-                    Ok(aggregate) => out.push(aggregate),
-                    Err(e) => return StepResult::Reject(e),
+        if self.time == WindowTime::Ingest {
+            let mut closed_pane = None;
+            if let Some(state) = self.assets.get_mut(asset) {
+                if let Some((_, pane)) = state.panes.iter_mut().next()
+                    && index <= pane.index
+                {
+                    accumulate(&self.aggs, &mut pane.accs, record);
+                    pane.last_ingest_ns = pane.last_ingest_ns.max(ingest_ns);
+                    state.last_ingest_ns = state.last_ingest_ns.max(ingest_ns);
+                } else {
+                    if bounds(index, self.size_ns).is_none() {
+                        return StepResult::Reject(step_failed(
+                            "window bounds overflow a timestamp",
+                        ));
+                    }
+                    let is_first = !state.opened_any;
+                    state.opened_any = true;
+                    state.last_ingest_ns = ingest_ns;
+                    let next = new_pane(
+                        &self.aggs,
+                        index,
+                        pos,
+                        ingest_ns,
+                        is_first && self.range_start,
+                        record,
+                    );
+                    if let Some((_, done)) = state.panes.pop_first() {
+                        pane_closed(&mut self.open, done.first_pos);
+                        closed_pane = Some(done);
+                    }
+                    pane_opened(&mut self.open, pos);
+                    state.panes.insert(index, next);
                 }
             } else {
+                if bounds(index, self.size_ns).is_none() {
+                    return StepResult::Reject(step_failed("window bounds overflow a timestamp"));
+                }
                 if let Err(e) = self.close_idle(asset, ingest_ns, &event, &mut out) {
                     return StepResult::Reject(e);
                 }
-                if self.panes.len() >= self.cap {
+                if !self.ensure_room() {
                     return StepResult::Reject(step_failed(&format!(
                         "window state is full: {} assets have an open window",
                         self.cap
                     )));
                 }
-                self.pane_opened(pos);
-                self.panes.insert(asset.clone(), next);
+                let next = new_pane(&self.aggs, index, pos, ingest_ns, self.range_start, record);
+                pane_opened(&mut self.open, pos);
+                let mut panes = BTreeMap::new();
+                panes.insert(index, next);
+                self.assets.insert(
+                    asset.clone(),
+                    AssetState {
+                        panes,
+                        last_ingest_ns: ingest_ns,
+                        max_event_ns: None,
+                        watermark_ns: None,
+                        opened_any: true,
+                    },
+                );
                 return StepResult::Emit(out);
+            }
+            if let Some(done) = closed_pane {
+                match self.aggregate(asset, &done, &event) {
+                    Ok(aggregate) => out.push(aggregate),
+                    Err(e) => return StepResult::Reject(e),
+                }
+            }
+            if let Err(e) = self.close_idle(asset, ingest_ns, &event, &mut out) {
+                return StepResult::Reject(e);
+            }
+            return StepResult::Emit(out);
+        }
+
+        let Some((_, end)) = bounds(index, self.size_ns) else {
+            return StepResult::Reject(step_failed("window bounds overflow a timestamp"));
+        };
+        let mut closed = Vec::new();
+        let mut late = false;
+        if let Some(state) = self.assets.get_mut(asset) {
+            let max_ev = state.max_event_ns.map_or(t_ns, |m| m.max(t_ns));
+            state.max_event_ns = Some(max_ev);
+            let wm = max_ev.saturating_sub(self.lateness_ns);
+            let watermark_ns = state.watermark_ns.map_or(wm, |w| w.max(wm));
+            state.watermark_ns = Some(watermark_ns);
+            if end <= watermark_ns {
+                late = true;
+            } else {
+                if state.panes.is_empty() {
+                    state.last_ingest_ns = ingest_ns;
+                } else {
+                    state.last_ingest_ns = state.last_ingest_ns.max(ingest_ns);
+                }
+                if let Some(pane) = state.panes.get_mut(&index) {
+                    accumulate(&self.aggs, &mut pane.accs, record);
+                    pane.last_ingest_ns = pane.last_ingest_ns.max(ingest_ns);
+                } else {
+                    let is_first = !state.opened_any;
+                    state.opened_any = true;
+                    let next = new_pane(
+                        &self.aggs,
+                        index,
+                        pos,
+                        ingest_ns,
+                        is_first && self.range_start,
+                        record,
+                    );
+                    pane_opened(&mut self.open, pos);
+                    state.panes.insert(index, next);
+                }
+                while let Some((&idx, _)) = state.panes.first_key_value() {
+                    let Some((_, pane_end)) = bounds(idx, self.size_ns) else {
+                        break;
+                    };
+                    if pane_end > watermark_ns {
+                        break;
+                    }
+                    if let Some((_, done)) = state.panes.pop_first() {
+                        pane_closed(&mut self.open, done.first_pos);
+                        closed.push(done);
+                    }
+                }
+            }
+        } else {
+            if let Err(e) = self.close_idle(asset, ingest_ns, &event, &mut out) {
+                return StepResult::Reject(e);
+            }
+            if !self.ensure_room() {
+                return StepResult::Reject(step_failed(&format!(
+                    "window state is full: {} assets have an open window",
+                    self.cap
+                )));
+            }
+            let next = new_pane(&self.aggs, index, pos, ingest_ns, self.range_start, record);
+            pane_opened(&mut self.open, pos);
+            let mut panes = BTreeMap::new();
+            panes.insert(index, next);
+            self.assets.insert(
+                asset.clone(),
+                AssetState {
+                    panes,
+                    last_ingest_ns: ingest_ns,
+                    max_event_ns: Some(t_ns),
+                    watermark_ns: Some(t_ns.saturating_sub(self.lateness_ns)),
+                    opened_any: true,
+                },
+            );
+            return StepResult::Emit(out);
+        }
+
+        if late {
+            if let Err(e) = self.close_idle(asset, ingest_ns, &event, &mut out) {
+                return StepResult::Reject(e);
+            }
+            if out.is_empty() {
+                return StepResult::Late;
+            }
+            return StepResult::Emit(out);
+        }
+
+        for done in closed {
+            match self.aggregate(asset, &done, &event) {
+                Ok(aggregate) => out.push(aggregate),
+                Err(e) => return StepResult::Reject(e),
             }
         }
         if let Err(e) = self.close_idle(asset, ingest_ns, &event, &mut out) {
@@ -390,6 +625,18 @@ impl Step for Window {
 
     fn windowed(&self) -> bool {
         true
+    }
+
+    fn on_gap(&mut self) {
+        for state in self.assets.values_mut() {
+            for pane in state.panes.values_mut() {
+                pane.has_gap = true;
+            }
+        }
+    }
+
+    fn mark_range_start(&mut self) {
+        self.range_start = true;
     }
 }
 
@@ -752,10 +999,174 @@ mod tests {
     }
 
     #[test]
+    fn event_time_windows_allow_lateness_and_drop_late_and_timeless_events() {
+        let mut step = build(json!({
+            "size": "10s",
+            "time": "event",
+            "allowed_lateness": "5s",
+            "aggregates": [
+                { "field": "temp", "fn": "count", "as": "n" },
+                { "field": "temp", "fn": "sum", "as": "sum" },
+            ],
+        }))
+        .unwrap();
+
+        let mk = |robot: &str, ingest_s: i64, event_s: Option<i64>, pos: u64, v: f64| {
+            let mut times = Times::new(
+                Timestamp::from_secs(ingest_s).unwrap(),
+                if event_s.is_some() {
+                    TimeDomain::Utc
+                } else {
+                    TimeDomain::Monotonic
+                },
+            );
+            if let Some(es) = event_s {
+                times = times
+                    .with_source(Timestamp::from_secs(es).unwrap())
+                    .unwrap();
+            }
+            Event::builder(
+                thadam_core::EventId::from_u128(pos as u128),
+                WalPos::new(pos),
+                times,
+            )
+            .asset(AssetPath::new([("robot", robot)]).unwrap())
+            .payload(Record::new(input(), vec![Value::F64(v), Value::Null, Value::Null]).unwrap())
+            .build()
+            .unwrap()
+        };
+
+        assert!(matches!(
+            step.apply(mk("a", 1, None, 1, 99.0)),
+            StepResult::Filtered
+        ));
+        assert_eq!(step.hold(), None);
+
+        // Event at t=8s opens [0, 10), watermark = 3s.
+        let StepResult::Emit(out) = step.apply(mk("a", 2, Some(8), 2, 10.0)) else {
+            panic!()
+        };
+        assert!(out.is_empty());
+        assert_eq!(step.hold().map(WalPos::get), Some(2));
+
+        // Event at t=12s opens [10, 20), watermark = 7s (< 10s, so [0, 10) stays open).
+        let StepResult::Emit(out) = step.apply(mk("a", 3, Some(12), 3, 20.0)) else {
+            panic!()
+        };
+        assert!(out.is_empty());
+        assert_eq!(step.hold().map(WalPos::get), Some(2));
+
+        // Out-of-order event at t=6s (within 5s lateness) joins [0, 10).
+        let StepResult::Emit(out) = step.apply(mk("a", 4, Some(6), 4, 5.0)) else {
+            panic!()
+        };
+        assert!(out.is_empty());
+
+        // Event at t=15s advances watermark to 10s, closing [0, 10).
+        let StepResult::Emit(out) = step.apply(mk("a", 5, Some(15), 5, 30.0)) else {
+            panic!()
+        };
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            col(&out[0], "window_start"),
+            &Value::Ts(Timestamp::from_secs(0).unwrap())
+        );
+        assert_eq!(col(&out[0], "n"), &Value::U64(2));
+        assert_eq!(col(&out[0], "sum"), &Value::F64(15.0));
+        assert_eq!(step.hold().map(WalPos::get), Some(3));
+
+        // Late event at t=9s (window [0, 10) has end 10s <= watermark 10s) is dropped as Late.
+        assert!(matches!(
+            step.apply(mk("a", 6, Some(9), 6, 100.0)),
+            StepResult::Late
+        ));
+        assert_eq!(step.hold().map(WalPos::get), Some(3));
+    }
+
+    #[test]
+    fn on_gap_and_mark_range_start_flag_affected_windows_uncertain() {
+        let mut step = build(temp_stats()).unwrap();
+        step.mark_range_start();
+
+        assert!(temp(&mut step, "a", 1, 1, 1.0).is_empty());
+        assert!(temp(&mut step, "b", 2, 2, 2.0).is_empty());
+        let first_a = &temp(&mut step, "a", 11, 3, 3.0)[0];
+        assert_eq!(first_a.quality().status, QualityStatus::Uncertain);
+        assert_eq!(
+            first_a.quality().reason.as_deref(),
+            Some("window_range_start")
+        );
+
+        let second_a = &temp(&mut step, "a", 21, 4, 4.0)[0];
+        assert_eq!(second_a.quality().status, QualityStatus::Good);
+        assert_eq!(second_a.quality().reason, None);
+
+        // A gap while a's [20, 30) and b's first [0, 10) are open marks both window_gap.
+        step.on_gap();
+        assert!(temp(&mut step, "c", 22, 5, 5.0).is_empty());
+        let gapped_a = &temp(&mut step, "a", 31, 6, 6.0)[0];
+        assert_eq!(gapped_a.quality().status, QualityStatus::Uncertain);
+        assert_eq!(gapped_a.quality().reason.as_deref(), Some("window_gap"));
+
+        let gapped_b = &temp(&mut step, "b", 12, 7, 7.0)[0];
+        assert_eq!(gapped_b.quality().status, QualityStatus::Uncertain);
+        assert_eq!(
+            gapped_b.quality().reason.as_deref(),
+            Some("window_gap"),
+            "window_gap takes precedence over window_range_start"
+        );
+
+        let post_gap_a = &temp(&mut step, "a", 41, 8, 8.0)[0];
+        assert_eq!(post_gap_a.quality().status, QualityStatus::Good);
+    }
+
+    #[test]
+    fn idle_close_on_event_time_advances_watermark_and_frees_capacity() {
+        let limits = ChainLimits::default().with_max_state_keys(1);
+        let spec: WindowSpec = serde_json::from_value(json!({
+            "size": "10s",
+            "time": "event",
+            "allowed_lateness": "5s",
+            "idle_close": "20s",
+            "aggregates": [{ "field": "temp", "fn": "sum", "as": "sum" }],
+        }))
+        .unwrap();
+        let mut step = with_ctx_limits(&limits, |ctx| {
+            compile(&spec, ctx, &input(), "t").map(|c| c.step)
+        })
+        .unwrap();
+
+        let mk = |robot: &str, ingest_s: i64, event_s: i64, pos: u64, v: f64| {
+            let times = Times::new(Timestamp::from_secs(ingest_s).unwrap(), TimeDomain::Utc)
+                .with_source(Timestamp::from_secs(event_s).unwrap())
+                .unwrap();
+            Event::builder(
+                thadam_core::EventId::from_u128(pos as u128),
+                WalPos::new(pos),
+                times,
+            )
+            .asset(AssetPath::new([("robot", robot)]).unwrap())
+            .payload(Record::new(input(), vec![Value::F64(v), Value::Null, Value::Null]).unwrap())
+            .build()
+            .unwrap()
+        };
+
+        assert!(matches!(step.apply(mk("a", 1, 2, 1, 10.0)), StepResult::Emit(v) if v.is_empty()));
+        // Another asset triggers idle_close on `a` (at cap=1) and opens its own window.
+        let StepResult::Emit(out) = step.apply(mk("b", 25, 25, 2, 20.0)) else {
+            panic!("idle-closed slot should be reused at cap=1")
+        };
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].asset().get("robot"), Some("a"));
+        assert_eq!(step.hold().map(WalPos::get), Some(2));
+    }
+
+    #[test]
     fn config_errors() {
         let bad = [
             json!({ "size": "0s", "aggregates": [{ "field": "temp", "fn": "sum", "as": "s" }] }),
             json!({ "size": "10s", "idle_close": "0s", "aggregates": [{ "field": "temp", "fn": "sum", "as": "s" }] }),
+            json!({ "size": "10s", "allowed_lateness": "5s", "aggregates": [{ "field": "temp", "fn": "sum", "as": "s" }] }),
             json!({ "size": "10s", "aggregates": [] }),
             json!({ "size": "10s", "aggregates": [{ "field": "nope", "fn": "sum", "as": "s" }] }),
             json!({ "size": "10s", "aggregates": [{ "field": "note", "fn": "sum", "as": "s" }] }),

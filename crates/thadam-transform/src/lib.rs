@@ -114,9 +114,10 @@ pub use dataset::DatasetStats;
 pub use input::{FrameInput, RawRecordView, RejectedRaw};
 pub use limits::ChainLimits;
 pub use spec::{
-    ChainSpec, Count, DatasetSelector, DatasetSpec, DecodeSpec, DedupSpec, EnrichFieldSpec,
-    EnrichKeySpec, EnrichSpec, EventIdSpec, ExplodeSpec, FieldSpec, FilterSpec, HumanDuration,
-    IdentitySpec, Lit, MatchSpec, OnChangeSpec, OnMiss, PredicateSpec, ProjectSpec, RenameSpec,
-    RuleSpec, SampleSpec, TimeSpec, TransformSpec, ValidateSpec, WatchSpec, parse_field_type,
+    AggFn, AggregateSpec, ChainSpec, Count, DatasetSelector, DatasetSpec, DecodeSpec, DedupSpec,
+    EnrichFieldSpec, EnrichKeySpec, EnrichSpec, EventIdSpec, ExplodeSpec, FieldSpec, FilterSpec,
+    HumanDuration, IdentitySpec, Lit, MatchSpec, OnChangeSpec, OnMiss, PredicateSpec, ProjectSpec,
+    RenameSpec, RuleSpec, SampleSpec, TimeSpec, TransformSpec, ValidateSpec, WatchSpec, WindowSpec,
+    WindowTime, parse_field_type,
 };
 pub use steps::EnrichmentInfo;

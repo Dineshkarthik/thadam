@@ -17,7 +17,7 @@ use crate::spans::Anchor;
 use crate::spec::{
     AggregateSpec, CONFIG_VERSION, ConnectorSpec, DatasetSpec, EnrichFieldSpec, EnrichFormat,
     EnrichKeySpec, IdentityLevel, ObservabilitySpec, OnMissSpec, PipelineMeta, QuarantineSpec,
-    RuntimeSpec, SinkSpec, TransformSpec, ValidateRule, WalSpec, WatchField,
+    RuntimeSpec, SinkSpec, TransformSpec, ValidateRule, WalSpec, WatchField, WindowTime,
 };
 
 /// The top-level keys, in document order.
@@ -668,6 +668,10 @@ struct WindowRaw {
     sinks: Option<Vec<String>>,
     size: DurationSpec,
     #[serde(default)]
+    time: WindowTime,
+    #[serde(default)]
+    allowed_lateness: Option<DurationSpec>,
+    #[serde(default)]
     idle_close: Option<DurationSpec>,
     aggregates: Vec<AggregateSpec>,
 }
@@ -838,6 +842,8 @@ fn parse_transform(item: &Value, base: &PathVec, ctx: &mut Ctx<'_>) -> Option<Tr
                 dataset: raw.dataset,
                 sinks: raw.sinks,
                 size: raw.size,
+                time: raw.time,
+                allowed_lateness: raw.allowed_lateness,
                 idle_close: raw.idle_close,
                 aggregates: raw.aggregates,
             })

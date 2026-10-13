@@ -534,3 +534,180 @@ async fn idle_close_emits_the_silent_asset_and_releases_the_cursor() {
     assert_eq!(summary(&kit).len(), 4);
     assert_eq!(cursor(&again.status, "out"), 9);
 }
+
+type SeenRow = (u64, String, thadam_core::QualityStatus, Option<String>);
+
+#[derive(Clone, Default)]
+struct SeenQualities(Arc<std::sync::Mutex<Vec<SeenRow>>>);
+
+struct QualitySink(SeenQualities);
+
+#[async_trait]
+impl SegmentSink for QualitySink {
+    async fn recover(&mut self, _ctx: &SinkContext) -> Result<Option<WalPos>, ThadamError> {
+        Ok(None)
+    }
+
+    async fn append(&mut self, batch: SegmentBatch) -> Result<Vec<Reject>, ThadamError> {
+        let mut guard = lock(&self.0.0);
+        for (_, e) in batch.events() {
+            let robot = e.asset().get("robot").unwrap_or("").to_owned();
+            let q = e.quality();
+            guard.push((
+                e.wal_pos().get(),
+                robot,
+                q.status,
+                q.reason.as_ref().map(|s| s.to_string()),
+            ));
+        }
+        Ok(Vec::new())
+    }
+
+    async fn poll_commit(&mut self) -> Result<Option<WalPos>, ThadamError> {
+        Ok(None)
+    }
+
+    async fn finalize_all(&mut self) -> Result<Option<WalPos>, ThadamError> {
+        Ok(None)
+    }
+
+    fn cursor_committed(&mut self, _pos: WalPos) {}
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn range_replay_and_wal_gaps_flag_uncertain_windows() {
+    use thadam_core::QualityStatus;
+    use thadam_runtime::{ReplayOutput, ReplayRequest, replay};
+
+    let dir = TempDataDir::new().unwrap();
+    let kit = Kit::default();
+    let msgs: [Msg; 6] = [
+        ("a", 1, 1),
+        ("b", 2, 2),
+        ("a", 3, 3),
+        ("a", 12, 4),
+        ("b", 13, 5),
+        ("a", 25, 6),
+    ];
+    let y = format!(
+        r#"version: 1
+pipeline: {{ name: test, node_id: node-1, data_dir: "{dir}" }}
+sources:
+  - {{ id: src, kind: memory }}
+wal: {{ max_disk: 64MiB, segment_bytes: 1MiB, fsync: {{ interval: 1ms }}, on_full: block, retain_for: 1h }}
+datasets:
+  - id: d
+    match: {{ source: src }}
+    decode: json
+    identity: {{ robot: {{ id: 100, template: "{{topic.1}}" }} }}
+    fields:
+      - {{ id: 1000, name: v, type: f64, from: /v }}
+transforms:
+  - {{ kind: window, dataset: d, sinks: [out], size: 10s, aggregates: [{{ field: v, fn: count, as: n }}] }}
+sinks:
+  - {{ id: out, kind: recseg, config: {{ frames_per_file: 1 }} }}
+  - {{ id: raw, kind: recseg, config: {{ frames_per_file: 1 }} }}
+"#,
+        dir = dir.path().display()
+    );
+
+    feed(&kit, &msgs[..3]);
+    let first = run_to_end(&kit, spec(&y), per_frame()).await;
+    assert_eq!(first.exit, ExitStatus::Ok, "{:#?}", first.status);
+    assert_eq!(cursor(&first.status, "raw"), 3);
+
+    // Tear the last byte of segment 1 (frame 3) as in an un-fsynced power loss;
+    // `out` had not flushed anything yet (`files` cleared). On the next open,
+    // recovery truncates frame 3 and skips position 3 because `raw`'s cursor is
+    // at 3, leaving a Missing gap at frame 3 before frames 4..=6.
+    lock(&kit.rec.store("out").0).files.clear();
+    let seg1 = dir.path().join("wal/segments/00000000000000000001.seg");
+    let mut bytes = std::fs::read(&seg1).unwrap();
+    let last_idx = bytes.len() - 1;
+    bytes[last_idx] ^= 0xff;
+    std::fs::write(&seg1, &bytes).unwrap();
+
+    feed(&kit, &msgs[3..]);
+    let second = run_to_end(&kit, spec(&y), per_frame()).await;
+    assert_eq!(second.exit, ExitStatus::Ok, "{:#?}", second.status);
+    assert!(component(&second.status, "chain:out").counters.gaps >= 1);
+
+    // Replay from frame 1 sees the gap at frame 3: windows open across the gap
+    // (a's [0, 10) closed at frame 4, b's [0, 10) closed at frame 5) carry
+    // `window_gap`, while a's [10, 20) opened at frame 4 after the gap is Good.
+    let gap_seen = SeenQualities::default();
+    let rep_gap = replay(
+        &spec(&y),
+        &kit.registry(),
+        per_frame(),
+        ReplayRequest::new("out", WalPos::new(1), "from-one")
+            .output(ReplayOutput::Sink(Box::new(QualitySink(gap_seen.clone())))),
+    )
+    .await
+    .unwrap();
+    assert_eq!(rep_gap.gaps, 1);
+    assert_eq!(
+        lock(&gap_seen.0).as_slice(),
+        &[
+            (
+                4,
+                "a".to_owned(),
+                QualityStatus::Uncertain,
+                Some("window_gap".to_owned())
+            ),
+            (
+                5,
+                "b".to_owned(),
+                QualityStatus::Uncertain,
+                Some("window_gap".to_owned())
+            ),
+            (6, "a".to_owned(), QualityStatus::Good, None),
+        ]
+    );
+
+    // On a clean WAL, replaying from `from > 1` flags the first window of each
+    // asset with `window_range_start` and leaves subsequent windows `Good`.
+    let clean_dir = TempDataDir::new().unwrap();
+    let clean_kit = Kit::default();
+    let clean_msgs: [Msg; 6] = [
+        ("a", 1, 1),
+        ("a", 2, 2),
+        ("b", 3, 3),
+        ("a", 12, 4),
+        ("b", 13, 5),
+        ("a", 25, 6),
+    ];
+    let clean = run(&clean_kit, clean_dir.path(), &clean_msgs, per_frame()).await;
+    assert_eq!(clean.exit, ExitStatus::Ok);
+
+    let range_seen = SeenQualities::default();
+    let rep_range = replay(
+        &spec(&config(clean_dir.path())),
+        &clean_kit.registry(),
+        per_frame(),
+        ReplayRequest::new("out", WalPos::new(2), "from-two").output(ReplayOutput::Sink(Box::new(
+            QualitySink(range_seen.clone()),
+        ))),
+    )
+    .await
+    .unwrap();
+    assert_eq!(rep_range.gaps, 0);
+    assert_eq!(
+        lock(&range_seen.0).as_slice(),
+        &[
+            (
+                4,
+                "a".to_owned(),
+                QualityStatus::Uncertain,
+                Some("window_range_start".to_owned())
+            ),
+            (
+                5,
+                "b".to_owned(),
+                QualityStatus::Uncertain,
+                Some("window_range_start".to_owned())
+            ),
+            (6, "a".to_owned(), QualityStatus::Good, None),
+        ]
+    );
+}

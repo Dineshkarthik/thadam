@@ -361,3 +361,131 @@ fn idle_close_releases_a_silent_asset_and_restarts_match_the_continuous_run() {
         }
     }
 }
+
+fn event_time_chain() -> Chain {
+    let spec = json!({
+        "datasets": [{
+            "id": "d",
+            "match": { "source": SOURCE },
+            "decode": "json",
+            "identity": [{ "robot": "{topic.3}" }],
+            "time": { "field": "/ts_s", "unit": "s", "domain": "utc" },
+            "fields": [{ "name": "v", "type": "f64" }],
+        }],
+        "transforms": [{
+            "kind": "window",
+            "dataset": "d",
+            "size": "10s",
+            "time": "event",
+            "allowed_lateness": "15s",
+            "aggregates": [
+                { "field": "v", "fn": "count", "as": "n" },
+                { "field": "v", "fn": "sum", "as": "sum" },
+            ],
+        }],
+    });
+    Chain::compile(
+        &ChainSpec::from_value(spec).unwrap(),
+        ChainLimits::default(),
+    )
+    .unwrap()
+}
+
+/// Out-of-order event times across three robots: jitter up to +-18s around a
+/// rising trend so each robot keeps multiple panes open at once and also emits
+/// some late events beyond the 15s lateness budget.
+fn out_of_order_script() -> Frames {
+    let mut frames = Frames::new();
+    let mut seed = 19u64;
+    for i in 0..FRAMES {
+        seed = seed
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        let robot = ["a", "b", "c"][(seed >> 33) as usize % 3];
+        let base_s = (i as i64) * 2 + 20;
+        let jitter = ((seed >> 40) % 37) as i64 - 18;
+        let ts_s = (base_s + jitter).max(0);
+        let payload = json!({ "ts_s": ts_s, "v": (i + 1) as f64 }).to_string();
+        let msg = message(&topic(robot, "x"), payload, (i as i64 + 1) * 1_000_000);
+        frames.records.push((i + 1, 0, msg));
+    }
+    frames
+}
+
+#[test]
+fn event_time_out_of_order_late_counts_and_restart_equivalence() {
+    let frames = out_of_order_script();
+    let mut whole_chain = event_time_chain();
+    let all = process_by_frame(&mut whole_chain, &frames, 1, FRAMES);
+    assert!(all.len() > 8, "{} aggregates", all.len());
+    let stats = &whole_chain.stats().datasets[0].1;
+    assert!(stats.late > 0, "script includes late events: {stats:?}");
+
+    let mut c = event_time_chain();
+    let mut holds = vec![None];
+    for pos in 1..=FRAMES {
+        run(&mut c, &range(&frames, pos, pos));
+        holds.push(c.hold().map(WalPos::get));
+    }
+
+    for m in 0..=FRAMES {
+        let allowed = holds[m as usize].map_or(m, |h| h - 1);
+        for cursor in [allowed, allowed / 2, 0] {
+            let mut second = event_time_chain();
+            warm(&mut second, &range(&frames, 1, cursor));
+            let rerun = process_by_frame(&mut second, &frames, cursor + 1, FRAMES);
+            let delivered = all.iter().filter(|e| e.wal_pos().get() <= m);
+            let got: Vec<_> = delivered
+                .chain(rerun.iter().filter(|e| e.wal_pos().get() > m))
+                .map(key)
+                .collect();
+            assert_eq!(got, keys(&all), "m={m} cursor={cursor}");
+        }
+    }
+}
+
+#[test]
+fn event_time_excludes_non_utc_and_flags_gap_and_range_start() {
+    let monotonic = ChainSpec::from_value(json!({
+        "datasets": [{
+            "id": "d",
+            "match": { "source": SOURCE },
+            "decode": "json",
+            "identity": [{ "robot": "{topic.3}" }],
+            "time": { "field": "/ts_s", "unit": "s", "domain": "monotonic" },
+            "fields": [{ "name": "v", "type": "f64" }],
+        }],
+        "transforms": [{
+            "kind": "window",
+            "dataset": "d",
+            "size": "10s",
+            "time": "event",
+            "aggregates": [{ "field": "v", "fn": "count", "as": "n" }],
+        }],
+    }))
+    .unwrap();
+    let mut mono_chain = Chain::compile(&monotonic, ChainLimits::default()).unwrap();
+    let mut f = Frames::new();
+    f.records
+        .push((1, 0, message(&topic("a", "x"), r#"{"ts_s":1,"v":1.0}"#, 1)));
+    f.records
+        .push((2, 0, message(&topic("a", "x"), r#"{"ts_s":20,"v":2.0}"#, 2)));
+    assert!(run(&mut mono_chain, &f).events("d").is_empty());
+    assert_eq!(mono_chain.stats().datasets[0].1.filtered, 2);
+
+    let mut c = chain();
+    c.mark_range_start();
+    let frames = script();
+    let first = process_by_frame(&mut c, &frames, 1, 15);
+    c.on_gap();
+    let rest = process_by_frame(&mut c, &frames, 16, FRAMES);
+    let all: Vec<_> = first.into_iter().chain(rest).collect();
+    assert!(
+        all.iter()
+            .any(|e| e.quality().reason.as_deref() == Some("window_range_start"))
+    );
+    assert!(
+        all.iter()
+            .any(|e| e.quality().reason.as_deref() == Some("window_gap"))
+    );
+}

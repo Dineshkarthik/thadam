@@ -1181,6 +1181,20 @@ pub struct AggregateSpec {
     pub name: String,
 }
 
+/// Which timestamp a `window` step assigns events to windows and advances the
+/// watermark by.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum WindowTime {
+    /// WAL ingest time.
+    #[default]
+    Ingest,
+    /// UTC event time (`Times::event_time()`); events without one are dropped
+    /// and counted as `filtered`.
+    Event,
+}
+
 fn is_default<T: Default + PartialEq>(v: &T) -> bool {
     *v == T::default()
 }
@@ -1373,6 +1387,14 @@ pub enum TransformSpec {
         sinks: Option<Vec<String>>,
         /// The window length; greater than zero.
         size: DurationSpec,
+        /// Which timestamp assigns an event to a window and advances the
+        /// watermark; `ingest` when absent.
+        #[serde(default, skip_serializing_if = "is_default")]
+        time: WindowTime,
+        /// How far behind the asset's maximum event time a window stays open
+        /// (`time: event` only; `0s` when absent).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        allowed_lateness: Option<DurationSpec>,
         /// Closes a silent asset's open window once another asset advances ingest time by this much; greater than zero.
         #[serde(skip_serializing_if = "Option::is_none")]
         idle_close: Option<DurationSpec>,

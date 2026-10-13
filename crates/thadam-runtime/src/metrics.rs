@@ -53,7 +53,7 @@ pub enum MetricEvent<'a> {
         sink: &'a str,
         /// The dataset.
         dataset: &'a str,
-        /// What became of the events: `written`, `filtered`, `deduped`,
+        /// What became of the events: `written`, `filtered`, `late`, `deduped`,
         /// `rejected`, or `exploded`. A compile-time string, so the label
         /// stays bounded.
         outcome: &'static str,
