@@ -6,7 +6,7 @@ Concretely, Thadam is a single Rust binary that runs next to your data producers
 
 1. **Capture.** Messages from sources such as MQTT brokers are appended to a local, durable write-ahead log (WAL) and flushed to disk *before* the source is acknowledged. Acknowledged data survives a process crash when `fsync` is enabled ([claims register](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0011-delivery-guarantees-and-claims-register.md)).
 2. **Process.** Each sink reads the log independently: messages are decoded, normalized into typed, declared datasets *while keeping device identity, time domains, and data quality as first-class columns*.
-3. **Deliver.** Processed datasets are written as Parquet segment files and shipped to S3-compatible object storage. ClickHouse is the first analytical database sink (P1, in progress). While a downstream system is unavailable, data stays in the local log within the configured disk budget, and delivery resumes when it returns; the [delivery guarantees](concepts/delivery-guarantees.md) page gives the conditions.
+3. **Deliver.** Processed datasets are written as Parquet segment files and shipped to S3-compatible object storage. ClickHouse is the first analytical database sink (P1, <span class="pill">Available</span>, outside the M1 reliability gate). While a downstream system is unavailable, data stays in the local log within the configured disk budget, and delivery resumes when it returns; the [delivery guarantees](concepts/delivery-guarantees.md) page gives the conditions.
 
 Thadam is open source (Apache-2.0), Rust-first, and designed for the edge: unreliable networks, limited CPU and memory, intermittent power, and long periods of disconnection. Durability is a design input, not a bolt-on: the delivery guarantees Thadam makes (and the ones it explicitly refuses to make) are recorded in [ADR-0011](design/index.md) and every public claim is gated on benchmark or spike evidence.
 
@@ -34,7 +34,7 @@ Thadam's scope is defined as much by what it refuses to be as by what it does. F
 - a video storage or video analytics platform (events may *reference* large media as object URIs, but media bytes do not travel in the telemetry path);
 - a managed cloud platform, a GUI, or proprietary vendor lock-in.
 
-For the current milestone (M1 / MVP v0.1) that boundary narrows further: no HTTP/gRPC/OPC UA/CAN/Modbus connectors yet, no Iceberg or Delta, no windowing or aggregation, no MQTT publishing, no hot configuration reload, no dynamic plugins, and no Python SDK. These are sequenced in the [roadmap](roadmap.md).
+For the current milestone (M1 / MVP v0.1), the reliability gate covers MQTT, the capture WAL, Parquet, S3-compatible storage, and replay. Other sources, sinks, and processing steps are built outside that gate, and some are experimental; the [roadmap](roadmap.md) gives each one's status. Still not built: Delta Lake, hot configuration reload, and dynamic plugins.
 
 ## Project status
 

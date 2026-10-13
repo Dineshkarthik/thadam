@@ -104,7 +104,7 @@
             <ul class="flow-list" aria-label="Sources">
               <li class="flow-node"><strong>MQTT</strong><span class="flow-detail">Persistent sessions, ack after WAL commit</span><span class="pill">Available</span></li>
               <li class="flow-node"><strong>ROS 2 recordings</strong><span class="flow-detail">MCAP, offline</span><span class="pill">Available</span></li>
-              <li class="flow-node"><strong>ROS 2 live</strong><span class="flow-detail">Transport chosen by spike S3</span><span class="pill pill-progress">In progress</span></li>
+              <li class="flow-node"><strong>ROS 2 live</strong><span class="flow-detail">Experimental, opt-in <code>ros2-live</code> build feature</span><span class="pill pill-progress">In progress</span></li>
               <li class="flow-node"><strong>HTTP</strong><span class="pill">Available</span></li>
               <li class="flow-node"><strong>gRPC</strong><span class="pill">Available</span></li>
               <li class="flow-node"><strong>Modbus TCP</strong><span class="pill">Available</span></li>
@@ -135,8 +135,12 @@
             <ul class="flow-list" aria-label="Sinks">
               <li class="flow-node"><span class="flow-tier">P0</span><strong>Local Parquet segments</strong><span class="pill">Available</span></li>
               <li class="flow-node"><span class="flow-tier">P0</span><strong>S3-compatible object storage</strong><span class="pill">Available</span><span class="flow-detail">Chaos verification pending</span></li>
-              <li class="flow-node flow-node-dashed"><span class="flow-tier">P1</span><strong>ClickHouse</strong><span class="pill pill-progress">In progress</span><span class="flow-detail">Outside the M1 reliability gate</span></li>
-              <li class="flow-node flow-node-dotted"><span class="flow-tier">P2</span><strong>Iceberg and managed destinations</strong><span class="pill pill-planned">Planned</span></li>
+              <li class="flow-node flow-node-dashed"><span class="flow-tier">P1</span><strong>ClickHouse</strong><span class="pill">Available</span><span class="flow-detail">Outside the M1 reliability gate</span></li>
+              <li class="flow-node"><span class="flow-tier">P2</span><strong>Iceberg</strong><span class="pill pill-progress">In progress</span><span class="flow-detail">Experimental, opt-in <code>iceberg</code> build feature</span></li>
+              <li class="flow-node flow-node-dotted"><span class="flow-tier">P2</span><strong>Managed destinations</strong><span class="pill pill-planned">Planned</span></li>
+              <li class="flow-node"><strong>Apache Kafka</strong><span class="pill">Available</span></li>
+              <li class="flow-node"><strong>NATS JetStream</strong><span class="pill">Available</span></li>
+              <li class="flow-node"><strong>MQTT publish</strong><span class="pill">Available</span></li>
             </ul>
           </div>
         </div>
@@ -158,11 +162,13 @@
             <tr><td>Source</td><td>ROS 2 offline recordings (MCAP)</td><td><span class="pill">Available</span></td></tr>
             <tr><td>Source</td><td>HTTP, gRPC, Modbus TCP, SocketCAN</td><td><span class="pill">Available</span></td></tr>
             <tr><td>Source</td><td>OPC UA, behind the opt-in <code>opcua</code> build feature</td><td><span class="pill">Available</span></td></tr>
-            <tr><td>Source</td><td>Live ROS 2 transport</td><td><span class="pill pill-progress">In progress</span> <span class="status-note">spike S3</span></td></tr>
+            <tr><td>Source</td><td>Live ROS 2 transport (rmw_zenoh)</td><td><span class="pill pill-progress">In progress</span> <span class="status-note">experimental, opt-in build feature</span></td></tr>
             <tr><td>Sink (P0)</td><td>Local Parquet segments</td><td><span class="pill">Available</span></td></tr>
             <tr><td>Sink (P0)</td><td>S3-compatible object storage</td><td><span class="pill">Available</span> <span class="status-note">chaos verification pending</span></td></tr>
-            <tr><td>Sink (P1)</td><td>ClickHouse</td><td><span class="pill pill-progress">In progress</span> <span class="status-note">outside the M1 reliability gate</span></td></tr>
-            <tr><td>Sink (P2)</td><td>Iceberg and managed destinations</td><td><span class="pill pill-planned">Planned</span></td></tr>
+            <tr><td>Sink (P1)</td><td>ClickHouse</td><td><span class="pill">Available</span> <span class="status-note">outside the M1 reliability gate</span></td></tr>
+            <tr><td>Sink (P2)</td><td>Iceberg, behind the opt-in <code>iceberg</code> build feature</td><td><span class="pill pill-progress">In progress</span> <span class="status-note">experimental</span></td></tr>
+            <tr><td>Sink (P2)</td><td>Managed destinations</td><td><span class="pill pill-planned">Planned</span></td></tr>
+            <tr><td>Sink</td><td>Apache Kafka, NATS JetStream, MQTT publish</td><td><span class="pill">Available</span></td></tr>
           </tbody>
         </table>
       </div>

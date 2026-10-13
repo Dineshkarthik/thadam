@@ -66,6 +66,9 @@ The overall verdict is a conjunction. The practical question is which work can s
 | SocketCAN source | Earlier PRs | **Done**, `2bdc25d` (vcan tests run in the `can-vcan` CI job). |
 | Connector registration and CI | Earlier PRs | **Done**, `f2d10ce`. |
 | MQTT publish sink | Earlier PRs | **Done**, `d0570b1`. |
+| OPC UA source (`kind: opcua`, subscribe and poll modes, X.509 certificate auth, server-certificate pinning, behind the default-off `opcua` feature) | Phase 3 | **Done**, `71703e7`, `96cbe48`. |
+| Live ROS 2 source (`kind: ros2_live` over `rmw_zenoh`, ADR-0007 stage 4, experimental, behind the default-off `ros2-live` feature) | Spike S3 (`89a1f0b`) | **Done** (experimental), `a0adc87`, `8103b71`. |
+| Apache Kafka sink (`kind: kafka` over `rskafka`, TLS, mutual TLS, SASL PLAIN/SCRAM) | Phase 4 / P1 | **Done**, `8103b71`, `28ab81a`. |
 | Iceberg registrar (`kind: iceberg`, P2, experimental): `fast_append` of shipped segments into one table per dataset, behind the default-off `iceberg` feature | Earlier PRs | **Done** (experimental), `bf7596b`. |
 | Iceberg step 2: schema evolution by field ID (add optional, rename, promote; narrowing and ID reuse fatal), concurrent-writer conflict test, HTTPS catalog test with a private CA | Iceberg registrar | **Done** (experimental), `2057102`. |
 | Iceberg step 3: catalog authentication (`catalog_token`, `catalog_credential` OAuth2 client credentials) and mutual TLS (`catalog_client_cert` + `catalog_client_key`), including on direct schema-evolution commits | Iceberg step 2 | **Done** (experimental), `934bd60`. Not yet covered: token refresh, compaction, partitioning. |

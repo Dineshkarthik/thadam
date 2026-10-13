@@ -27,8 +27,11 @@ Thadam is under active development. The architecture and the delivery guarantees
 
 - Configuration format `version: 1` with `thadam validate`, `thadam schema`, and `thadam version`, including `${env:}`/`${file:}` secret interpolation and a memory estimate.
 - The capture-first write-ahead log (`thadam-wal`): segments, group-commit fsync, cursors, retention, disk budgets, crash recovery. The on-disk format is versioned but **not frozen** ([ADR-0004](docs/design/adr/0004-durable-buffer.md) awaits a hardware re-run).
-- The transform chain (`thadam-transform`): router, JSON decode, identity, event IDs, deduplication, `explode`, units, time extraction, and the config-level steps `validate`, `on_change`, and `filter`.
+- The transform chain (`thadam-transform`): router, JSON decode, identity, event IDs, deduplication, `explode`, units, time extraction, and the steps `validate`, `on_change`, `filter`, `sample`, `enrich`, `rename`, `project`, `cast`, `pose`, and `joint_state`.
 - The MQTT source (`thadam-mqtt`, [ADR-0006](docs/design/adr/0006-mqtt-client.md)): persistent sessions, acknowledge-after-commit, ordered acks, TLS and mTLS, session-loss detection.
+- Other sources: HTTP, gRPC, Modbus TCP, SocketCAN (Linux), and OPC UA (behind the opt-in `opcua` feature). Sparkplug B payloads decode with `decode: sparkplug_b`.
+- Other sinks: Apache Kafka, NATS JetStream, and MQTT publish (`mqtt_publish`), plus ClickHouse (P1, on by default, outside the M1 reliability gate; [ADR-0008](docs/design/adr/0008-clickhouse-sink.md) is still Draft).
+- The Python SDK (`sdk/python`): configuration validation, the config hash, reading segments, and in-process pipelines.
 - The runtime (`thadam-runtime`) with supervisor, shutdown and crash recovery, the admin HTTP API (`/healthz`, `/readyz`, `/metrics`, `/status`), and Prometheus metrics; `thadam run` and `thadam status` exist at the CLI level.
 - The Parquet segment sink (`thadam-segments`) and the object-store shipper (`thadam-object-store`) — locally durable segments, then oldest-first deterministic-key uploads with startup capability probing and unbounded retry.
 - The seeded demo simulator (`tools/thadam-simulator`) and the `edge-capture` demo stack: a 6-robot MQTT fleet with a per-sample truth oracle, Docker Compose topology (Mosquitto, Toxiproxy, SeaweedFS, Prometheus/Grafana), and a DuckDB exploration script.
@@ -38,8 +41,9 @@ Thadam is under active development. The architecture and the delivery guarantees
 **In progress:**
 
 - Published benchmark results and the ADR-0004 WAL re-run on reference hardware (`scripts/wal-hw-bench.sh` is ready; the runs are not done).
-- Live ROS 2 transport: spike S3 (Zenoh-native first) is under way; ROS 2 is not part of v0.1.
-- ClickHouse is a P1 sink, implemented but outside the M1 reliability gate ([ADR-0008](docs/design/adr/0008-clickhouse-sink.md), Draft).
+- Live ROS 2 transport (`kind: ros2_live`, rmw_zenoh): experimental, behind the opt-in `ros2-live` feature. No discovery and no ARM numbers yet; ROS 2 is not part of v0.1.
+- Iceberg registrar (`kind: iceberg`, P2): experimental, behind the opt-in `iceberg` feature. Schema evolution and catalog authentication are in; token refresh, compaction, and partitioning are not.
+- Windowing (`window`, steps S1 to S5): experimental. WASM and inference (S6, S7) are deferred until a user needs them.
 
 Current per-component status is tracked in [docs/design/readiness.md](docs/design/readiness.md) and [ARCHITECTURE.md](ARCHITECTURE.md) section 21.
 
@@ -154,7 +158,7 @@ thadam status                                  # JSON from the admin API
 curl -s http://127.0.0.1:9464/metrics         # OpenMetrics for Prometheus
 ```
 
-> **Status (see [project status](#project-status-pre-alpha)):** the pipeline above runs end to end today — messages land in Parquet segments under the data directory. The S3 shipper is likewise wired; chaos verification, replay, and published benchmark numbers are PR17–PR18 ([ARCHITECTURE.md](ARCHITECTURE.md) section 21), so nothing here is claimed faster or more durable than the [claims register](docs/design/adr/0011-delivery-guarantees-and-claims-register.md) says.
+> **Status (see [project status](#project-status-pre-alpha)):** the pipeline above runs end to end today — messages land in Parquet segments under the data directory. The S3 shipper is likewise wired. Replay and the chaos suites are built; the chaos verification run and published benchmark numbers are still open ([ARCHITECTURE.md](ARCHITECTURE.md) section 21), so nothing here is claimed faster or more durable than the [claims register](docs/design/adr/0011-delivery-guarantees-and-claims-register.md) says.
 
 **6. Skip to the seeded demo?** [`examples/edge-capture`](examples/edge-capture) runs a synthetic six-robot fleet with a truth oracle (so delivered rows can be checked sample-by-sample), the same Mosquitto-with-raised-limits broker behind Toxiproxy, an optional SeaweedFS S3 level, a provisioned Grafana dashboard, and a DuckDB script:
 
@@ -189,10 +193,10 @@ The exact allowed wording per claim, with its conditions and evidence, is the re
 
 Milestones (owner decisions of 2026-10-07; detail in [ARCHITECTURE.md](ARCHITECTURE.md) section 1 and [product.md](product.md) section 32):
 
-- **M1 (MVP v0.1):** MQTT source, capture WAL, local Parquet segments, S3-compatible shipping, replay, chaos verification. In progress.
-- **M2:** ROS 2 — MCAP/rosbag2 offline ingestion first, live transport chosen by a spike.
-- **M3 (P1):** ClickHouse sink, after the M1 reliability gate.
-- **After the MVP:** HTTP and gRPC sources, windowing and aggregation, OPC UA, CAN, Modbus, Iceberg/Delta, fleet management, Python SDK, plugin mechanism.
+- **M1 (MVP v0.1):** MQTT source, capture WAL, local Parquet segments, S3-compatible shipping, replay, chaos verification. In progress: the chaos verification run and the published benchmarks are open.
+- **M2:** ROS 2 — MCAP/rosbag2 offline ingestion and export are done; the live `rmw_zenoh` source is experimental.
+- **M3 (P1):** ClickHouse sink, built outside the M1 reliability gate; the B8 benchmark and the `edge-analytics` example are open.
+- **Beyond the MVP scope:** built, with the statuses above: HTTP and gRPC sources, Modbus, SocketCAN, OPC UA, the Kafka, NATS JetStream, and MQTT publish sinks, Sparkplug B decoding, windowing (experimental), Iceberg (experimental), and the Python SDK. Not started: Delta, fleet remote configuration, and the plugin mechanism.
 
 The product.md phases map onto these: Phase 0 foundations and Phase 1 MVP runtime feed M1; Phase 2 robotics is M2; Phase 3 industrial, Phase 4 lakehouse, Phase 5 fleet/platform, and Phase 6 advanced processing follow.
 
