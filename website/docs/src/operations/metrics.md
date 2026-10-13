@@ -24,6 +24,7 @@ These are registered by the runtime today (`thadam-runtime`'s Prometheus sink). 
 | `thadam_rejects_total` | counter | `sink`, `domain` | Records/events rejected, by error domain (`decode`, `schema`, `transform`, `quality`, …). |
 | `thadam_wal_gap_total` | counter | `sink`, `kind` | WAL gap items delivered to readers; `kind` is `corrupt`, `evicted`, or `missing`. |
 | `thadam_chain_panic_total` | counter | `sink` | Chain panics caught at the task boundary (each is followed by a rebuild). |
+| `thadam_chain_unmatched_total` | counter | `sink` | Records no dataset of the chain matched, for example frames from a source removed from the configuration that are still in the WAL. They are not rejects and not in `thadam_rejects_total`. Counts records this process's chain processes; warm-up frames read before the cursor are not counted. A chain rewind re-reads frames and counts their unmatched records again, and a chain panic can under-count the batch it interrupts. The same count is `counters.unmatched` on the `chain:<sink>` component in [`/status`](admin-api.md#status). |
 | `thadam_quarantined_total` | counter | `sink` | Records/events written to quarantine. |
 | `thadam_rejects_dropped_total` | counter | `sink` | Rejects dropped because no quarantine sink is registered, or because a non-primary chain saw them (the primary-chain rule). |
 

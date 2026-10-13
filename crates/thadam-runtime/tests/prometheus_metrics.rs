@@ -1,7 +1,17 @@
 //! Tests for the Prometheus metrics sink.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+mod common;
+
+use std::path::Path;
+use std::sync::Arc;
+
 use thadam_core::ConnectorMetric;
-use thadam_runtime::{MetricEvent, MetricsSink, PrometheusMetrics};
+use thadam_runtime::{ExitStatus, MetricEvent, MetricsSink, PrometheusMetrics};
+use thadam_testkit::TempDataDir;
+
+use crate::common::{Kit, component, fast_opts, json_n, run_to_end, spec, yaml};
 
 /// The exact list of exported metric names: every counter carries its `_total`
 /// suffix exactly once (the text encoder appends it; registrations omit it).
@@ -18,6 +28,7 @@ fn test_metric_names_exact_list() {
         "thadam_build_info",
         "thadam_chain_events_total",
         "thadam_chain_panic_total",
+        "thadam_chain_unmatched_total",
         "thadam_clock_synced",
         "thadam_component_state",
         "thadam_cursor_committed_total",
@@ -242,4 +253,59 @@ fn test_segment_metrics_encode() {
     ] {
         assert!(encoded.contains(want), "missing `{want}` in:\n{encoded}");
     }
+}
+
+/// `dedup` makes the chain stateful, so a restart warm-starts it over the
+/// frames already in the WAL. `orphan` has no dataset: its records are
+/// unmatched.
+fn unmatched_yaml(dir: &Path) -> String {
+    yaml(
+        dir,
+        "  - { id: out, kind: recseg, config: { frames_per_file: 4 } }",
+        "",
+    )
+    .replace(
+        "sources:\n  - { id: src, kind: memory }\n",
+        "sources:\n  - { id: src, kind: memory }\n  - { id: orphan, kind: memory }\n",
+    )
+    .replace(
+        "    decode: json\n",
+        "    decode: json\n    event_id: { key: [n] }\n    dedup: { window: 1h, max_keys: 10k }\n",
+    )
+}
+
+/// Unmatched records reach the per-sink counter and `/status`. A restart with
+/// a fresh metrics sink warm-starts the chain over the earlier frames, which
+/// must not count their unmatched records again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unmatched_records_are_metered_and_warm_start_does_not_recount_them() {
+    let dir = TempDataDir::new().unwrap();
+    let kit = Kit::default();
+    let y = unmatched_yaml(dir.path());
+
+    let first = Arc::new(PrometheusMetrics::new());
+    kit.sources.scripted("src", (1..=3).map(json_n));
+    kit.sources.scripted("orphan", (101..=105).map(json_n));
+    let mut opts = fast_opts();
+    opts.metrics = first.clone();
+    assert_eq!(run_to_end(&kit, spec(&y), opts).await.exit, ExitStatus::Ok);
+    let encoded = first.encode();
+    assert!(
+        encoded.contains("thadam_chain_unmatched_total{sink=\"out\"} 5"),
+        "{encoded}"
+    );
+
+    let second = Arc::new(PrometheusMetrics::new());
+    kit.sources.scripted("src", std::iter::empty());
+    kit.sources.scripted("orphan", (106..=108).map(json_n));
+    let mut opts = fast_opts();
+    opts.metrics = second.clone();
+    let report = run_to_end(&kit, spec(&y), opts).await;
+    assert_eq!(report.exit, ExitStatus::Ok);
+    assert_eq!(component(&report.status, "chain:out").counters.unmatched, 3);
+    let encoded = second.encode();
+    assert!(
+        encoded.contains("thadam_chain_unmatched_total{sink=\"out\"} 3"),
+        "{encoded}"
+    );
 }
