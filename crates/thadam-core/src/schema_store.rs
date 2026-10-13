@@ -161,11 +161,7 @@ impl SchemaStore {
         let path = self.dir.join(format!("{hash}.schema"));
         let write = || -> io::Result<()> {
             {
-                let mut f = OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(&tmp)?;
+                let mut f = create_private_file(&tmp)?;
                 f.write_all(&body)?;
                 sync_file(&f)?;
             }
@@ -347,12 +343,22 @@ pub(crate) fn io_error(op: &str, path: &Path, e: &io::Error) -> ThadamError {
     )
 }
 
+/// Creates the temporary file of an atomic write. Owner-only on Unix, and
+/// the rename keeps that mode, so the published file is owner-only too.
+fn create_private_file(path: &Path) -> io::Result<File> {
+    let mut opts = OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    opts.open(path)
+}
+
 /// Replaces `path` with `body` atomically and durably: write a sibling
 /// temporary file, fsync it, rename it over `path`, fsync the directory
 /// (the discipline [`SchemaStore::put`] uses). A crash leaves either the old
 /// content or the new, plus at worst a torn `.<name>.tmp-*` that readers
-/// must ignore. Creates the parent directory. A failure is a classified
-/// `buffer.io` error and removes the temporary file.
+/// must ignore. Creates the parent directory. The file is `0600` on Unix.
+/// A failure is a classified `buffer.io` error and removes the temporary file.
 pub fn write_atomic(path: &Path, body: &[u8]) -> Result<(), ThadamError> {
     let dir = path
         .parent()
@@ -364,11 +370,7 @@ pub fn write_atomic(path: &Path, body: &[u8]) -> Result<(), ThadamError> {
     let tmp = dir.join(format!(".{name}.tmp-{}-{unique}", std::process::id()));
     let write = || -> io::Result<()> {
         {
-            let mut f = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&tmp)?;
+            let mut f = create_private_file(&tmp)?;
             f.write_all(body)?;
             sync_file(&f)?;
         }
@@ -522,6 +524,21 @@ mod tests {
             .map(|e| e.unwrap().file_name())
             .collect();
         assert_eq!(entries, vec![std::ffi::OsString::from("state.json")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn published_files_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        write_atomic(&path, b"one").unwrap();
+        assert_eq!(mode(&path), 0o600);
+
+        let store = store(&dir);
+        let hash = store.put(NAME, ENCODING, TEXT).unwrap();
+        assert_eq!(mode(&store.dir().join(format!("{hash}.schema"))), 0o600);
     }
 
     #[test]

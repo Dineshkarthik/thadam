@@ -17,12 +17,12 @@
 //! repeat `wal.json`.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use thadam_config::PipelineSpec;
-use thadam_core::{ErrorDomain, ThadamError, WalEpoch, codes};
+use thadam_core::{ErrorDomain, ThadamError, WalEpoch, codes, write_atomic};
 use serde::{Deserialize, Serialize};
 
 use crate::chain::wal_error;
@@ -133,6 +133,21 @@ fn io_error(op: &str, path: &Path, e: &io::Error) -> ThadamError {
     )
 }
 
+/// Creates `root` and any missing parents. A `root` this call creates is
+/// owner-only on Unix; parents and an existing `root` keep their modes.
+fn create_data_dir(root: &Path) -> io::Result<()> {
+    if let Some(parent) = root.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    match builder.create(root) {
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists && root.is_dir() => Ok(()),
+        other => other,
+    }
+}
+
 /// Creates `root` if needed and takes its lock, failing fast if another
 /// process holds it.
 ///
@@ -140,7 +155,7 @@ fn io_error(op: &str, path: &Path, e: &io::Error) -> ThadamError {
 /// prevent concurrent access. An export must also take this lock to refuse
 /// running while a pipeline holds the directory.
 pub fn lock(root: &Path) -> Result<DataDirLock, ThadamError> {
-    fs::create_dir_all(root).map_err(|e| io_error("create data directory", root, &e))?;
+    create_data_dir(root).map_err(|e| io_error("create data directory", root, &e))?;
     let path = root.join(LOCK_FILE);
     let file = OpenOptions::new()
         .read(true)
@@ -302,24 +317,10 @@ pub(crate) fn next_thadam_json(
 /// Writes `thadam.json` atomically: temporary file, flush, rename, directory
 /// flush.
 pub(crate) fn write_thadam_json(root: &Path, meta: &ThadamJson) -> Result<(), ThadamError> {
-    let path = root.join(THADAM_JSON);
-    let tmp = root.join(format!("{THADAM_JSON}.tmp"));
     let mut text = serde_json::to_vec_pretty(meta)
         .map_err(|e| ThadamError::fatal(ErrorDomain::Buffer, codes::BUFFER_IO, e.to_string()))?;
     text.push(b'\n');
-    let write = || -> io::Result<()> {
-        let mut f = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&tmp)?;
-        f.write_all(&text)?;
-        sync_file(&f)?;
-        drop(f);
-        fs::rename(&tmp, &path)?;
-        sync_dir(root)
-    };
-    write().map_err(|e| io_error("write", &path, &e))
+    write_atomic(&root.join(THADAM_JSON), &text)
 }
 
 pub(crate) fn sync_file(f: &File) -> io::Result<()> {
@@ -495,6 +496,27 @@ mod tests {
         assert_eq!(err.code, codes::BUFFER_INCOMPATIBLE);
         drop(first);
         lock(dir.path()).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn created_data_dir_and_thadam_json_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tempfile::tempdir().unwrap();
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+
+        let root = base.path().join("data");
+        let _lock = lock(&root).unwrap();
+        assert_eq!(mode(&root), 0o700);
+        let meta = next_thadam_json(None, "p", "aa", WalEpoch::new(7));
+        write_thadam_json(&root, &meta).unwrap();
+        assert_eq!(mode(&root.join(THADAM_JSON)), 0o600);
+
+        let existing = base.path().join("existing");
+        fs::create_dir(&existing).unwrap();
+        fs::set_permissions(&existing, fs::Permissions::from_mode(0o750)).unwrap();
+        let _again = lock(&existing).unwrap();
+        assert_eq!(mode(&existing), 0o750);
     }
 
     #[test]

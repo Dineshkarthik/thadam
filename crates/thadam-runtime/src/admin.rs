@@ -168,7 +168,7 @@ fn check_auth(token: &Option<String>, headers: &HeaderMap) -> Result<(), Box<Res
         match auth_header {
             Some(auth) if auth.starts_with("Bearer ") => {
                 let provided = &auth[7..];
-                if provided == expected {
+                if constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
                     Ok(())
                 } else {
                     Err(Box::new(StatusCode::UNAUTHORIZED.into_response()))
@@ -179,6 +179,10 @@ fn check_auth(token: &Option<String>, headers: &HeaderMap) -> Result<(), Box<Res
     } else {
         Ok(())
     }
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// Starts the admin HTTP server.
@@ -260,5 +264,22 @@ mod tests {
             token: Some("secret".to_string()),
         };
         assert!(validate_admin_config(&cfg).is_ok());
+    }
+
+    fn with_auth(value: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(axum::http::header::AUTHORIZATION, value.parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn check_auth_requires_the_exact_bearer_token() {
+        let token = Some("secret".to_string());
+        assert!(check_auth(&token, &with_auth("Bearer secret")).is_ok());
+        assert!(check_auth(&token, &with_auth("Bearer secre")).is_err());
+        assert!(check_auth(&token, &with_auth("Bearer secrets")).is_err());
+        assert!(check_auth(&token, &with_auth("secret")).is_err());
+        assert!(check_auth(&token, &HeaderMap::new()).is_err());
+        assert!(check_auth(&None, &HeaderMap::new()).is_ok());
     }
 }
