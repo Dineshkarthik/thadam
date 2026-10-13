@@ -21,6 +21,7 @@ members = [
     "crates/thadam-clickhouse",
     "crates/thadam-opcua",
     "crates/thadam-ros2-live",
+    "crates/thadam-sparkplug",
     "crates/thadam-testkit",
     "crates/thadam-iceberg",
     "apps/thadam-cli",
@@ -50,6 +51,7 @@ default-members = [
     "crates/thadam-clickhouse",
     "crates/thadam-opcua",
     "crates/thadam-ros2-live",
+    "crates/thadam-sparkplug",
     "crates/thadam-testkit",
     "crates/thadam-iceberg",
     "apps/thadam-cli",
@@ -129,6 +131,7 @@ iceberg-catalog-rest = { version = "=0.10.1" }
 parquet = { version = "60", default-features = false, features = ["arrow", "snap", "zstd", "lz4"] }
 reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls-no-provider"] }
 prost = { version = "0.14.4", default-features = false, features = ["derive", "std"] }
+prost-build = "0.14.4"
 # Simulator (tools/thadam-simulator): 0.9 pairs with the rand_chacha 0.9 already
 # in the lock file (proptest); rand 0.10 is not adopted yet.
 rand = "0.9"

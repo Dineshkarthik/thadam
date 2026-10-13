@@ -1,0 +1,22 @@
+[package]
+name = "thadam-sparkplug"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Sparkplug B wire schema (prost), topic namespace parser, and the stateful BIRTH/alias/seq decoder behind dataset `decode: sparkplug_b`"
+
+[dependencies]
+prost = { workspace = true }
+thadam-core = { workspace = true }
+
+[build-dependencies]
+prost-build = { workspace = true }
+protox = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

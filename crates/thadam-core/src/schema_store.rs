@@ -242,14 +242,14 @@ impl SchemaStore {
     }
 }
 
-/// Whether `s` can name a `.schema` file the store wrote.
-fn is_hash(s: &str) -> bool {
+/// Whether `s` can name a content-addressed file the store wrote.
+pub(crate) fn is_hash(s: &str) -> bool {
     s.len() == 64
         && s.bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
-fn hex_of(digest: &[u8]) -> String {
+pub(crate) fn hex_of(digest: &[u8]) -> String {
     let mut out = String::with_capacity(digest.len() * 2);
     for b in digest {
         out.push(char::from_digit(u32::from(b >> 4), 16).unwrap_or('0'));
@@ -273,7 +273,7 @@ fn encode_record(name: &str, encoding: &str, text: &str) -> Vec<u8> {
 }
 
 /// Parses one `<len>`-prefixed field: a `key len\n` line then `len` bytes.
-fn read_field<'a>(
+pub(crate) fn read_field<'a>(
     body: &mut &'a [u8],
     key: &str,
     path: &Path,
@@ -331,7 +331,7 @@ fn utf8_field<'a>(bytes: &'a [u8], what: &str, path: &Path) -> Result<&'a str, T
     std::str::from_utf8(bytes).map_err(|_| corrupt(path, format!("the {what} is not UTF-8")))
 }
 
-fn corrupt(path: &Path, message: String) -> ThadamError {
+pub(crate) fn corrupt(path: &Path, message: String) -> ThadamError {
     ThadamError::fatal(
         ErrorDomain::Buffer,
         codes::BUFFER_CORRUPT,
@@ -339,7 +339,7 @@ fn corrupt(path: &Path, message: String) -> ThadamError {
     )
 }
 
-fn io_error(op: &str, path: &Path, e: &io::Error) -> ThadamError {
+pub(crate) fn io_error(op: &str, path: &Path, e: &io::Error) -> ThadamError {
     ThadamError::fatal(
         ErrorDomain::Buffer,
         codes::BUFFER_IO,
@@ -347,7 +347,7 @@ fn io_error(op: &str, path: &Path, e: &io::Error) -> ThadamError {
     )
 }
 
-fn sync_file(f: &File) -> io::Result<()> {
+pub(crate) fn sync_file(f: &File) -> io::Result<()> {
     #[cfg(target_vendor = "apple")]
     rustix::fs::fcntl_fullfsync(f)?;
     #[cfg(not(target_vendor = "apple"))]
@@ -355,7 +355,7 @@ fn sync_file(f: &File) -> io::Result<()> {
     Ok(())
 }
 
-fn sync_dir(dir: &Path) -> io::Result<()> {
+pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     let d = File::open(dir)?;
     #[cfg(target_vendor = "apple")]
     rustix::fs::fcntl_fullfsync(&d)?;
