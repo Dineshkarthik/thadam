@@ -38,6 +38,12 @@ use crate::topic::{Kind, Topic};
 
 /// The metric an NBIRTH/NDEATH carries to identify its session.
 pub const BD_SEQ_METRIC: &str = "bdSeq";
+/// Maximum number of distinct `(group, node)` pairs a [`Decoder`] tracks.
+pub const MAX_TRACKED_NODES: usize = 10_000;
+/// Maximum number of devices tracked under one `(group, node)`.
+pub const MAX_DEVICES_PER_NODE: usize = 1_000;
+/// Maximum number of metrics accepted in a single Sparkplug payload.
+pub const MAX_METRICS_PER_BIRTH: usize = 4_096;
 
 /// A discontinuity on the walking 0..=255 `seq`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -235,8 +241,6 @@ struct NodeState {
 }
 
 /// The consumer: one decoder per subscribed Sparkplug namespace.
-// shortcut: no cap on tracked nodes/devices (the birth store has none
-// either); upgrade when a broker's topic space is not trusted to be bounded.
 #[derive(Debug, Default)]
 pub struct Decoder {
     nodes: HashMap<(Box<str>, Box<str>), NodeState>,
@@ -269,16 +273,36 @@ impl Decoder {
             .into_iter()
             .partition(|(key, _)| key.device.is_none());
         for (key, record) in nodes {
-            let state = decoder.nodes.entry(node_id(&key)).or_default();
+            let id = node_id(&key);
+            if !decoder.nodes.contains_key(&id) && decoder.nodes.len() >= MAX_TRACKED_NODES {
+                return Err(too_large(format!(
+                    "Sparkplug decoder reached the tracked-node cap ({MAX_TRACKED_NODES})"
+                )));
+            }
+            let msg = parse_stored(&key, &record)?;
+            let state = decoder.nodes.entry(id).or_default();
             state.bd_seq = record.bd_seq;
-            state.node = Scope::from_birth(&parse_stored(&key, &record)?, record.dead);
+            state.node = Scope::from_birth(&msg, record.dead);
         }
         for (key, record) in devices {
             let Some(device) = key.device.clone() else {
                 continue;
             };
-            let known = decoder.nodes.contains_key(&node_id(&key));
-            let state = decoder.nodes.entry(node_id(&key)).or_default();
+            let id = node_id(&key);
+            let known = decoder.nodes.contains_key(&id);
+            if !known && decoder.nodes.len() >= MAX_TRACKED_NODES {
+                return Err(too_large(format!(
+                    "Sparkplug decoder reached the tracked-node cap ({MAX_TRACKED_NODES})"
+                )));
+            }
+            let msg = parse_stored(&key, &record)?;
+            let state = decoder.nodes.entry(id).or_default();
+            if !state.devices.contains_key(&device) && state.devices.len() >= MAX_DEVICES_PER_NODE {
+                return Err(too_large(format!(
+                    "Sparkplug node {}/{} reached the devices-per-node cap ({MAX_DEVICES_PER_NODE})",
+                    key.group, key.node
+                )));
+            }
             let session_moved = known && state.bd_seq != record.bd_seq;
             let scope = if session_moved {
                 Scope {
@@ -286,10 +310,7 @@ impl Decoder {
                     ..Scope::default()
                 }
             } else {
-                Scope::from_birth(
-                    &parse_stored(&key, &record)?,
-                    record.dead || state.node.dead,
-                )
+                Scope::from_birth(&msg, record.dead || state.node.dead)
             };
             state.devices.insert(device, scope);
         }
@@ -322,6 +343,7 @@ impl Decoder {
                 format!("malformed Sparkplug payload: {e}"),
             )
         })?;
+        check_metric_cap(&msg)?;
         out.seq = msg.seq;
         out.timestamp = msg.timestamp;
         if !topic.well_formed {
@@ -331,8 +353,8 @@ impl Decoder {
             );
         }
         match topic.kind {
-            Kind::NBirth => self.node_birth(topic, &msg, payload, &mut out),
-            Kind::DBirth => self.device_birth(topic, &msg, payload, &mut out),
+            Kind::NBirth => self.node_birth(topic, &msg, payload, &mut out)?,
+            Kind::DBirth => self.device_birth(topic, &msg, payload, &mut out)?,
             Kind::NDeath => self.node_death(topic, &msg, &mut out),
             Kind::DDeath => self.device_death(topic, &msg, &mut out),
             Kind::NData | Kind::DData => self.data(topic, &msg, &mut out),
@@ -341,9 +363,21 @@ impl Decoder {
         Ok(out)
     }
 
-    fn node_birth(&mut self, topic: &Topic<'_>, msg: &pb::Payload, raw: &[u8], out: &mut Outcome) {
+    fn node_birth(
+        &mut self,
+        topic: &Topic<'_>,
+        msg: &pb::Payload,
+        raw: &[u8],
+        out: &mut Outcome,
+    ) -> Result<(), ThadamError> {
+        let id = topic_node_id(topic);
+        if !self.nodes.contains_key(&id) && self.nodes.len() >= MAX_TRACKED_NODES {
+            return Err(too_large(format!(
+                "Sparkplug decoder reached the tracked-node cap ({MAX_TRACKED_NODES})"
+            )));
+        }
         let bd_seq = bd_seq_of(msg);
-        let state = self.nodes.entry(topic_node_id(topic)).or_default();
+        let state = self.nodes.entry(id).or_default();
         let rebirth = state.bd_seq.is_some() && state.bd_seq != bd_seq;
         // A new session invalidates every alias table of the node (spec
         // chapter 6): devices re-register through their own DBIRTH, and
@@ -375,6 +409,7 @@ impl Decoder {
             },
         ));
         out.metrics = resolve_all(Some(&state.node), msg, out);
+        Ok(())
     }
 
     fn device_birth(
@@ -383,15 +418,27 @@ impl Decoder {
         msg: &pb::Payload,
         raw: &[u8],
         out: &mut Outcome,
-    ) {
+    ) -> Result<(), ThadamError> {
         let Some(device) = topic.device else {
             out.flag(
                 QualityFlags::DECODE_ERROR,
                 "DBIRTH without a device segment".into(),
             );
-            return;
+            return Ok(());
         };
-        let state = self.nodes.entry(topic_node_id(topic)).or_default();
+        let id = topic_node_id(topic);
+        if !self.nodes.contains_key(&id) && self.nodes.len() >= MAX_TRACKED_NODES {
+            return Err(too_large(format!(
+                "Sparkplug decoder reached the tracked-node cap ({MAX_TRACKED_NODES})"
+            )));
+        }
+        let state = self.nodes.entry(id).or_default();
+        if !state.devices.contains_key(device) && state.devices.len() >= MAX_DEVICES_PER_NODE {
+            return Err(too_large(format!(
+                "Sparkplug node {}/{} reached the devices-per-node cap ({MAX_DEVICES_PER_NODE})",
+                topic.group, topic.node
+            )));
+        }
         if state.bd_seq.is_none() {
             out.notes
                 .push("DBIRTH before any NBIRTH for the node".into());
@@ -411,6 +458,7 @@ impl Decoder {
         out.change = Some(Change::DeviceBirth);
         out.metrics = resolve_all(Some(&scope), msg, out);
         state.devices.insert(device.into(), scope);
+        Ok(())
     }
 
     fn node_death(&mut self, topic: &Topic<'_>, msg: &pb::Payload, out: &mut Outcome) {
@@ -511,8 +559,22 @@ fn topic_node_id(topic: &Topic<'_>) -> (Box<str>, Box<str>) {
     (topic.group.into(), topic.node.into())
 }
 
+fn too_large(message: String) -> ThadamError {
+    ThadamError::permanent(ErrorDomain::Decode, codes::DECODE_TOO_LARGE, message)
+}
+
+fn check_metric_cap(msg: &pb::Payload) -> Result<(), ThadamError> {
+    if msg.metrics.len() > MAX_METRICS_PER_BIRTH {
+        return Err(too_large(format!(
+            "Sparkplug payload carries {} metrics, exceeding the cap ({MAX_METRICS_PER_BIRTH})",
+            msg.metrics.len()
+        )));
+    }
+    Ok(())
+}
+
 fn parse_stored(key: &BirthKey, record: &BirthRecord) -> Result<pb::Payload, ThadamError> {
-    pb::Payload::decode(record.birth.as_slice()).map_err(|e| {
+    let msg = pb::Payload::decode(record.birth.as_slice()).map_err(|e| {
         ThadamError::permanent(
             ErrorDomain::Decode,
             codes::DECODE_INVALID_PAYLOAD,
@@ -523,7 +585,9 @@ fn parse_stored(key: &BirthKey, record: &BirthRecord) -> Result<pb::Payload, Tha
                 key.device.as_deref().unwrap_or("-"),
             ),
         )
-    })
+    })?;
+    check_metric_cap(&msg)?;
+    Ok(msg)
 }
 
 /// Advances the cursor and records a gap or a missing seq on `out`.
@@ -1169,5 +1233,94 @@ mod tests {
         };
         let err = Decoder::seeded([(BirthKey::new("g", "e1", None), record)]).unwrap_err();
         assert_eq!(err.code, codes::DECODE_INVALID_PAYLOAD);
+    }
+
+    #[test]
+    fn metric_cap_rejects_oversized_birth_and_data_payloads() {
+        let mut d = Decoder::new();
+        let at_cap: Vec<_> = (0..MAX_METRICS_PER_BIRTH)
+            .map(|i| metric(Some(&format!("m{i}")), Some(i as u64), D::Float, float(1.0)))
+            .collect();
+        assert_eq!(
+            feed(&mut d, NB, &payload(Some(0), at_cap)).metrics.len(),
+            MAX_METRICS_PER_BIRTH
+        );
+
+        let over_cap: Vec<_> = (0..=MAX_METRICS_PER_BIRTH)
+            .map(|i| metric(Some(&format!("m{i}")), Some(i as u64), D::Float, float(1.0)))
+            .collect();
+        let over_bytes = payload(Some(1), over_cap);
+        for topic_str in [NB, DB, ND, DD] {
+            let err = d.handle(&t(topic_str), &over_bytes).unwrap_err();
+            assert_eq!(
+                (err.domain, err.code),
+                (ErrorDomain::Decode, codes::DECODE_TOO_LARGE)
+            );
+        }
+    }
+
+    #[test]
+    fn device_cap_rejects_excess_devices_per_node() {
+        let mut d = Decoder::new();
+        feed(&mut d, NB, &nbirth(0));
+        let empty_birth = payload(Some(1), vec![]);
+        for i in 0..MAX_DEVICES_PER_NODE {
+            let topic_str = format!("spBv1.0/g/DBIRTH/e1/dev-{i}");
+            feed(&mut d, &topic_str, &empty_birth);
+        }
+        // Re-registering an existing device at the cap still succeeds.
+        let out = feed(&mut d, "spBv1.0/g/DBIRTH/e1/dev-0", &empty_birth);
+        assert_eq!(out.change, Some(Change::DeviceBirth));
+
+        // A new device past the cap is rejected and not tracked.
+        let err = d
+            .handle(&t("spBv1.0/g/DBIRTH/e1/dev-overflow"), &empty_birth)
+            .unwrap_err();
+        assert_eq!(
+            (err.domain, err.code),
+            (ErrorDomain::Decode, codes::DECODE_TOO_LARGE)
+        );
+        assert_eq!(
+            d.nodes[&(Box::from("g"), Box::from("e1"))].devices.len(),
+            MAX_DEVICES_PER_NODE
+        );
+    }
+
+    #[test]
+    fn node_cap_rejects_excess_tracked_nodes() {
+        let mut d = Decoder::new();
+        let empty_birth = payload(Some(0), vec![bd(1)]);
+        for i in 0..MAX_TRACKED_NODES {
+            let topic_str = format!("spBv1.0/g/NBIRTH/node-{i}");
+            feed(&mut d, &topic_str, &empty_birth);
+        }
+        assert_eq!(d.nodes.len(), MAX_TRACKED_NODES);
+
+        // Rebirth and DBIRTH on an existing node at the cap still succeed.
+        let out = feed(
+            &mut d,
+            "spBv1.0/g/NBIRTH/node-0",
+            &payload(Some(0), vec![bd(2)]),
+        );
+        assert_eq!(out.change, Some(Change::Rebirth));
+        let out = feed(
+            &mut d,
+            "spBv1.0/g/DBIRTH/node-0/dev1",
+            &payload(Some(1), vec![]),
+        );
+        assert_eq!(out.change, Some(Change::DeviceBirth));
+
+        // New nodes via NBIRTH or DBIRTH are rejected and not tracked.
+        for topic_str in [
+            "spBv1.0/g/NBIRTH/node-overflow",
+            "spBv1.0/g/DBIRTH/node-overflow/dev1",
+        ] {
+            let err = d.handle(&t(topic_str), &empty_birth).unwrap_err();
+            assert_eq!(
+                (err.domain, err.code),
+                (ErrorDomain::Decode, codes::DECODE_TOO_LARGE)
+            );
+        }
+        assert_eq!(d.nodes.len(), MAX_TRACKED_NODES);
     }
 }
