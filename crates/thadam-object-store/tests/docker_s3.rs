@@ -806,11 +806,7 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
 
 /// `YYYYmmddTHHMMSSZ` and `YYYYmmdd` without a datetime crate (Howard
 /// Hinnant's civil_from_days plus clock decomposition).
-fn amz_times() -> (String, String) {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+fn amz_times_from_secs(secs: u64) -> (String, String) {
     let days = (secs / 86_400) as i64;
     let day_secs = secs % 86_400;
     let (hour, min, sec) = (day_secs / 3600, (day_secs % 3600) / 60, day_secs % 60);
@@ -818,16 +814,41 @@ fn amz_times() -> (String, String) {
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
     let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u64;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u64;
-    let y = if m <= 2 { y + 1 } else { y } as u64;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
     (
         format!("{y:04}{m:02}{d:02}T{hour:02}{min:02}{sec:02}Z"),
         format!("{y:04}{m:02}{d:02}"),
     )
+}
+
+fn amz_times() -> (String, String) {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    amz_times_from_secs(secs)
+}
+
+#[test]
+fn amz_times_known_values() {
+    // Unix 0 -> 1970-01-01T00:00:00Z
+    let (ts, date) = amz_times_from_secs(0);
+    assert_eq!(ts, "19700101T000000Z");
+    assert_eq!(date, "19700101");
+
+    // 951782400 -> 2000-02-29T00:00:00Z (leap year)
+    let (ts, date) = amz_times_from_secs(951_782_400);
+    assert_eq!(ts, "20000229T000000Z");
+    assert_eq!(date, "20000229");
+
+    // 1767225599 -> 2025-12-31T23:59:59Z
+    let (ts, date) = amz_times_from_secs(1_767_225_599);
+    assert_eq!(ts, "20251231T235959Z");
+    assert_eq!(date, "20251231");
 }
 
 /// Creates the bucket with a Signature V4 PUT (no helper container needed).
