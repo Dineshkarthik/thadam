@@ -8,11 +8,11 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use thadam_core::{
-    AckOutcome, AckTarget, AckToken, Attributes, BatchLimits, ConnectionEpoch, EpochGate,
-    RawMessage, ThadamError, Sym, Utf8Bytes,
+    AckOutcome, AckTarget, AckToken, Attributes, BatchLimits, ConnectionEpoch, ConnectorMetric,
+    EpochGate, MetricsRecorder, NoopMetricsRecorder, RawMessage, ThadamError, Sym, Utf8Bytes,
 };
 use tokio::sync::{Notify, mpsc, watch};
 
@@ -144,6 +144,7 @@ pub(crate) struct Shared {
     status: watch::Sender<Status>,
     ack_tx: mpsc::UnboundedSender<AckCmd>,
     guard_streak: AtomicU64,
+    metrics: Mutex<(Sym, Arc<dyn MetricsRecorder>)>,
 }
 
 impl Shared {
@@ -162,9 +163,24 @@ impl Shared {
                 status,
                 ack_tx,
                 guard_streak: AtomicU64::new(0),
+                metrics: Mutex::new((Sym::from(""), Arc::new(NoopMetricsRecorder))),
             },
             rx,
         )
+    }
+
+    pub fn set_metrics(&self, source_id: Sym, metrics: Arc<dyn MetricsRecorder>) {
+        *self.metrics.lock().unwrap_or_else(PoisonError::into_inner) = (source_id, metrics);
+    }
+
+    pub fn record_stale_ack(&self) {
+        let (ref id, ref rec) = *self.metrics.lock().unwrap_or_else(PoisonError::into_inner);
+        if !id.is_empty() {
+            rec.record(ConnectorMetric::SourceStaleAcks {
+                source: id,
+                count: 1,
+            });
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -431,6 +447,7 @@ impl Shared {
                 self.stats
                     .stale_ledger_entries
                     .fetch_add(1, Ordering::Relaxed);
+                self.record_stale_ack();
             } else {
                 self.send_ack(entry.epoch, entry.pkid, entry.qos);
             }

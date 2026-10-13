@@ -258,6 +258,14 @@ impl SegmentDriver {
         let Some(m) = self.recover_sink().await? else {
             return Ok(false);
         };
+        self.component
+            .set_delivery(thadam_core::DeliveryClass::IdempotentBatch);
+        self.component
+            .metrics()
+            .record(MetricEvent::SinkDeliveryClass {
+                sink: &self.sink_id,
+                class: thadam_core::DeliveryClass::IdempotentBatch.as_str(),
+            });
         let mut q = 0;
         if let Some(quar) = &mut self.quarantine {
             let r: Result<Option<u64>, ThadamError> = retry_transient!(
@@ -309,6 +317,12 @@ impl SegmentDriver {
             &self.cursor,
             CursorState::at(WalPos::new(self.committed)),
         );
+        let (lag_bytes, lag_secs) = self.wal.cursor_lag(&self.cursor);
+        self.component.metrics().record(MetricEvent::SinkLag {
+            sink: &self.sink_id,
+            bytes: lag_bytes,
+            seconds: lag_secs,
+        });
         if self.committed > 0 {
             self.sink.cursor_committed(WalPos::new(self.committed));
             if let Some(q) = &mut self.quarantine {
@@ -347,6 +361,12 @@ impl SegmentDriver {
                 sink: &self.sink_id,
                 pos: WalPos::new(target),
             });
+        let (lag_bytes, lag_secs) = self.wal.cursor_lag(&self.cursor);
+        self.component.metrics().record(MetricEvent::SinkLag {
+            sink: &self.sink_id,
+            bytes: lag_bytes,
+            seconds: lag_secs,
+        });
         if self
             .opts
             .failpoints

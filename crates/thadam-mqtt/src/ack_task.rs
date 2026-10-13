@@ -29,6 +29,7 @@ pub(crate) async fn run(
             AckCmd::Ack { epoch, pkid, qos } => loop {
                 if shared.gate.current() != epoch {
                     shared.stats.acks_dropped.fetch_add(1, Ordering::Relaxed);
+                    shared.record_stale_ack();
                     break;
                 }
                 match tokio::time::timeout(SLICE, client.ack(pkid, qos)).await {

@@ -1,5 +1,7 @@
 //! Configuration of a WAL.
 
+use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 
 use thadam_core::WalPos;
@@ -108,7 +110,7 @@ pub enum StartFrom {
 ///
 /// The WAL disk limit (`max_disk`) is the [`thadam_core::BudgetCategory::Wal`]
 /// limit of the [`thadam_core::DiskBudget`] passed to [`crate::open`].
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct WalOptions {
     /// Flush policy. Default `interval(10ms)`.
@@ -139,9 +141,33 @@ pub struct WalOptions {
     /// Recorded when the WAL is created; a later open with a different value is
     /// refused.
     pub node_id: Option<String>,
+    /// Called with the duration of each group-commit write (`write_staged` +
+    /// flush/ack).
+    pub on_commit: Option<Arc<dyn Fn(Duration) + Send + Sync>>,
+    /// Called with the duration of each segment `sync_file`.
+    pub on_fsync: Option<Arc<dyn Fn(Duration) + Send + Sync>>,
     /// Fault injection.
     #[cfg(any(test, feature = "failpoints"))]
     pub failpoints: crate::failpoints::Failpoints,
+}
+
+impl fmt::Debug for WalOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WalOptions")
+            .field("fsync", &self.fsync)
+            .field("on_full", &self.on_full)
+            .field("segment_bytes", &self.segment_bytes)
+            .field("frame_max_bytes", &self.frame_max_bytes)
+            .field("group_max_bytes", &self.group_max_bytes)
+            .field("max_pending_bytes", &self.max_pending_bytes)
+            .field("max_pending_batches", &self.max_pending_batches)
+            .field("retain_for", &self.retain_for)
+            .field("consumers", &self.consumers)
+            .field("preallocate", &self.preallocate)
+            .field("machine_id", &self.machine_id)
+            .field("node_id", &self.node_id)
+            .finish_non_exhaustive()
+    }
 }
 
 impl WalOptions {
@@ -160,6 +186,8 @@ impl WalOptions {
             preallocate: false,
             machine_id: None,
             node_id: None,
+            on_commit: None,
+            on_fsync: None,
             #[cfg(any(test, feature = "failpoints"))]
             failpoints: crate::failpoints::Failpoints::default(),
         }

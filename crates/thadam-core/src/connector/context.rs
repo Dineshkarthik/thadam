@@ -27,6 +27,9 @@ pub struct SourceContext {
     pub shutdown: Shutdown,
     /// Time source for ingest stamps and the clock-sync flag.
     pub clock: Arc<dyn Clock>,
+    /// Reports [`crate::ConnectorMetric`]s to the runtime; a no-op sink
+    /// unless the runtime threaded one through.
+    pub metrics: Arc<dyn MetricsRecorder>,
 }
 
 impl SourceContext {
@@ -36,7 +39,15 @@ impl SourceContext {
             source_id,
             shutdown,
             clock,
+            metrics: Arc::new(NoopMetricsRecorder),
         }
+    }
+
+    /// Sets the metrics recorder connector metrics flow through.
+    #[must_use]
+    pub fn with_metrics(mut self, metrics: Arc<dyn MetricsRecorder>) -> Self {
+        self.metrics = metrics;
+        self
     }
 }
 

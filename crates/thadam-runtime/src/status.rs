@@ -297,6 +297,10 @@ impl Component {
         self.metrics.as_ref()
     }
 
+    pub fn metrics_arc(&self) -> Arc<dyn MetricsSink> {
+        Arc::clone(&self.metrics)
+    }
+
     fn snapshot(&self) -> ComponentStatus {
         ComponentStatus {
             id: self.id.clone(),

@@ -305,6 +305,8 @@ impl Writer {
             if close {
                 return self.finish();
             }
+            let started = Instant::now();
+            let wrote = !self.buf.is_empty();
             self.write_staged()?;
             match self.sh.opts.fsync {
                 Fsync::Always => self.sync_now()?,
@@ -314,6 +316,9 @@ impl Writer {
                         self.sync_now()?;
                     }
                 }
+            }
+            if wrote && let Some(cb) = &self.sh.opts.on_commit {
+                cb(started.elapsed());
             }
         }
     }
@@ -609,18 +614,23 @@ impl Writer {
         let Some(a) = self.active.as_ref() else {
             return Ok(());
         };
+        let started = Instant::now();
         self.fsync_point()
             .and_then(|()| sync_file(&a.file))
             .map_err(|e| WalError::FsyncFailed {
                 op: "fsync",
                 source: Arc::new(e),
             })?;
+        let elapsed = started.elapsed();
         #[cfg(any(test, feature = "failpoints"))]
         self.sh.opts.failpoints.record_synced(a.path.clone(), a.len);
         if let Some(a) = self.active.as_mut() {
             a.unsynced = false;
         }
         Counters::add(&self.sh.counters.fsyncs, 1);
+        if let Some(cb) = &self.sh.opts.on_fsync {
+            cb(elapsed);
+        }
         self.last_sync = Some(Instant::now());
         Ok(())
     }
@@ -647,8 +657,13 @@ impl Writer {
         if self.sh.opts.failpoints.crash_on_close_set() {
             return Ok(Exit::Crashed);
         }
+        let started = Instant::now();
+        let wrote = !self.buf.is_empty();
         self.write_staged()?;
         self.sync_now()?;
+        if wrote && let Some(cb) = &self.sh.opts.on_commit {
+            cb(started.elapsed());
+        }
         self.seal_active()?;
         let marker = self.sh.dir.join(CLEAN_MARKER);
         let _ = write_atomic(&marker, self.next_seq.to_string().as_bytes());

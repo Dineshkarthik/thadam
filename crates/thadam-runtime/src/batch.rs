@@ -209,6 +209,12 @@ impl BatchDriver {
         let caps = caps?;
         let Some(caps) = caps else { return Ok(false) };
         self.component.set_delivery(caps.delivery);
+        self.component
+            .metrics()
+            .record(MetricEvent::SinkDeliveryClass {
+                sink: &self.sink_id,
+                class: caps.delivery.as_str(),
+            });
         if let Some(q) = &mut self.quarantine {
             let r: Result<Option<u64>, ThadamError> = retry_transient!(
                 self.component,
@@ -232,6 +238,12 @@ impl BatchDriver {
             &self.cursor,
             state.unwrap_or(CursorState::at(WalPos::new(self.committed))),
         );
+        let (lag_bytes, lag_secs) = self.wal.cursor_lag(&self.cursor);
+        self.component.metrics().record(MetricEvent::SinkLag {
+            sink: &self.sink_id,
+            bytes: lag_bytes,
+            seconds: lag_secs,
+        });
         if let Some(r) = self.forced {
             tracing::info!(sink = %self.sink_id, batch = %r, "re-sending the in-flight batch first");
         }
@@ -429,6 +441,12 @@ impl BatchDriver {
                 sink: &self.sink_id,
                 pos: range.last(),
             });
+        let (lag_bytes, lag_secs) = self.wal.cursor_lag(&self.cursor);
+        self.component.metrics().record(MetricEvent::SinkLag {
+            sink: &self.sink_id,
+            bytes: lag_bytes,
+            seconds: lag_secs,
+        });
         if self.forced.is_some_and(|f| f.last() <= range.last()) {
             self.forced = None;
         }

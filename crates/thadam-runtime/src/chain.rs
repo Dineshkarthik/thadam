@@ -4,7 +4,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use thadam_core::{
-    Classify, ErrorDomain, RawBatch, ThadamError, Shutdown, WalEpoch, WalPos, WalRange, codes,
+    Classify, ErrorDomain, QualityFlags, RawBatch, ThadamError, Shutdown, WalEpoch, WalPos,
+    WalRange, codes,
 };
 use thadam_transform::{
     Chain, ChainLimits, ChainOutput, ChainSpec, ChainStats, DatasetStats, FrameInput,
@@ -368,9 +369,40 @@ impl ChainTask {
     }
 
     fn count_output(&mut self, out: &ChainOutput, rejects: &[RejectedRaw]) {
+        const QUALITY_FLAGS: [(QualityFlags, &str); 9] = [
+            (QualityFlags::OUT_OF_RANGE, "out_of_range"),
+            (QualityFlags::CLOCK_SKEW, "clock_skew"),
+            (QualityFlags::MISSING_TIME, "missing_time"),
+            (QualityFlags::OUT_OF_ORDER, "out_of_order"),
+            (QualityFlags::DUPLICATE, "duplicate"),
+            (QualityFlags::STALE, "stale"),
+            (QualityFlags::SEQUENCE_GAP, "sequence_gap"),
+            (QualityFlags::DECODE_ERROR, "decode_error"),
+            (QualityFlags::INVALID, "invalid"),
+        ];
         let c = &self.component.counters;
         for d in &out.batches {
             add(&c.events, d.batch.len() as u64);
+            let mut flag_counts = [0usize; 9];
+            for e in &d.batch.events {
+                let flags = e.quality().flags;
+                if !flags.is_empty() {
+                    for (i, (bit, _)) in QUALITY_FLAGS.iter().enumerate() {
+                        if flags.contains(*bit) {
+                            flag_counts[i] += 1;
+                        }
+                    }
+                }
+            }
+            for ((_, flag), count) in QUALITY_FLAGS.iter().zip(flag_counts) {
+                if count > 0 {
+                    self.component.metrics().record(MetricEvent::QualityFlags {
+                        dataset: &d.dataset,
+                        flag,
+                        count,
+                    });
+                }
+            }
         }
         // The chain stats are cumulative per dataset; the outcome labels
         // report the deltas since the previous group. `Chain::warm` restores

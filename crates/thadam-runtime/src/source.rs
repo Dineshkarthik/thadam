@@ -103,15 +103,32 @@ impl<S: Submit> SourceDriver<S> {
             .counters
             .uncommitted_batches
             .store(fifo.len() as u64, std::sync::atomic::Ordering::Relaxed);
+        let oldest = fifo.front().map(|p| p.at);
+        self.component.set_oldest_pending(oldest);
+        self.component.metrics().record(MetricEvent::AckOldestAge {
+            source: &self.id,
+            age: oldest.map_or(Duration::ZERO, |t| t.elapsed()),
+        });
         self.component
-            .set_oldest_pending(fifo.front().map(|p| p.at));
+            .metrics()
+            .record(MetricEvent::SourceUnackedMax {
+                source: &self.id,
+                unacked: fifo.len(),
+            });
     }
 
     fn ack_head(&self, fifo: &mut VecDeque<Pending<S::Ticket>>) {
         if let Some(p) = fifo.pop_front()
             && let Some(ack) = p.ack
         {
-            let _ = ack.complete(AckOutcome::Committed);
+            if ack.complete(AckOutcome::Committed) == thadam_core::AckStatus::Stale {
+                self.component.metrics().record(MetricEvent::Connector(
+                    thadam_core::ConnectorMetric::SourceStaleAcks {
+                        source: &self.id,
+                        count: 1,
+                    },
+                ));
+            }
             self.component.metrics().record(MetricEvent::SourceAcked {
                 source: &self.id,
                 latency: p.at.elapsed(),
@@ -181,11 +198,19 @@ impl<S: Submit> SourceDriver<S> {
             }
             let spare =
                 (part.payload_bytes() >= SPLITTABLE_BYTES && part.len() > 1).then(|| part.clone());
+            let submit_started = Instant::now();
             let result = if cancellable {
                 tokio::select! {
                     biased;
                     r = self.submit.submit(part) => r,
                     () = self.intake.triggered() => {
+                        let waited = submit_started.elapsed();
+                        if !waited.is_zero() {
+                            self.component.metrics().record(MetricEvent::SourceBackpressure {
+                                source: &self.id,
+                                duration: waited,
+                            });
+                        }
                         for t in tickets {
                             fifo.push_back(Pending { ticket: Some(t), ack: None, at });
                         }
@@ -196,6 +221,15 @@ impl<S: Submit> SourceDriver<S> {
             } else {
                 self.submit.submit(part).await
             };
+            let waited = submit_started.elapsed();
+            if !waited.is_zero() {
+                self.component
+                    .metrics()
+                    .record(MetricEvent::SourceBackpressure {
+                        source: &self.id,
+                        duration: waited,
+                    });
+            }
             match result {
                 Ok(t) => tickets.push(t),
                 Err(SubmitError::Wal(e)) => {
@@ -253,6 +287,7 @@ impl<S: Submit> SourceDriver<S> {
             self.release_ready(fifo);
             self.gauges(fifo);
             let can_pull = fifo.len() < self.max_uncommitted.max(1);
+            let bp_started = (!can_pull).then(Instant::now);
             let has_head = !fifo.is_empty();
             let head =
                 std::future::poll_fn(
@@ -263,11 +298,27 @@ impl<S: Submit> SourceDriver<S> {
                 );
             tokio::select! {
                 biased;
-                r = head, if has_head => match r {
-                    Ok(_) => self.ack_head(fifo),
-                    Err(e) => return End::Wal(e),
+                r = head, if has_head => {
+                    if let Some(t0) = bp_started {
+                        self.component.metrics().record(MetricEvent::SourceBackpressure {
+                            source: &self.id,
+                            duration: t0.elapsed(),
+                        });
+                    }
+                    match r {
+                        Ok(_) => self.ack_head(fifo),
+                        Err(e) => return End::Wal(e),
+                    }
                 },
-                () = self.intake.triggered() => return End::Shutdown,
+                () = self.intake.triggered() => {
+                    if let Some(t0) = bp_started {
+                        self.component.metrics().record(MetricEvent::SourceBackpressure {
+                            source: &self.id,
+                            duration: t0.elapsed(),
+                        });
+                    }
+                    return End::Shutdown;
+                },
                 r = self.source.next_batch(self.limits), if can_pull => match r {
                     Ok(Some(sb)) => {
                         backoff.reset();
@@ -291,9 +342,18 @@ impl<S: Submit> SourceDriver<S> {
         loop {
             self.release_ready(fifo);
             if fifo.len() >= self.max_uncommitted.max(1) {
-                if let Some(t) = fifo.front_mut().and_then(|p| p.ticket.as_mut())
-                    && let Err(e) = t.await
-                {
+                let bp_started = Instant::now();
+                let res = match fifo.front_mut().and_then(|p| p.ticket.as_mut()) {
+                    Some(t) => t.await.err(),
+                    None => None,
+                };
+                self.component
+                    .metrics()
+                    .record(MetricEvent::SourceBackpressure {
+                        source: &self.id,
+                        duration: bp_started.elapsed(),
+                    });
+                if let Some(e) = res {
                     Self::abandon(fifo);
                     return Err(e);
                 }
@@ -338,18 +398,41 @@ impl<S: Submit> SourceDriver<S> {
             SourceId::new(self.id.as_str()),
             self.intake.clone(),
             Arc::clone(&self.clock),
-        );
+        )
+        .with_metrics(crate::metrics::connector_metrics(
+            self.component.metrics_arc(),
+        ));
         let mut backoff = Backoff::new(self.restart);
         let mut fifo: VecDeque<Pending<S::Ticket>> = VecDeque::new();
         loop {
             loop {
                 match self.source.open(&ctx).await {
-                    Ok(()) => break,
+                    Ok(()) => {
+                        self.component
+                            .metrics()
+                            .record(MetricEvent::SourceConnected {
+                                source: &self.id,
+                                connected: true,
+                            });
+                        break;
+                    }
                     Err(_) if self.intake.is_triggered() => {
+                        self.component
+                            .metrics()
+                            .record(MetricEvent::SourceConnected {
+                                source: &self.id,
+                                connected: false,
+                            });
                         self.component.stopped();
                         return Ok(());
                     }
                     Err(e) if e.is_transient() => {
+                        self.component
+                            .metrics()
+                            .record(MetricEvent::SourceConnected {
+                                source: &self.id,
+                                connected: false,
+                            });
                         self.component.degraded(&e);
                         add(&self.component.counters.restarts, 1);
                         if !pause(&mut backoff, &self.intake).await {
@@ -357,7 +440,15 @@ impl<S: Submit> SourceDriver<S> {
                             return Ok(());
                         }
                     }
-                    Err(e) => return Err(e),
+                    Err(e) => {
+                        self.component
+                            .metrics()
+                            .record(MetricEvent::SourceConnected {
+                                source: &self.id,
+                                connected: false,
+                            });
+                        return Err(e);
+                    }
                 }
             }
             self.component.running();
@@ -365,29 +456,71 @@ impl<S: Submit> SourceDriver<S> {
                 End::Shutdown => {
                     self.component.draining();
                     if let Err(e) = self.drain(&mut fifo).await {
+                        self.component
+                            .metrics()
+                            .record(MetricEvent::SourceConnected {
+                                source: &self.id,
+                                connected: false,
+                            });
                         return self.finish_wal(e).await;
                     }
                     self.close().await;
+                    self.component
+                        .metrics()
+                        .record(MetricEvent::SourceConnected {
+                            source: &self.id,
+                            connected: false,
+                        });
                     self.component.stopped();
                     return Ok(());
                 }
                 End::Eof => {
                     if let Err(e) = self.settle(&mut fifo).await {
+                        self.component
+                            .metrics()
+                            .record(MetricEvent::SourceConnected {
+                                source: &self.id,
+                                connected: false,
+                            });
                         return self.finish_wal(e).await;
                     }
                     self.close().await;
+                    self.component
+                        .metrics()
+                        .record(MetricEvent::SourceConnected {
+                            source: &self.id,
+                            connected: false,
+                        });
                     self.component.stopped();
                     return Ok(());
                 }
                 End::Wal(e) => {
                     Self::abandon(&mut fifo);
+                    self.component
+                        .metrics()
+                        .record(MetricEvent::SourceConnected {
+                            source: &self.id,
+                            connected: false,
+                        });
                     return self.finish_wal(e).await;
                 }
                 End::Source(e) => {
                     if let Err(we) = self.settle(&mut fifo).await {
+                        self.component
+                            .metrics()
+                            .record(MetricEvent::SourceConnected {
+                                source: &self.id,
+                                connected: false,
+                            });
                         return self.finish_wal(we).await;
                     }
                     self.close().await;
+                    self.component
+                        .metrics()
+                        .record(MetricEvent::SourceConnected {
+                            source: &self.id,
+                            connected: false,
+                        });
                     if self.intake.is_triggered() {
                         self.component.stopped();
                         return Ok(());

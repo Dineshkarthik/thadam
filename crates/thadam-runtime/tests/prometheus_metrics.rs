@@ -21,6 +21,7 @@ fn test_metric_names_exact_list() {
     let metrics = PrometheusMetrics::new();
     let names = metrics.metric_names();
     let expected: Vec<&str> = vec![
+        "thadam_ack_oldest_age_seconds",
         "thadam_batch_bisect_total",
         "thadam_batch_write_seconds",
         "thadam_batch_written_events_total",
@@ -32,7 +33,11 @@ fn test_metric_names_exact_list() {
         "thadam_clock_synced",
         "thadam_component_state",
         "thadam_cursor_committed_total",
+        "thadam_log_dropped_total",
+        "thadam_quality_flags_total",
         "thadam_quarantined_total",
+        "thadam_recovery_seconds",
+        "thadam_recovery_truncated_bytes",
         "thadam_rejects_dropped_total",
         "thadam_rejects_total",
         "thadam_retry_total",
@@ -43,12 +48,23 @@ fn test_metric_names_exact_list() {
         "thadam_ship_retry_age_seconds",
         "thadam_ship_upload_seconds",
         "thadam_ship_uploads_total",
+        "thadam_sink_delivery_class",
+        "thadam_sink_lag_bytes",
+        "thadam_sink_lag_seconds",
         "thadam_source_ack_latency_seconds",
+        "thadam_source_backpressure_seconds_total",
         "thadam_source_bytes_total",
+        "thadam_source_connected",
         "thadam_source_dropped_total",
         "thadam_source_messages_total",
         "thadam_source_restart_total",
+        "thadam_source_stale_acks_total",
+        "thadam_source_unacked_max",
+        "thadam_wal_budget_bytes",
+        "thadam_wal_commit_seconds",
+        "thadam_wal_disk_bytes",
         "thadam_wal_evicted_bytes_total",
+        "thadam_wal_fsync_seconds",
         "thadam_wal_gap_total",
         "thadam_wal_maintained_deleted_bytes_total",
     ];
@@ -308,4 +324,124 @@ async fn unmatched_records_are_metered_and_warm_start_does_not_recount_them() {
         encoded.contains("thadam_chain_unmatched_total{sink=\"out\"} 3"),
         "{encoded}"
     );
+}
+
+#[test]
+fn test_wal_intake_quality_and_sink_metrics_encode() {
+    let metrics = PrometheusMetrics::new();
+
+    metrics.record(MetricEvent::WalCommit {
+        duration: std::time::Duration::from_millis(2),
+    });
+    metrics.record(MetricEvent::WalFsync {
+        duration: std::time::Duration::from_millis(4),
+    });
+    metrics.record(MetricEvent::WalDiskBytes { bytes: 8192 });
+    metrics.record(MetricEvent::WalBudgetBytes { bytes: 67_108_864 });
+    metrics.record(MetricEvent::WalRecovery {
+        elapsed: std::time::Duration::from_millis(15),
+        truncated_bytes: 64,
+    });
+    metrics.record(MetricEvent::SourceConnected {
+        source: "mqtt-in",
+        connected: true,
+    });
+    metrics.record(MetricEvent::SourceBackpressure {
+        source: "mqtt-in",
+        duration: std::time::Duration::from_millis(250),
+    });
+    metrics.record(MetricEvent::AckOldestAge {
+        source: "mqtt-in",
+        age: std::time::Duration::from_millis(125),
+    });
+    metrics.record(MetricEvent::SourceUnackedMax {
+        source: "mqtt-in",
+        unacked: 7,
+    });
+    metrics.record(MetricEvent::SourceUnackedMax {
+        source: "mqtt-in",
+        unacked: 3,
+    });
+    metrics.record(MetricEvent::Connector(ConnectorMetric::SourceStaleAcks {
+        source: "mqtt-in",
+        count: 2,
+    }));
+    metrics.record(MetricEvent::QualityFlags {
+        dataset: "imu",
+        flag: "out_of_range",
+        count: 5,
+    });
+    metrics.record(MetricEvent::SinkLag {
+        sink: "local",
+        bytes: 4096,
+        seconds: 1.5,
+    });
+    metrics.record(MetricEvent::SinkDeliveryClass {
+        sink: "local",
+        class: "idempotent_batch",
+    });
+    thadam_runtime::logging::record_dropped_logs(3);
+
+    let encoded = metrics.encode();
+
+    for want in [
+        "thadam_wal_commit_seconds_count 1",
+        "thadam_wal_fsync_seconds_count 1",
+        "thadam_wal_disk_bytes 8192",
+        "thadam_wal_budget_bytes 67108864",
+        "thadam_recovery_seconds 0.015",
+        "thadam_recovery_truncated_bytes 64",
+        "thadam_source_connected{source=\"mqtt-in\"} 1",
+        "thadam_source_backpressure_seconds_total{source=\"mqtt-in\"} 0.25",
+        "thadam_ack_oldest_age_seconds{source=\"mqtt-in\"} 0.125",
+        "thadam_source_unacked_max{source=\"mqtt-in\"} 7",
+        "thadam_source_stale_acks_total{source=\"mqtt-in\"} 2",
+        "thadam_quality_flags_total{dataset=\"imu\",flag=\"out_of_range\"} 5",
+        "thadam_sink_lag_bytes{sink=\"local\"} 4096",
+        "thadam_sink_lag_seconds{sink=\"local\"} 1.5",
+        "thadam_sink_delivery_class{sink=\"local\",class=\"idempotent_batch\"} 1",
+        "thadam_log_dropped_total 3",
+    ] {
+        assert!(encoded.contains(want), "missing `{want}` in:\n{encoded}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pipeline_run_populates_wal_source_quality_and_sink_metrics() {
+    let dir = TempDataDir::new().unwrap();
+    let kit = Kit::default();
+    let y = yaml(
+        dir.path(),
+        "  - { id: out, kind: recseg, config: { frames_per_file: 4 } }",
+        "",
+    )
+    .replace(
+        "    decode: json\n",
+        "    decode: json\n    time: { field: /ts, unit: us, domain: utc }\n",
+    );
+
+    let metrics = Arc::new(PrometheusMetrics::new());
+    kit.sources.scripted("src", (1..=4).map(json_n));
+    let mut opts = fast_opts();
+    opts.metrics = metrics.clone();
+    assert_eq!(run_to_end(&kit, spec(&y), opts).await.exit, ExitStatus::Ok);
+
+    let encoded = metrics.encode();
+    for want in [
+        "thadam_wal_commit_seconds_count ",
+        "thadam_wal_fsync_seconds_count ",
+        "thadam_wal_disk_bytes ",
+        "thadam_wal_budget_bytes 67108864",
+        "thadam_recovery_seconds ",
+        "thadam_recovery_truncated_bytes 0",
+        "thadam_source_connected{source=\"src\"} 0",
+        "thadam_ack_oldest_age_seconds{source=\"src\"} 0",
+        "thadam_source_unacked_max{source=\"src\"} ",
+        "thadam_quality_flags_total{dataset=\"d\",flag=\"missing_time\"} 4",
+        "thadam_sink_lag_bytes{sink=\"out\"} 0",
+        "thadam_sink_lag_seconds{sink=\"out\"} 0",
+        "thadam_sink_delivery_class{sink=\"out\",class=\"idempotent_batch\"} 1",
+    ] {
+        assert!(encoded.contains(want), "missing `{want}` in:\n{encoded}");
+    }
 }

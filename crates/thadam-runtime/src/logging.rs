@@ -5,9 +5,42 @@
 //! meaning it will drop log lines rather than block the pipeline when the
 //! buffer is full.
 
+use std::io::{self, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use thadam_core::{ErrorDomain, ThadamError, codes};
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_subscriber::{EnvFilter, fmt};
+
+static DROPPED_LOGS: AtomicU64 = AtomicU64::new(0);
+
+/// Total log lines dropped by the lossy logging writer (`thadam_log_dropped_total`).
+pub fn dropped_logs() -> u64 {
+    DROPPED_LOGS.load(Ordering::Relaxed)
+}
+
+/// Records `n` dropped log lines against the process-wide counter.
+pub fn record_dropped_logs(n: u64) {
+    DROPPED_LOGS.fetch_add(n, Ordering::Relaxed);
+}
+
+struct CountingStderr;
+
+impl Write for CountingStderr {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match io::stderr().write(buf) {
+            Ok(n) => Ok(n),
+            Err(e) => {
+                record_dropped_logs(1);
+                Err(e)
+            }
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        io::stderr().flush()
+    }
+}
 
 /// The output format for log messages.
 ///
@@ -56,7 +89,7 @@ pub fn init_logging(format: LogFormat, filter: &str) -> Result<LoggingGuard, Tha
     // Build the non-blocking writer with lossy behavior.
     let (non_blocking, worker) = NonBlockingBuilder::default()
         .lossy(true)
-        .finish(std::io::stderr());
+        .finish(CountingStderr);
 
     // Parse the filter string.
     let env_filter = EnvFilter::try_new(filter).map_err(|e| {

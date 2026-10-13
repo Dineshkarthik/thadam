@@ -582,6 +582,29 @@ impl Wal {
         (d > 0).then_some(WalPos::new(d))
     }
 
+    /// WAL bytes and monotonic age in seconds of the oldest unconsumed segment
+    /// after `cursor`'s committed position. `(0, 0.0)` when the cursor is at
+    /// or beyond the durable end.
+    pub fn cursor_lag(&self, cursor: &str) -> (u64, f64) {
+        let sh = self.sh();
+        let durable = sh.durable();
+        let pos = lock(&sh.cursors)
+            .get(cursor)
+            .map_or(0, |c| c.committed.get());
+        if pos >= durable {
+            return (0, 0.0);
+        }
+        let next = pos.saturating_add(1);
+        let now = sh.now();
+        let idx = lock(&sh.index);
+        let from = idx.segment_for(next).unwrap_or(0);
+        let bytes = idx.segs.iter().skip(from).map(|s| s.bytes).sum();
+        let seconds = idx.segs.get(from).map_or(0.0, |s| {
+            now.saturating_duration_since(s.created_at).as_secs_f64()
+        });
+        (bytes, seconds)
+    }
+
     /// Counters and positions.
     pub fn stats(&self) -> WalStats {
         let sh = self.sh();
