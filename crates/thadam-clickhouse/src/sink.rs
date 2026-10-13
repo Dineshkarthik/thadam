@@ -13,7 +13,7 @@ use thadam_core::{
 };
 
 use crate::block::{self, EncodeError};
-use crate::config::{ChConfig, Compression};
+use crate::config::{ChConfig, Compression, is_loopback_http};
 use crate::error::{classify, classify_at_open};
 use crate::probe::{self, DedupFacts, Delivery};
 use crate::types::{self, InsertPlan, TableCol};
@@ -323,7 +323,10 @@ fn string_column(block: &Block, name: &str, op: &'static str) -> Result<Vec<Stri
 #[async_trait]
 impl BatchSink for ClickHouseSink {
     async fn open(&mut self, _ctx: &SinkContext) -> Result<SinkCapabilities, ThadamError> {
-        if self.cfg.is_plain_http() && self.cfg.password.is_some() {
+        if self.cfg.is_plain_http()
+            && !is_loopback_http(&self.cfg.url)
+            && self.cfg.password.is_some()
+        {
             tracing::warn!(
                 sink = %self.sink_id,
                 "the ClickHouse password is sent over plain http; use an https:// url outside local setups"

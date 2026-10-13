@@ -334,6 +334,19 @@ impl OpcUaConfig {
         self.subscribe.unwrap_or_default()
     }
 
+    /// Username and password travel on a channel with no security.
+    pub(crate) fn sends_credentials_unsecured(&self) -> bool {
+        self.security_policy == SecurityPolicySpec::None
+            && matches!(self.auth, AuthConfig::Username { .. })
+    }
+
+    /// Server certificates are trusted on first sight, so the server is not authenticated.
+    pub(crate) fn accepts_unknown_server_cert(&self) -> bool {
+        self.cert
+            .as_ref()
+            .is_some_and(|cert| cert.accept_unknown_server_cert)
+    }
+
     /// Parses and validates `value`, returning every problem found.
     pub fn from_value(value: &serde_json::Value) -> Result<OpcUaConfig, Vec<ThadamError>> {
         let config: OpcUaConfig = serde_json::from_value(value.clone()).map_err(|e| {
@@ -1106,6 +1119,30 @@ mod tests {
         let cfg = OpcUaConfig::from_value(&value).expect("valid");
         assert_eq!(cfg.mode, ModeSpec::Poll);
         assert_eq!(cfg.interval.map(|i| i.0), Some(Duration::from_millis(500)));
+    }
+
+    #[test]
+    fn plaintext_credentials_and_unknown_server_certs_are_flagged() {
+        let mut value = base();
+        value["auth"] = json!({"kind": "username", "username": "op", "password": "hunter2"});
+        let cfg = OpcUaConfig::from_value(&value).expect("valid");
+        assert!(cfg.sends_credentials_unsecured());
+
+        let mut value = secured(base());
+        value["auth"] = json!({"kind": "username", "username": "op", "password": "hunter2"});
+        let cfg = OpcUaConfig::from_value(&value).expect("valid");
+        assert!(!cfg.sends_credentials_unsecured());
+        assert!(!cfg.accepts_unknown_server_cert());
+
+        let cfg = OpcUaConfig::from_value(&base()).expect("valid");
+        assert!(!cfg.sends_credentials_unsecured());
+        assert!(!cfg.accepts_unknown_server_cert());
+
+        let mut value = secured(base());
+        value["cert"]["accept_unknown_server_cert"] = json!(true);
+        let cfg = OpcUaConfig::from_value(&value).expect("valid");
+        assert!(cfg.accepts_unknown_server_cert());
+        assert!(!cfg.sends_credentials_unsecured());
     }
 
     #[test]
