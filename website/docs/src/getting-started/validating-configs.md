@@ -1,11 +1,11 @@
 # Validating configurations
 
-Thadam configuration is load-bearing: every byte a pipeline captures depends on it, and a config change alters what happens to data that was captured hours ago. `thadam validate` is the off-line gate that a configuration must pass before it is deployed, and it runs exactly the same checks `thadam run` runs at startup.
+Thadam configuration is load-bearing: every byte a pipeline captures depends on it, and a config change alters what happens to data that was captured hours ago. `thadam validate` is the off-line gate that a configuration must pass before it is deployed. By default it checks the file; with `--against-data-dir` it also runs the checks `thadam run` makes before it starts.
 
 ## `thadam validate`
 
 ```bash
-thadam validate <path> [--allow-unresolved]
+thadam validate <path> [--allow-unresolved] [--against-data-dir]
 ```
 
 On success it prints the number of sources, datasets, transforms, and sinks, the config hash, and the memory estimate; it exits `0`. On failure it prints every error and warning and exits `2` (invalid configuration).
@@ -53,6 +53,45 @@ warning[config.missing]: cannot read `/run/secrets/minio_uploader_key`: No such 
 ```
 
 This lets CI validate a config on a machine that has no secrets. Interpolated values are hashed *as written* (the template, not the secret), so rotating a secret never changes the config hash.
+
+### Against the data directory
+
+Plain `thadam validate` reads the file and does not start connectors. A setting that only a connector checks passes it: a misspelled key in a sink's `config:`, or an MQTT source without its `client_id`, is found by `thadam run`, not by plain validate. Add `--against-data-dir` to run the checks `thadam run` makes before it starts, against the data directory the file names in `pipeline.data_dir`:
+
+```text
+$ thadam validate --against-data-dir pipeline.yaml
+pipeline.yaml: configuration is valid
+  pipeline `edge-demo` (node `edge-01`): 1 source, 1 dataset, 0 transforms, 1 sink
+  config hash: 4b56621cd831e857830a21e5d2be2ca8 (hash version 1)
+estimated Thadam-owned memory: 75.0 MiB (no runtime.memory_target set)
+  wal.max_pending_bytes           8.0 MiB  8.0 MiB
+  sink `local` read and batch     3.0 MiB  read chunk 1.0 MiB (default) + 2 x batch 1.0 MiB (default)
+  sink `local` open files        64.0 MiB  max_open_files 4 (default) x 2 x row group 8.0 MiB (default)
+data directory: /var/lib/thadam/edge-demo
+  no thadam.json: a new or uninitialized data directory; a run creates it
+```
+
+The extra checks only read. They never create a directory, take the data directory's `LOCK`, or write to the WAL:
+
+- **Connector and chain checks.** Every source and sink validates its own `config:`, and every sink's chain compiles. A chain's enrichment file is read at this point. A relative path resolves against the working directory, as it does under `thadam run`, so run the check from the directory `thadam run` will use. No connector is built, so no source or sink is opened.
+- **Refusals (exit `3`).** The directory would be refused at start: `thadam.json` names another pipeline, the WAL is bound to another `node_id`, the WAL is missing or has another epoch than the one the recorded sink state was written against, or a format version is one this binary does not read.
+- **Notes.** Printed on success, describing what a restart would do: the config hash change (`current -> candidate (changed)`), each sink that has no cursor yet (it starts from its `start_from`), and each directory under `sinks/` or `sources/` the file no longer lists (its state stays on disk).
+
+A connector or chain error exits `2`. The message is the one the connector gives, which `thadam run` also reports when it fails to start:
+
+```text
+$ thadam validate --against-data-dir typo.yaml
+error: config/config.invalid: unknown field `compresion`, expected one of `datasets`, `compression`, `row_group_bytes`, `rotation`, `max_open_files`, `max_disk`, `timestamp_unit`, `unsigned`, `finalize_on_shutdown`, `node_id` (path=config, component=sinks[0])
+typo.yaml: configuration cannot start against this data directory
+```
+
+Its limits, which only a start finds:
+
+- A running pipeline is not detected. The check takes no lock, so a directory that another `thadam run` holds is read as it is.
+- Reachability, valid credentials, and the state of an existing target (for example, whether a ClickHouse table exists) are not checked.
+- The WAL is inspected, not recovered. A torn tail, which `thadam run` truncates at start, is not reported.
+- `machine_id` is not checked. `thadam run` does not set one either.
+- It needs the real secrets, so it cannot be combined with `--allow-unresolved` (exit `2`).
 
 ## `thadam schema`
 
