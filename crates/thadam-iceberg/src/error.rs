@@ -154,6 +154,24 @@ fn names_status(text: &str, code: &str) -> bool {
     })
 }
 
+/// Whether `error` is an HTTP 401 Unauthorized from a catalog operation that
+/// can be healed by re-exchanging OAuth2 credentials (`RestCommitter` already
+/// re-exchanges and retries its own schema commits before surfacing a 401).
+pub(crate) fn is_expired_oauth_token(error: &IcebergError) -> bool {
+    let IcebergError::Catalog(error) = error else {
+        return false;
+    };
+    if is_certificate_failure(error) || is_client_certificate_rejection(error) {
+        return false;
+    }
+    let text = describe(error).to_ascii_lowercase();
+    !text.contains("token request to ")
+        && !text.contains("schema commit to ")
+        && !names_status(&text, "403")
+        && !text.contains("forbidden")
+        && (names_status(&text, "401") || text.contains("unauthorized"))
+}
+
 /// Classifies an `iceberg::Error` for the retry loop:
 ///
 /// - A rejected TLS certificate (untrusted CA, expired, wrong name) is Fatal
@@ -349,6 +367,19 @@ mod tests {
             classify_iceberg(&e),
             (Retry::Fatal, ErrorDomain::Auth, codes::AUTH_FAILED)
         );
+        assert!(!is_expired_oauth_token(&IcebergError::Catalog(e)));
+
+        let catalog_401 = IcebergError::Catalog(iceberg::Error::new(
+            ErrorKind::Unexpected,
+            "unexpected status: 401 Unauthorized",
+        ));
+        assert!(is_expired_oauth_token(&catalog_401));
+
+        let catalog_403 = IcebergError::Catalog(iceberg::Error::new(
+            ErrorKind::Unexpected,
+            "unexpected status: 403 Forbidden",
+        ));
+        assert!(!is_expired_oauth_token(&catalog_403));
     }
 
     #[test]

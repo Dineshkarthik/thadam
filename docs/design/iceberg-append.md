@@ -248,7 +248,11 @@ with `client_id`, `client_secret`, optional `scope` and `oauth2_server_uri`,
 mutually exclusive) configures the REST catalog client's `token` or
 `credential`/`oauth2-server-uri`/`scope` properties and sends the same bearer
 token on `RestCommitter`'s `/v1/config` and schema-commit requests (exchanging
-client credentials once at connect).
+client credentials at connect and refreshing once on HTTP 401: `RestCommitter`
+re-exchanges `catalog_credential` and retries its schema commit once on 401,
+and `Registrar` rebuilds `(RestCatalog, RestCommitter)` once and retries the
+pass on a catalog 401, failing with fatal `auth.failed` only if the token
+exchange itself or the immediate retry still answers 401/403).
 
 ## Dependency choice (audit summary)
 
@@ -333,11 +337,16 @@ not pay it again:
 
 ## Tests (catalog authentication)
 
-- Config unit tests: `catalog_token` and `catalog_credential` are exclusive;
-  empty secrets and a `:` in `client_id` are refused; certificate and key come
-  together, must exist, and need `https://`; the classifier maps a 401/403 and
-  a client-certificate TLS alert to fatal `auth.failed` (and does not read a
-  port like `:40123` as a status).
+- Config and refresh unit tests: `catalog_token` and `catalog_credential` are
+  exclusive; empty secrets and a `:` in `client_id` are refused; certificate and
+  key come together, must exist, and need `https://`; the classifier maps a
+  401/403 and a client-certificate TLS alert to fatal `auth.failed` (and does
+  not read a port like `:40123` as a status); `rest::tests` and
+  `registrar::tests` run an in-process mock HTTP catalog + OAuth2 token server
+  that rejects the first bearer token with 401, issues a fresh token on
+  re-exchange, and accepts the retry (and verifies that a 401 from the token
+  endpoint or a persistent 401 on the immediate retry fails fatally with
+  `auth.failed`).
 - Docker, one Caddy front per case, each with a schema-evolution commit so the
   direct REST call is covered: `Authorization: Bearer` required (right token
   works; wrong token fatal), OAuth2 client credentials (the fixture's own
@@ -366,14 +375,15 @@ not pay it again:
 - The schema commit bypasses the crate's REST client for the update POST and
   discovers the catalog `prefix` itself from `/v1/config`. It shares the
   catalog client's reqwest client (CA, client certificate) and sends the same
-  bearer token; for `catalog_credential` it runs its own one-time
-  client-credentials exchange at connect, because the crate keeps its token
-  private.
-- Catalog tokens are never refreshed: `iceberg-catalog-rest` 0.10.1 has a
-  `TODO: Support automatic token refreshing` and caches the exchanged token for
-  the client's life, and the direct path mirrors that. An expired token is a
-  401, fatal `auth.failed`; upgrade by refreshing on 401 (re-exchange, retry
-  once) in both paths when tokens shorter than a process lifetime matter.
+  bearer token; for `catalog_credential` it runs its own client-credentials
+  exchange at connect (and refreshes once on 401), because the crate keeps its
+  token private.
+- Static `catalog_token` is never refreshed (an expired static token is a 401,
+  fatal `auth.failed`). With `catalog_credential`, `iceberg-catalog-rest`
+  0.10.1 does not refresh its cached token automatically, so an HTTP 401
+  rebuilds `(RestCatalog, RestCommitter)` once in `Registrar` (and re-exchanges
+  once in `RestCommitter::commit`) before classifying a 401/403 on the
+  re-exchange or immediate retry as fatal `auth.failed`.
 - 401/403 and TLS client-certificate alerts are classified by message scan
   (the crate folds the status into error text); upgrade when it exposes the
   status structurally.
