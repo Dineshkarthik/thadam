@@ -322,11 +322,15 @@ fn transform_value(t: &TransformSpec, path: &str) -> Result<Value, ThadamError> 
             }
             TransformSpec::Window {
                 size,
+                slide,
                 allowed_lateness,
                 idle_close,
                 ..
             } => {
                 obj.insert("size".into(), json!(duration_text(size.get())));
+                if let Some(d) = slide {
+                    obj.insert("slide".into(), json!(duration_text(d.get())));
+                }
                 if let Some(d) = allowed_lateness {
                     obj.insert("allowed_lateness".into(), json!(duration_text(d.get())));
                 }
@@ -687,7 +691,7 @@ datasets:
         let spec = spec_with_parts(
             "  - { id: a, kind: recseg }",
             "",
-            "transforms:\n  - { kind: window, dataset: d, size: 1m, time: event, allowed_lateness: 5s, idle_close: 30s, aggregates: [{ field: temp, fn: mean, as: avg }] }\n",
+            "transforms:\n  - { kind: window, dataset: d, size: 1m, slide: 15s, time: event, allowed_lateness: 5s, idle_close: 30s, aggregates: [{ field: temp, fn: mean, as: avg }] }\n",
         );
         let chain = chain_spec(&spec, "a", None, None, None).unwrap();
         let rt::TransformSpec::Window(w) = &chain.transforms[0] else {
@@ -695,6 +699,7 @@ datasets:
         };
         assert_eq!(w.time, rt::WindowTime::Event);
         assert_eq!(w.size.0, Duration::from_secs(60));
+        assert_eq!(w.slide.map(|d| d.0), Some(Duration::from_secs(15)));
         assert_eq!(
             w.allowed_lateness.map(|d| d.0),
             Some(Duration::from_secs(5))

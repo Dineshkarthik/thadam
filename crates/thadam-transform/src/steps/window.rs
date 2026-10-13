@@ -1,14 +1,16 @@
-//! `window`: tumbling windows on ingest time, one aggregate event per asset
-//! and window.
+//! `window`: tumbling or sliding windows on ingest or event time, one
+//! aggregate event per asset and window.
 //!
-//! A window `[k*size, (k+1)*size)` of an asset closes when the asset's next
-//! event falls in a later window; that event also opens the next window. With
-//! `idle_close`, another asset's event whose ingest time is at least
-//! `idle_close` past a pane's last ingest time also closes that pane (in
-//! `(first_pos, asset)` order when several close at once). There are no
-//! wall-clock timers, so without traffic from another asset a silent asset's
-//! last window stays open until it speaks again. If ingest time steps
-//! backwards an event joins the asset's open window.
+//! When `slide` is omitted (`slide == size`), windows are tumbling
+//! `[k*size, (k+1)*size)`. When `slide < size` (`size` a multiple of `slide`),
+//! events accumulate into panes of width `slide`, and each sliding window
+//! `[w*slide, w*slide + size)` merges its `size / slide` panes once the window
+//! end is reached. With `idle_close`, another asset's event whose ingest time
+//! is at least `idle_close` past a silent asset's last ingest time closes that
+//! asset's open windows (in `(first_pos, asset)` order when several close at
+//! once). There are no wall-clock timers, so without traffic from another
+//! asset a silent asset's open windows stay open until it speaks again. If
+//! ingest time steps backwards an event joins the asset's latest open pane.
 //!
 //! The step keeps open windows in memory only. [`Step::hold`] reports the first
 //! WAL frame of the oldest one, and the runtime never commits a cursor past it,
@@ -36,6 +38,7 @@ use crate::spec::{AggFn, WindowSpec, WindowTime};
 
 const START: &str = "window_start";
 const END: &str = "window_end";
+const MAX_PANES_PER_WINDOW: i64 = 1024;
 
 #[derive(Debug)]
 struct Agg {
@@ -94,13 +97,49 @@ impl Acc {
             self.last_val = x;
         }
     }
+
+    fn merge(&mut self, other: &Acc) {
+        if other.n == 0 {
+            return;
+        }
+        if self.n == 0 {
+            *self = *other;
+            return;
+        }
+        let n_a = self.n;
+        let n_b = other.n;
+        let n = n_a + n_b;
+        let delta = other.mean - self.mean;
+        self.m2 += other.m2 + delta * delta * (n_a as f64) * (n_b as f64) / (n as f64);
+        self.mean = (self.sum + other.sum) / (n as f64);
+        self.sum += other.sum;
+        self.sum_sq += other.sum_sq;
+        self.min = self.min.min(other.min);
+        self.max = self.max.max(other.max);
+        if other.first_key < self.first_key {
+            self.first_key = other.first_key;
+            self.first_val = other.first_val;
+        }
+        if other.last_key >= self.last_key {
+            self.last_key = other.last_key;
+            self.last_val = other.last_val;
+        }
+        self.n = n;
+    }
 }
 
 #[derive(Debug)]
 struct Pane {
-    index: i64,
     first_pos: WalPos,
     last_ingest_ns: i64,
+    has_gap: bool,
+    range_start: bool,
+    accs: Vec<Acc>,
+}
+
+#[derive(Debug)]
+struct MergedWindow {
+    index: i64,
     has_gap: bool,
     range_start: bool,
     accs: Vec<Acc>,
@@ -112,15 +151,19 @@ struct AssetState {
     last_ingest_ns: i64,
     max_event_ns: Option<i64>,
     watermark_ns: Option<i64>,
+    emitted_through: Option<i64>,
+    first_pane_idx: Option<i64>,
     opened_any: bool,
 }
 
-// shortcut: tumbling windows only (`idle_close` advances only when another
-// asset speaks, and late events are dropped rather than re-emitting); upgrade
-// to sliding windows (design note S4) when overlapping windows are needed.
+// shortcut: `idle_close` advances only when another asset speaks, and late
+// events are dropped rather than re-emitting; add retractions or wall-clock
+// timers only if an upsert sink or timer policy is adopted.
 #[derive(Debug)]
 struct Window {
     size_ns: i64,
+    slide_ns: i64,
+    panes_per_window: i64,
     time: WindowTime,
     lateness_ns: i64,
     idle_ns: Option<i64>,
@@ -155,15 +198,51 @@ pub(super) fn compile(
     path: &str,
 ) -> Result<Compiled, Vec<ThadamError>> {
     let mut errs = Vec::new();
-    let size_ns = match i64::try_from(spec.size.0.as_nanos()) {
-        Ok(n) if n > 0 => n,
+    let (size_ns, size_ok) = match i64::try_from(spec.size.0.as_nanos()) {
+        Ok(n) if n > 0 => (n, true),
         _ => {
             errs.push(config_error(
                 &format!("{path}.size"),
                 "`size` must be positive and fit in 63 bits of nanoseconds",
             ));
-            1
+            (1, false)
         }
+    };
+    let slide_ns = match spec.slide {
+        None => size_ns,
+        Some(d) => match i64::try_from(d.0.as_nanos()) {
+            Ok(n) if n > 0 => {
+                if size_ok {
+                    if n > size_ns {
+                        errs.push(config_error(
+                            &format!("{path}.slide"),
+                            "`slide` must be at most `size`",
+                        ));
+                    } else if size_ns % n != 0 {
+                        errs.push(config_error(
+                            &format!("{path}.slide"),
+                            "`size` must be an exact multiple of `slide`",
+                        ));
+                    } else if size_ns / n > MAX_PANES_PER_WINDOW {
+                        errs.push(config_error(
+                            &format!("{path}.slide"),
+                            format!(
+                                "`size / slide` ({}) exceeds the maximum of {MAX_PANES_PER_WINDOW} panes per window",
+                                size_ns / n
+                            ),
+                        ));
+                    }
+                }
+                n
+            }
+            _ => {
+                errs.push(config_error(
+                    &format!("{path}.slide"),
+                    "`slide` must be positive and fit in 63 bits of nanoseconds",
+                ));
+                size_ns
+            }
+        },
     };
     let lateness_ns = match spec.allowed_lateness {
         None => 0,
@@ -265,9 +344,12 @@ pub(super) fn compile(
     let out = intern(ctx, Shape::new(defs), path)?;
     let columns: Vec<&str> = out.fields().iter().map(|f| &*f.name).collect();
     let ids = IdBuf::window(ctx.dataset, size_ns, &columns);
+    let panes_per_window = (size_ns / slide_ns).max(1);
     Ok(Compiled::new(
         Window {
             size_ns,
+            slide_ns,
+            panes_per_window,
             time: spec.time,
             lateness_ns,
             idle_ns,
@@ -283,10 +365,19 @@ pub(super) fn compile(
     ))
 }
 
-/// The bounds of window `index`, or `None` where they overflow a timestamp.
-fn bounds(index: i64, size_ns: i64) -> Option<(i64, i64)> {
-    let start = index.checked_mul(size_ns)?;
+/// The bounds of window `w` (`[w * slide_ns, w * slide_ns + size_ns)`), or
+/// `None` where they overflow a timestamp.
+fn window_bounds(w: i64, slide_ns: i64, size_ns: i64) -> Option<(i64, i64)> {
+    let start = w.checked_mul(slide_ns)?;
     Some((start, start.checked_add(size_ns)?))
+}
+
+fn pane_bounds_ok(pane_idx: i64, slide_ns: i64, size_ns: i64, panes_per_window: i64) -> bool {
+    let Some(first_w) = pane_idx.checked_sub(panes_per_window - 1) else {
+        return false;
+    };
+    window_bounds(first_w, slide_ns, size_ns).is_some()
+        && window_bounds(pane_idx, slide_ns, size_ns).is_some()
 }
 
 fn accumulate(aggs: &[Agg], accs: &mut [Acc], key: OrderKey, record: &Record) {
@@ -319,7 +410,6 @@ fn pane_closed(open: &mut BTreeMap<u64, usize>, pos: WalPos) {
 
 fn new_pane(
     aggs: &[Agg],
-    index: i64,
     pos: WalPos,
     ingest_ns: i64,
     key: OrderKey,
@@ -329,7 +419,6 @@ fn new_pane(
     let mut accs = vec![Acc::EMPTY; aggs.len()];
     accumulate(aggs, &mut accs, key, record);
     Pane {
-        index,
         first_pos: pos,
         last_ingest_ns: ingest_ns,
         has_gap: false,
@@ -361,6 +450,65 @@ impl Window {
         }
     }
 
+    /// Emits every unemitted window `w <= max_closed_w` of `state` that has at
+    /// least one open pane in `w .. w + k`, then retires all panes `<= max_closed_w`.
+    fn close_through(
+        state: &mut AssetState,
+        open: &mut BTreeMap<u64, usize>,
+        panes_per_window: i64,
+        range_start_step: bool,
+        max_closed_w: i64,
+        closed: &mut Vec<MergedWindow>,
+    ) {
+        if let Some((&min_pane, _)) = state.panes.first_key_value() {
+            let mut w = min_pane.saturating_sub(panes_per_window - 1);
+            if let Some(prev) = state.emitted_through {
+                w = w.max(prev.saturating_add(1));
+            }
+            while w <= max_closed_w {
+                let end_w = w.saturating_add(panes_per_window);
+                let mut iter = state.panes.range(w..end_w);
+                if let Some((_, first_pane)) = iter.next() {
+                    let mut accs = first_pane.accs.clone();
+                    let mut has_gap = first_pane.has_gap;
+                    let mut range_start = first_pane.range_start
+                        || (range_start_step && state.first_pane_idx.is_some_and(|fp| w <= fp));
+                    for (_, pane) in iter {
+                        has_gap |= pane.has_gap;
+                        range_start |= pane.range_start;
+                        for (dst, src) in accs.iter_mut().zip(&pane.accs) {
+                            dst.merge(src);
+                        }
+                    }
+                    closed.push(MergedWindow {
+                        index: w,
+                        has_gap,
+                        range_start,
+                        accs,
+                    });
+                    w = w.saturating_add(1);
+                } else if let Some((&next_pane, _)) = state.panes.range(end_w..).next() {
+                    w = next_pane.saturating_sub(panes_per_window - 1);
+                } else {
+                    break;
+                }
+            }
+            state.emitted_through = Some(
+                state
+                    .emitted_through
+                    .map_or(max_closed_w, |prev| prev.max(max_closed_w)),
+            );
+        }
+        while let Some((&idx, _)) = state.panes.first_key_value() {
+            if idx > max_closed_w {
+                break;
+            }
+            if let Some((_, done)) = state.panes.pop_first() {
+                pane_closed(open, done.first_pos);
+            }
+        }
+    }
+
     fn close_idle(
         &mut self,
         active: &AssetPath,
@@ -386,14 +534,22 @@ impl Window {
             let Some(state) = self.assets.get_mut(&asset) else {
                 continue;
             };
-            let panes = std::mem::take(&mut state.panes);
-            for idx in panes.keys() {
-                if let Some((_, end)) = bounds(*idx, self.size_ns) {
-                    state.watermark_ns = Some(state.watermark_ns.map_or(end, |w| w.max(end)));
-                }
+            let Some((&max_pane, _)) = state.panes.last_key_value() else {
+                continue;
+            };
+            if let Some((_, end)) = window_bounds(max_pane, self.slide_ns, self.size_ns) {
+                state.watermark_ns = Some(state.watermark_ns.map_or(end, |w| w.max(end)));
             }
-            for (_, done) in panes {
-                pane_closed(&mut self.open, done.first_pos);
+            let mut closed = Vec::new();
+            Self::close_through(
+                state,
+                &mut self.open,
+                self.panes_per_window,
+                self.range_start,
+                max_pane,
+                &mut closed,
+            );
+            for done in closed {
                 out.push(self.aggregate(&asset, &done, trigger)?);
             }
         }
@@ -404,10 +560,10 @@ impl Window {
     fn aggregate(
         &self,
         asset: &AssetPath,
-        done: &Pane,
+        done: &MergedWindow,
         trigger: &Event,
     ) -> Result<Event, ThadamError> {
-        let (start, end) = bounds(done.index, self.size_ns)
+        let (start, end) = window_bounds(done.index, self.slide_ns, self.size_ns)
             .ok_or_else(|| step_failed("window bounds overflow a timestamp"))?;
         let mut values = vec![
             Value::Ts(Timestamp::from_nanos(start)),
@@ -478,48 +634,54 @@ impl Step for Window {
                 ts.as_nanos()
             }
         };
-        let index = t_ns.div_euclid(self.size_ns);
+        let index = t_ns.div_euclid(self.slide_ns);
         let pos = event.wal_pos();
         let order_key = (t_ns, pos.get(), event.sample_idx().unwrap_or(0));
         let asset = event.asset();
 
         let mut out = Vec::new();
         if self.time == WindowTime::Ingest {
-            let mut closed_pane = None;
+            let mut closed = Vec::new();
             if let Some(state) = self.assets.get_mut(asset) {
-                if let Some((_, pane)) = state.panes.iter_mut().next()
-                    && index <= pane.index
+                if let Some((&last_idx, pane)) = state.panes.iter_mut().next_back()
+                    && index <= last_idx
                 {
                     accumulate(&self.aggs, &mut pane.accs, order_key, record);
                     pane.last_ingest_ns = pane.last_ingest_ns.max(ingest_ns);
                     state.last_ingest_ns = state.last_ingest_ns.max(ingest_ns);
                 } else {
-                    if bounds(index, self.size_ns).is_none() {
+                    if !pane_bounds_ok(index, self.slide_ns, self.size_ns, self.panes_per_window) {
                         return StepResult::Reject(step_failed(
                             "window bounds overflow a timestamp",
                         ));
                     }
+                    Self::close_through(
+                        state,
+                        &mut self.open,
+                        self.panes_per_window,
+                        self.range_start,
+                        index.saturating_sub(self.panes_per_window),
+                        &mut closed,
+                    );
                     let is_first = !state.opened_any;
                     state.opened_any = true;
+                    if is_first {
+                        state.first_pane_idx = Some(index);
+                    }
                     state.last_ingest_ns = ingest_ns;
                     let next = new_pane(
                         &self.aggs,
-                        index,
                         pos,
                         ingest_ns,
                         order_key,
                         is_first && self.range_start,
                         record,
                     );
-                    if let Some((_, done)) = state.panes.pop_first() {
-                        pane_closed(&mut self.open, done.first_pos);
-                        closed_pane = Some(done);
-                    }
                     pane_opened(&mut self.open, pos);
                     state.panes.insert(index, next);
                 }
             } else {
-                if bounds(index, self.size_ns).is_none() {
+                if !pane_bounds_ok(index, self.slide_ns, self.size_ns, self.panes_per_window) {
                     return StepResult::Reject(step_failed("window bounds overflow a timestamp"));
                 }
                 if let Err(e) = self.close_idle(asset, ingest_ns, &event, &mut out) {
@@ -533,7 +695,6 @@ impl Step for Window {
                 }
                 let next = new_pane(
                     &self.aggs,
-                    index,
                     pos,
                     ingest_ns,
                     order_key,
@@ -550,12 +711,14 @@ impl Step for Window {
                         last_ingest_ns: ingest_ns,
                         max_event_ns: None,
                         watermark_ns: None,
+                        emitted_through: None,
+                        first_pane_idx: Some(index),
                         opened_any: true,
                     },
                 );
                 return StepResult::Emit(out);
             }
-            if let Some(done) = closed_pane {
+            for done in closed {
                 match self.aggregate(asset, &done, &event) {
                     Ok(aggregate) => out.push(aggregate),
                     Err(e) => return StepResult::Reject(e),
@@ -567,9 +730,10 @@ impl Step for Window {
             return StepResult::Emit(out);
         }
 
-        let Some((_, end)) = bounds(index, self.size_ns) else {
+        if !pane_bounds_ok(index, self.slide_ns, self.size_ns, self.panes_per_window) {
             return StepResult::Reject(step_failed("window bounds overflow a timestamp"));
-        };
+        }
+        let pane_end = index * self.slide_ns + self.slide_ns;
         let mut closed = Vec::new();
         let mut late = false;
         if let Some(state) = self.assets.get_mut(asset) {
@@ -578,7 +742,7 @@ impl Step for Window {
             let wm = max_ev.saturating_sub(self.lateness_ns);
             let watermark_ns = state.watermark_ns.map_or(wm, |w| w.max(wm));
             state.watermark_ns = Some(watermark_ns);
-            if end <= watermark_ns {
+            if pane_end <= watermark_ns {
                 late = true;
             } else {
                 if state.panes.is_empty() {
@@ -592,9 +756,11 @@ impl Step for Window {
                 } else {
                     let is_first = !state.opened_any;
                     state.opened_any = true;
+                    if is_first {
+                        state.first_pane_idx = Some(index);
+                    }
                     let next = new_pane(
                         &self.aggs,
-                        index,
                         pos,
                         ingest_ns,
                         order_key,
@@ -604,18 +770,17 @@ impl Step for Window {
                     pane_opened(&mut self.open, pos);
                     state.panes.insert(index, next);
                 }
-                while let Some((&idx, _)) = state.panes.first_key_value() {
-                    let Some((_, pane_end)) = bounds(idx, self.size_ns) else {
-                        break;
-                    };
-                    if pane_end > watermark_ns {
-                        break;
-                    }
-                    if let Some((_, done)) = state.panes.pop_first() {
-                        pane_closed(&mut self.open, done.first_pos);
-                        closed.push(done);
-                    }
-                }
+                let max_closed_w = watermark_ns
+                    .div_euclid(self.slide_ns)
+                    .saturating_sub(self.panes_per_window);
+                Self::close_through(
+                    state,
+                    &mut self.open,
+                    self.panes_per_window,
+                    self.range_start,
+                    max_closed_w,
+                    &mut closed,
+                );
             }
         } else {
             if let Err(e) = self.close_idle(asset, ingest_ns, &event, &mut out) {
@@ -627,9 +792,12 @@ impl Step for Window {
                     self.cap
                 )));
             }
+            let watermark_ns = t_ns.saturating_sub(self.lateness_ns);
+            let max_closed_w = watermark_ns
+                .div_euclid(self.slide_ns)
+                .saturating_sub(self.panes_per_window);
             let next = new_pane(
                 &self.aggs,
-                index,
                 pos,
                 ingest_ns,
                 order_key,
@@ -645,7 +813,9 @@ impl Step for Window {
                     panes,
                     last_ingest_ns: ingest_ns,
                     max_event_ns: Some(t_ns),
-                    watermark_ns: Some(t_ns.saturating_sub(self.lateness_ns)),
+                    watermark_ns: Some(watermark_ns),
+                    emitted_through: Some(max_closed_w),
+                    first_pane_idx: Some(index),
                     opened_any: true,
                 },
             );
@@ -1331,9 +1501,132 @@ mod tests {
     }
 
     #[test]
+    fn sliding_windows_merge_panes_and_hold_cursor_until_all_windows_retire_pane() {
+        let mut step = build(json!({
+            "size": "30s",
+            "slide": "10s",
+            "idle_close": "60s",
+            "aggregates": [
+                { "field": "temp", "fn": "count", "as": "n" },
+                { "field": "temp", "fn": "sum", "as": "sum" },
+                { "field": "temp", "fn": "min", "as": "lo" },
+                { "field": "temp", "fn": "max", "as": "hi" },
+                { "field": "temp", "fn": "mean", "as": "avg" },
+                { "field": "temp", "fn": "first", "as": "first" },
+                { "field": "temp", "fn": "last", "as": "last" },
+                { "field": "temp", "fn": "stddev", "as": "sd" },
+                { "field": "temp", "fn": "range", "as": "range" },
+                { "field": "temp", "fn": "delta", "as": "delta" },
+                { "field": "temp", "fn": "rms", "as": "rms" },
+            ],
+        }))
+        .unwrap();
+        step.mark_range_start();
+
+        // Pane 0 ([0, 10)): frame 10 at t=2s (val 2.0), frame 11 at t=8s (val 4.0).
+        assert!(temp(&mut step, "a", 2, 10, 2.0).is_empty());
+        assert!(temp(&mut step, "a", 8, 11, 4.0).is_empty());
+        assert_eq!(step.hold().map(WalPos::get), Some(10));
+
+        // Pane 1 ([10, 20)): frame 12 at t=15s (val 6.0) closes [-20, 10), but pane 0 stays open!
+        let out = temp(&mut step, "a", 15, 12, 6.0);
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            col(&out[0], "window_start"),
+            &Value::Ts(Timestamp::from_secs(-20).unwrap())
+        );
+        assert_eq!(
+            col(&out[0], "window_end"),
+            &Value::Ts(Timestamp::from_secs(10).unwrap())
+        );
+        assert_eq!(col(&out[0], "n"), &Value::U64(2));
+        assert_eq!(col(&out[0], "sum"), &Value::F64(6.0));
+        assert_eq!(
+            out[0].quality().reason.as_deref(),
+            Some("window_range_start")
+        );
+        assert_eq!(
+            step.hold().map(WalPos::get),
+            Some(10),
+            "pane 0 still contributes to [-10, 20) and [0, 30)"
+        );
+
+        // Pane 2 ([20, 30)): frame 13 at t=25s (val 8.0) closes [-10, 20) (panes 0 and 1).
+        let out = temp(&mut step, "a", 25, 13, 8.0);
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            col(&out[0], "window_start"),
+            &Value::Ts(Timestamp::from_secs(-10).unwrap())
+        );
+        assert_eq!(col(&out[0], "n"), &Value::U64(3));
+        assert_eq!(col(&out[0], "sum"), &Value::F64(12.0));
+        assert_eq!(col(&out[0], "first"), &Value::F64(2.0));
+        assert_eq!(col(&out[0], "last"), &Value::F64(6.0));
+        assert_eq!(
+            out[0].quality().reason.as_deref(),
+            Some("window_range_start")
+        );
+        assert_eq!(
+            step.hold().map(WalPos::get),
+            Some(10),
+            "pane 0 still contributes to [0, 30)"
+        );
+
+        // Pane 3 ([30, 40)): frame 14 at t=35s (val 10.0) closes [0, 30) (panes 0, 1, 2) and retires pane 0!
+        let out = temp(&mut step, "a", 35, 14, 10.0);
+        assert_eq!(out.len(), 1);
+        let e = &out[0];
+        assert_eq!(
+            col(e, "window_start"),
+            &Value::Ts(Timestamp::from_secs(0).unwrap())
+        );
+        assert_eq!(
+            col(e, "window_end"),
+            &Value::Ts(Timestamp::from_secs(30).unwrap())
+        );
+        assert_eq!(col(e, "n"), &Value::U64(4));
+        assert_eq!(col(e, "sum"), &Value::F64(20.0));
+        assert_eq!(col(e, "lo"), &Value::F64(2.0));
+        assert_eq!(col(e, "hi"), &Value::F64(8.0));
+        assert_eq!(col(e, "avg"), &Value::F64(5.0));
+        assert_eq!(col(e, "first"), &Value::F64(2.0));
+        assert_eq!(col(e, "last"), &Value::F64(8.0));
+        assert_eq!(col(e, "range"), &Value::F64(6.0));
+        assert_eq!(col(e, "delta"), &Value::F64(6.0));
+        let Value::F64(sd) = *col(e, "sd") else {
+            panic!()
+        };
+        assert!((sd - 5.0_f64.sqrt()).abs() < 1e-12);
+        let Value::F64(rms) = *col(e, "rms") else {
+            panic!()
+        };
+        assert!((rms - 30.0_f64.sqrt()).abs() < 1e-12);
+        assert_eq!(e.quality().reason.as_deref(), Some("window_range_start"));
+        assert_eq!(
+            step.hold().map(WalPos::get),
+            Some(12),
+            "pane 0 retired; pane 1 (frame 12) is now the oldest"
+        );
+
+        // Another asset at t=100s triggers idle_close on `a`, emitting [10, 40), [20, 50), [30, 60).
+        let out = temp(&mut step, "b", 100, 15, 1.0);
+        let starts: Vec<i64> = out
+            .iter()
+            .map(|e| col(e, "window_start").as_ts().unwrap().as_nanos() / 1_000_000_000)
+            .collect();
+        assert_eq!(starts, [10, 20, 30]);
+        assert_eq!(out[0].quality().status, QualityStatus::Good);
+        assert_eq!(step.hold().map(WalPos::get), Some(15));
+    }
+
+    #[test]
     fn config_errors() {
         let bad = [
             json!({ "size": "0s", "aggregates": [{ "field": "temp", "fn": "sum", "as": "s" }] }),
+            json!({ "size": "10s", "slide": "0s", "aggregates": [{ "field": "temp", "fn": "sum", "as": "s" }] }),
+            json!({ "size": "10s", "slide": "20s", "aggregates": [{ "field": "temp", "fn": "sum", "as": "s" }] }),
+            json!({ "size": "10s", "slide": "3s", "aggregates": [{ "field": "temp", "fn": "sum", "as": "s" }] }),
+            json!({ "size": "1025s", "slide": "1s", "aggregates": [{ "field": "temp", "fn": "sum", "as": "s" }] }),
             json!({ "size": "10s", "idle_close": "0s", "aggregates": [{ "field": "temp", "fn": "sum", "as": "s" }] }),
             json!({ "size": "10s", "allowed_lateness": "5s", "aggregates": [{ "field": "temp", "fn": "sum", "as": "s" }] }),
             json!({ "size": "10s", "aggregates": [] }),

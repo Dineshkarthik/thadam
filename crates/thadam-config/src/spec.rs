@@ -1405,6 +1405,10 @@ pub enum TransformSpec {
         sinks: Option<Vec<String>>,
         /// The window length; greater than zero.
         size: DurationSpec,
+        /// How often a sliding window starts; divides `size` evenly (`size`
+        /// when absent, for tumbling windows).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        slide: Option<DurationSpec>,
         /// Which timestamp assigns an event to a window and advances the
         /// watermark; `ingest` when absent.
         #[serde(default, skip_serializing_if = "is_default")]

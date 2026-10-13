@@ -305,13 +305,21 @@ impl PipelineSpec {
         for t in &self.transforms {
             if let TransformSpec::Window {
                 size,
+                slide,
                 allowed_lateness,
                 aggregates,
                 ..
             } = t
             {
+                let panes = slide
+                    .map(|s| s.get().as_nanos())
+                    .filter(|&s| s > 0)
+                    .map_or(1u64, |s| {
+                        u64::try_from((size.get().as_nanos() / s).max(1)).unwrap_or(u64::MAX)
+                    });
                 let per_asset = WINDOW_BYTES_PER_ASSET
-                    .saturating_add((aggregates.len() as u64).saturating_mul(WINDOW_BYTES_PER_AGG));
+                    .saturating_add((aggregates.len() as u64).saturating_mul(WINDOW_BYTES_PER_AGG))
+                    .saturating_mul(panes);
                 window_bytes = window_bytes
                     .saturating_add(DEFAULT_WINDOW_MAX_ASSETS.saturating_mul(per_asset));
                 window_aggs += aggregates.len();

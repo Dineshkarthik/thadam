@@ -1142,6 +1142,7 @@ impl<'p> Checker<'p, '_, '_> {
             }
             TransformSpec::Window {
                 size,
+                slide,
                 time,
                 allowed_lateness,
                 idle_close,
@@ -1150,6 +1151,7 @@ impl<'p> Checker<'p, '_, '_> {
             } => self.window(
                 base,
                 *size,
+                *slide,
                 *time,
                 *allowed_lateness,
                 *idle_close,
@@ -1160,7 +1162,8 @@ impl<'p> Checker<'p, '_, '_> {
     }
 
     /// The `window` step's checks, mirroring the engine's compile: a positive
-    /// `size` (and optional `idle_close`) that fits in nanoseconds,
+    /// `size` (and optional `slide` and `idle_close`) that fits in nanoseconds,
+    /// `slide <= size` dividing `size` evenly into at most 1024 panes,
     /// `allowed_lateness` only on `time: event` and fitting in nanoseconds, at
     /// least one aggregate, unique output columns, and input fields the
     /// aggregate can read.
@@ -1169,18 +1172,60 @@ impl<'p> Checker<'p, '_, '_> {
         &mut self,
         base: &PathVec,
         size: DurationSpec,
+        slide: Option<DurationSpec>,
         time: WindowTime,
         allowed_lateness: Option<DurationSpec>,
         idle_close: Option<DurationSpec>,
         aggregates: &[AggregateSpec],
         names: &Names,
     ) {
-        if size.get().is_zero() || i64::try_from(size.get().as_nanos()).is_err() {
+        const MAX_PANES_PER_WINDOW: i64 = 1024;
+        let size_ns = i64::try_from(size.get().as_nanos()).ok().filter(|&n| n > 0);
+        if size_ns.is_none() {
             self.ctx.invalid(
                 &base.key("size"),
                 Anchor::Value,
                 "`size` must be greater than zero and fit in 63 bits of nanoseconds",
             );
+        }
+        if let Some(slide) = slide {
+            let slide_path = base.key("slide");
+            match i64::try_from(slide.get().as_nanos())
+                .ok()
+                .filter(|&n| n > 0)
+            {
+                None => self.ctx.invalid(
+                    &slide_path,
+                    Anchor::Value,
+                    "`slide` must be greater than zero and fit in 63 bits of nanoseconds",
+                ),
+                Some(slide_ns) => {
+                    if let Some(size_ns) = size_ns {
+                        if slide_ns > size_ns {
+                            self.ctx.invalid(
+                                &slide_path,
+                                Anchor::Value,
+                                "`slide` must be at most `size`",
+                            );
+                        } else if size_ns % slide_ns != 0 {
+                            self.ctx.invalid(
+                                &slide_path,
+                                Anchor::Value,
+                                "`size` must be an exact multiple of `slide`",
+                            );
+                        } else if size_ns / slide_ns > MAX_PANES_PER_WINDOW {
+                            self.ctx.invalid(
+                                &slide_path,
+                                Anchor::Value,
+                                format!(
+                                    "`size / slide` ({}) exceeds the maximum of {MAX_PANES_PER_WINDOW} panes per window",
+                                    size_ns / slide_ns
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
         }
         if let Some(lateness) = allowed_lateness {
             if time != WindowTime::Event {

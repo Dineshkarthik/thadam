@@ -314,7 +314,7 @@ Several violations at once settle on the first reason in this order; flags accum
 
 ## `kind: window` {#window}
 
-**Status: In progress (experimental).** Tumbling windows on **ingest time** (`time: ingest`, the default) or **event time** (`time: event`, with per-asset watermarks and `allowed_lateness`), one aggregate event per asset and window. Sliding windows are not built yet; the design is in `docs/design/advanced-processing.md`.
+**Status: In progress (experimental).** Tumbling or sliding windows on **ingest time** (`time: ingest`, the default) or **event time** (`time: event`, with per-asset watermarks and `allowed_lateness`), one aggregate event per asset and window. The design is in `docs/design/advanced-processing.md`.
 
 ```yaml
 datasets:
@@ -332,6 +332,7 @@ transforms:
   - kind: window
     dataset: telemetry
     size: 1m
+    slide: 15s                 # optional: omit or set equal to size for tumbling windows
     time: event                # or ingest (the default)
     allowed_lateness: 5s       # event time only (0s when absent)
     aggregates:
@@ -342,7 +343,8 @@ transforms:
 
 | Key | Type | Required | Description |
 |---|---|---|---|
-| `size` | duration > 0 | yes | The window length. Windows are aligned to the epoch: `[k·size, (k+1)·size)` of the chosen timestamp. |
+| `size` | duration > 0 | yes | The window length. |
+| `slide` | duration > 0 | no (default `size`) | How often a sliding window starts. Must be at most `size`, divide `size` evenly, and yield at most 1,024 panes per window (`size / slide ≤ 1024`). Windows are aligned to the epoch: `[w·slide, w·slide + size)` over `size / slide` panes of width `slide`. Omitted from the canonical (hashed) form when absent. |
 | `time` | `ingest`, `event` | no (default `ingest`) | Which timestamp assigns an event to a window and advances the watermark. Omitted from the canonical (hashed) form when `ingest`. |
 | `allowed_lateness` | duration ≥ 0 | no (default `0s`) | Valid only with `time: event` (`config.invalid` on `time: ingest`). How far behind an asset's maximum seen event time a window of that asset stays open for out-of-order events. |
 | `idle_close` | duration > 0 | no | Closes a silent asset's open windows once another asset in the dataset sends an event at least `idle_close` in ingest time after that asset's last event, releasing the cursor hold-back. |
@@ -356,7 +358,7 @@ Each aggregate:
 | `fn` | `count`, `sum`, `min`, `max`, `mean`, `first`, `last`, `stddev`, `range`, `delta`, `rms` | yes | `count` counts non-null values and accepts any field. The others need `i8`, `i16`, `i32`, `u8`, `u16`, `u32`, `f32`, or `f64` (`i64` and `u64` are refused because the `f64` result cannot hold them exactly): `first` and `last` take the earliest and latest value in the window (ordered by the window timestamp, then WAL position and sample index), `stddev` is the population standard deviation (`0.0` for a single sample), `range` is `max − min`, `delta` is `last − first`, and `rms` is `sqrt(mean(x²))`. All keep the input field's unit. |
 | `as` | string | yes | The output column. Unique, not empty, and not `window_start` or `window_end`. |
 
-**What a window emits.** With `time: ingest`, an asset's window closes when the asset sends an event whose ingest time falls in a later window. With `time: event`, each asset tracks its own watermark (`max_event_time − allowed_lateness`); an out-of-order event within `allowed_lateness` joins its window (so an asset can hold more than one open pane at once), and open windows with `window_end ≤ watermark` close and emit in ascending `window_start` order. The emitted event has `window_start` and `window_end` (`ts`), then one column per aggregate: `count` is a `u64`, the rest are `f64` (null when the window saw no value). A null or `NaN` value is skipped. The event replaces the dataset's fields, so later steps see only these columns, and the asset identity stays. Its event time is the window start, its ingest time is the closing event's, and its WAL position is the closing event's frame. Its id is derived from the dataset, asset, window start, size, and column names, so a re-read after a restart gives the same id. The events that fed the window are not emitted.
+**What a window emits.** Events accumulate into panes of width `slide` (`size` when `slide` is omitted), and each non-empty window `[w·slide, w·slide + size)` merges its `size / slide` panes (`stddev` uses Chan-Welford parallel merge so the merged result equals population `stddev` over all samples in the window). With `time: ingest`, an asset's window closes when the asset sends an event whose ingest time falls at or past `window_end`. With `time: event`, each asset tracks its own watermark (`max_event_time − allowed_lateness`); an out-of-order event within `allowed_lateness` joins its pane, and open windows with `window_end ≤ watermark` close and emit in ascending `window_start` order (a pane is retained until every sliding window covering it has closed). The emitted event has `window_start` and `window_end` (`ts`), then one column per aggregate: `count` is a `u64`, the rest are `f64` (null when the window saw no value). A null or `NaN` value is skipped. The event replaces the dataset's fields, so later steps see only these columns, and the asset identity stays. Its event time is the window start, its ingest time is the closing event's, and its WAL position is the closing event's frame. Its id is derived from the dataset, asset, window start, size, and column names, so a re-read after a restart gives the same id. The events that fed the window are not emitted.
 
 **Counters and quality.** Events absorbed into an open window, and events with no UTC event time under `time: event` (for example a `monotonic` or `sim` time domain), count as `filtered`. Under `time: event`, an event whose window has already closed (`window_end ≤ watermark`) is dropped without re-emitting and counted as `late` (`thadam_chain_events_total{outcome="late"}`). A window that was open across a WAL gap emits with `quality.status = uncertain` and `quality.reason = "window_gap"`; when `thadam replay` starts after frame 1 (`--from` > 1), the first window opened for each asset emits with `quality.status = uncertain` and `quality.reason = "window_range_start"`.
 
@@ -374,9 +376,9 @@ Each aggregate:
 
 - Only segment sinks (such as `parquet`) support `window`. Building a pipeline that routes a windowed dataset to a batch sink is a configuration error.
 - Late events under `time: event` are dropped and counted rather than emitting retractions or corrections.
-- Tumbling windows only; sliding windows, median, and percentiles are not implemented.
+- Tumbling and fixed-slide windows only (`size / slide ≤ 1024`); session windows, median, and percentiles are not implemented.
 
-`thadam validate` checks `size`, `time`, `allowed_lateness`, `idle_close`, the aggregates, and the field types, includes the per-step open-window state bound and cursor hold-back span (`size + allowed_lateness`) in its memory estimate, and checks the later steps against the window's columns.
+`thadam validate` checks `size`, `slide`, `time`, `allowed_lateness`, `idle_close`, the aggregates, and the field types, includes the per-step open-window state bound (scaled by `size / slide` when `slide` is set) and cursor hold-back span (`size + allowed_lateness`) in its memory estimate, and checks the later steps against the window's columns.
 
 ### Anomaly rules on windowed signals {#window-anomaly-rules}
 

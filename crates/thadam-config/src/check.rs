@@ -668,6 +668,8 @@ struct WindowRaw {
     sinks: Option<Vec<String>>,
     size: DurationSpec,
     #[serde(default)]
+    slide: Option<DurationSpec>,
+    #[serde(default)]
     time: WindowTime,
     #[serde(default)]
     allowed_lateness: Option<DurationSpec>,
@@ -842,6 +844,7 @@ fn parse_transform(item: &Value, base: &PathVec, ctx: &mut Ctx<'_>) -> Option<Tr
                 dataset: raw.dataset,
                 sinks: raw.sinks,
                 size: raw.size,
+                slide: raw.slide,
                 time: raw.time,
                 allowed_lateness: raw.allowed_lateness,
                 idle_close: raw.idle_close,
