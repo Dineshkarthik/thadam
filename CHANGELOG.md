@@ -18,6 +18,7 @@ Thadam is early in its first milestone (M1 / MVP v0.1). No releases exist yet; t
 - **Homepage hero art**: the hero illustration is now the light and dark artwork, cropped to the illustration (`thadam-illusion-light-hero.png` and `thadam-illusion-dark-hero.png`) instead of the CSS grid plane.
 - **Agent instructions**: `AGENTS.md` is the source of truth for agents; `CLAUDE.md`, `.cursor/rules/website.mdc`, and `.github/copilot-instructions.md` point to it.
 - **Product scope amendments**: `product.md` now carries the approved Part A amendments (A.1 to A.9 and A.11) of `docs/design/product-amendments.md`. MVP v0.1 is M1 (MQTT, durable capture log, Parquet, S3-compatible storage), ROS 2 is M2, ClickHouse is P1 (M3), and HTTP and gRPC move after the MVP. This closes readiness blocker 2.
+- **Public status matches the code**: the homepage, roadmap, introduction, and README now give each component one status at `9f0252b`. ClickHouse, Kafka, NATS JetStream, and MQTT publish are Available; live ROS 2, the Iceberg registrar, and windowing are In progress (experimental). The introduction no longer lists built features as missing.
 
 ### Added
 
@@ -103,16 +104,17 @@ Thadam is early in its first milestone (M1 / MVP v0.1). No releases exist yet; t
 - **`thadam-mcap` resumes after a restart instead of re-ingesting** (`thadam-mcap`, `thadam-core`): re-running a pipeline with a finite `mcap` source on the same data directory read every file again from the start, and each re-read message landed at a new WAL position, so its default event id differed and sinks received duplicate rows (seen with `examples/ros2-mcap-to-parquet`). The earlier description of file re-reads as idempotent was wrong at the dataset level. The source now acknowledges after the WAL commit (`ack_mode: on_commit`) and, on each ack, atomically writes `<data_dir>/sources/<id>/resume.json` (per file: path, size, modification time, and how many messages the committed batches cover). A restart skips completed files and resumes the others after their last committed message; batches that were not yet acknowledged are read again, so no uncommitted message is skipped. A crash between a WAL commit and the state write can repeat that window's batches (at-least-once). A file whose size or modification time changed, or a changed `topics`/`start`/`end`, is replayed from the start with a warning; a malformed `resume.json` fails the run (`buffer.corrupt`) rather than silently starting over, and a failed state write fails the run (`buffer.io`). `thadam-core` gains the public `write_atomic` helper (the schema store's tmp, fsync, rename, directory-fsync discipline). Docs: [ROS 2](website/docs/src/sources/ros2.md).
 - **Parquet file names carry the pipeline's `node_id`** (`thadam-core`, `thadam-runtime`, `thadam-segments`): a sink's file-name node id defaulted to the sink id, so nodes that shared one configuration (for example `node_id: ${env:THADAM_NODE_ID}`) wrote identically named segments and quarantine files, and their object keys could collide. The runtime now passes `pipeline.node_id` through `BuildContext::with_node_id`; a sink's own `config.node_id` still overrides it. Existing files keep their names: recovery identifies segments by path, not by node id, and their object keys are unchanged, so a restart after upgrade recovers and ships them as before. Replay output takes the pipeline's `node_id` as well.
 - **Mid-run chain panic rebuilds warm upstream stateful steps before `window` hold-back** (`thadam-runtime`): when a chain with both an upstream stateful step (`sample`, `on_change`, or `dedup`) and a `window` step panicked and rebuilt, `warm` previously started at the open window's `hold` position (`h`) instead of `h − warm_start_frames`, losing the pre-`h` sampling phase and last-kept state. It now feeds `h − warm_start_frames .. h` through `Chain::warm` (non-window steps only) before replaying `h ..= upto` through `Chain::warm_open_windows`.
+- **Relative `enrich.file` paths resolve next to `pipeline.yaml`** (`thadam-cli`): `thadam run`, `thadam replay`, and `thadam validate --against-data-dir` resolved them against the working directory, so a run from another directory failed to find the table or read a different file with the same name. They now resolve against the directory that holds the configuration file.
 
 ### In progress (not yet usable)
 
 - Published benchmark results and the ADR-0004 WAL re-run on reference hardware (the bench script landed above; the runs are not done).
 - Live ROS 2 source (ADR-0007 stage 4): `kind: ros2_live` landed above as experimental (rmw_zenoh transport only, no discovery, no ARM numbers yet). Spike S3 (stage 3) is complete.
-- Iceberg append (P2, phase 4): `kind: iceberg` landed above as experimental step 1 (register shipped segments; no schema evolution, compaction, or deletes yet; no docs-side DDL/export commands).
+- Iceberg append (P2, phase 4): `kind: iceberg` landed above as experimental steps 1 to 3 (registration, schema evolution by field ID, catalog authentication and mTLS); no token refresh, compaction, partitioning, or deletes yet.
 
 ### Not started
 
-- Live ROS 2 bridge transport (zenoh-bridge-ros2dds sidecar, only if needed), plugin mechanism, windowing/aggregation.
+- Live ROS 2 bridge transport (zenoh-bridge-ros2dds sidecar, only if needed), Delta Lake, fleet remote configuration, and the plugin mechanism.
 
 ### Known issues
 
