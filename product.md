@@ -256,15 +256,10 @@ replay -> sink
 Example:
 
 ```text
-1000 Hz sensor
-      |
-      +--> quality validation
-      +--> remove duplicate values
-      +--> window
-      +--> downsample to 100 Hz
-      |
-      +--> transmit reduced stream
+1000 Hz sensor -> quality validation -> remove unchanged values (deadband) -> downsample to 100 Hz by decimation -> transmit reduced stream
 ```
+
+Windowed aggregation (P1) can be added after the validation step.
 
 ### UC-06: Robotics data replay
 
@@ -317,16 +312,16 @@ The platform may transport and reference video, but should not become a video st
 
 Protocol support must be modular. A protocol implementation must not leak into the core processing model.
 
-## Tier 1 — MVP
+## Tier 1 — Core protocols
 
-| Protocol | Role | Priority |
-|---|---|---|
-| MQTT 3.1.1 / 5 | IoT telemetry/pub-sub | P0 |
-| ROS 2 / DDS-compatible ingestion | Robotics middleware | P0 |
-| HTTP/HTTPS | Generic device/vendor APIs | P0 |
-| gRPC | Modern application/device APIs | P0 |
-| OPC UA | Industrial/plant-floor data | P1 |
-| CAN / CAN-FD | Vehicle/robot embedded bus | P1 |
+| Protocol | Role | Priority | Milestone |
+|---|---|---|---|
+| MQTT 3.1.1 / 5 | IoT telemetry/pub-sub | P0 | M1 (3.1.1 first; version 5 per ADR-0006) |
+| ROS 2 / DDS-compatible ingestion | Robotics middleware | P0 | M2 |
+| HTTP/HTTPS | Generic device/vendor APIs | P1 | after the MVP |
+| gRPC | Modern application/device APIs | P1 | after the MVP |
+| OPC UA | Industrial/plant-floor data | P1 | after M2 |
+| CAN / CAN-FD | Vehicle/robot embedded bus | P1 | after M2 |
 
 ## Tier 2
 
@@ -545,20 +540,19 @@ Sink
 - projection
 - field rename
 - field extraction
-- type conversion
+- type conversion (widening only)
 - unit conversion
 - filtering
-- routing
-- timestamp correction
-- metadata enrichment
-- deduplication
-- basic aggregation
-- sampling
-- downsampling
+- routing (to datasets and to quarantine)
+- timestamp extraction and correction, with explicit quality flags
+- metadata enrichment from a static file
+- deduplication (best-effort; authoritative deduplication happens downstream)
+- change-based filtering (deadband, on-change)
+- sampling and downsampling by decimation (every Nth sample, or a minimum interval)
 
 ### P1
 
-- windowing
+- windowing and basic aggregation
 - joins against local/reference metadata
 - sequence validation
 - anomaly rules
@@ -770,44 +764,58 @@ The user should define pipelines declaratively.
 Example:
 
 ```yaml
+version: 1
+
 pipeline:
   name: robot-telemetry
+  node_id: edge-01
+  data_dir: /var/lib/thadam/robot-telemetry
 
 sources:
   - id: robot-mqtt
-    type: mqtt
+    kind: mqtt
     config:
-      broker: mqtt://edge-broker:1883
-      topic: robots/+/telemetry
-      qos: 1
+      url: mqtt://edge-broker:1883
+      client_id: thadam-edge-01
+      topics:
+        - { filter: "robots/+/telemetry", qos: 1 }
+      ack_mode: on_commit
+
+wal:
+  max_disk: 20GiB
+  fsync: { interval: 10ms }
+  on_full: block
+
+datasets:
+  - id: telemetry
+    match: { source: robot-mqtt, topic: "robots/+/telemetry" }
+    decode: json
+    identity: { robot: "{topic.1}" }
+    time: { field: /ts, unit: ms, domain: utc }
+    fields:
+      - { name: temperature, type: f32, from: /temp, unit: degC }
 
 transforms:
-  - type: decode
-    format: json
-
-  - type: normalize_units
-    temperature: celsius
-
-  - type: enrich
-    metadata:
-      source: local_asset_registry
-
-  - type: filter
-    expression: "quality == 'good'"
-
-buffer:
-  type: disk
-  max_size: 20GiB
+  - kind: filter
+    dataset: telemetry
+    where: { field: quality.status, eq: good }
 
 sinks:
-  - id: clickhouse
-    type: clickhouse
+  - id: local
+    kind: parquet
     config:
-      endpoint: http://clickhouse:8123
-      table: robot_telemetry
+      datasets: [telemetry]
+      rotation: { max_bytes: 128MiB, max_age: 5m }
+  - id: s3
+    kind: object_store
+    config:
+      from: local
+      url: s3://robot-data/thadam
 ```
 
-The configuration format must remain stable and versionable.
+Conditions are structured predicates: a `field`, an operator (`eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `min`/`max`), and a value, combined with `all`, `any`, and `not`. Thadam does not evaluate free-form expression strings in v0.1. The `expr:` key is reserved for a future expression language.
+
+The configuration format must remain stable and versionable. The current schema is `version: 1`.
 
 ---
 
@@ -1387,41 +1395,23 @@ Track tested versions of:
 
 # 31. MVP definition
 
-The MVP is deliberately narrow.
+The MVP is deliberately narrow. It is delivered in milestones. MVP v0.1 is milestone M1.
 
-## MVP objective
+**MVP objective (M1):** Demonstrate that one Rust edge runtime can capture MQTT data durably, survive network, destination, and process failures without silent loss within documented limits, transform the data into declared analytical datasets, and deliver it as Parquet files to local disk and to S3-compatible object storage.
 
-Demonstrate that one Rust edge runtime can reliably ingest two important robotic/IoT protocols, transform the data, survive outages, and deliver to two modern data targets.
+**Milestones**
 
-### MVP sources
+- **M1 (MVP v0.1):** MQTT source, durable capture log, local Parquet segments, S3-compatible shipping, replay, and chaos verification.
+- **M2:** ROS 2 source. MCAP and rosbag2 offline ingestion first, then a live transport chosen by an ADR-backed spike.
+- **M3 (P1):** ClickHouse sink, started only after the M1 gate passes.
 
-1. MQTT
-2. ROS 2 / DDS-compatible source
+**MVP sources (M1):** 1. MQTT 3.1.1 (MQTT 5 if ADR-0006 confirms client support). ROS 2 / DDS-compatible ingestion is a P0 product capability delivered in M2.
 
-### MVP transforms
+**MVP transforms:** 1. decode 2. normalize to declared dataset schemas 3. filter 4. field mapping (projection, rename, extraction, type widening) 5. unit conversion 6. best-effort deduplication, and change-based filtering (deadband) as a separate transform 7. static-file enrichment 8. timestamp extraction with explicit correction flags 9. sampling and downsampling by decimation 10. routing to datasets and to quarantine 11. batching
 
-1. decode
-2. normalize
-3. filter
-4. field mapping
-5. unit conversion
-6. deduplication
-7. basic enrichment
-8. batching
+**MVP reliability:** 1. durable local capture log, written before the source is acknowledged 2. retry 3. backpressure (acknowledgement withholding for flow-controlled sources, counted drops for sources without flow control) 4. restart recovery 5. replay from the capture log retention window
 
-### MVP reliability
-
-1. durable local buffer
-2. retry
-3. backpressure
-4. restart recovery
-5. replay
-
-### MVP sinks
-
-1. Local durable capture to Parquet segments (P0)
-2. S3-compatible object storage for Parquet/raw archives (P0)
-3. ClickHouse (P1 early integration, conditional on MVP capacity and target-user validation)
+**MVP sinks (M1):** 1. Local durable capture to Parquet segments (P0) 2. S3-compatible object storage for Parquet segments (P0). ClickHouse is a P1 sink delivered in M3 after the M1 gate; it is not part of v0.1.
 
 If delivery capacity is constrained, ship local Parquet + object storage first and defer ClickHouse rather than compromising durability, recovery, or replay. The architecture must support ClickHouse as an independent sink without making it a core runtime dependency.
 
@@ -1432,12 +1422,12 @@ If delivery capacity is constrained, ship local Parquet + object storage first a
 3. Prometheus/OpenTelemetry-compatible observability
 4. Rust API
 
-### MVP examples
+**MVP examples:**
 
-- MQTT -> durable local Parquet -> S3-compatible object storage
-- ROS 2 -> durable local capture -> replay after reconnect
-- MQTT -> ClickHouse (P1 analytics example, if included in MVP scope)
-- offline edge -> reconnect -> replay without data loss within the configured retention budget
+- MQTT -> durable local Parquet -> S3-compatible object storage (M1)
+- offline edge -> reconnect -> replay without data loss within the configured retention budget and the broker's queue limits (M1)
+- ROS 2 -> durable local capture -> Parquet (M2)
+- MQTT -> ClickHouse (P1 analytics example, M3)
 
 ---
 
@@ -1449,7 +1439,9 @@ If delivery capacity is constrained, ship local Parquet + object storage first a
 
 **Revisit when:** interviews or pilots show that queryable live telemetry is the dominant initial workflow, and a reliable local capture/object-store path can still be delivered without compromising it.
 
-**Acceptance criteria:** the team can demonstrate a disconnected edge capture, restart recovery, replay/upload, bounded disk behavior, and independently configurable ClickHouse delivery; benchmark claims must be measured rather than assumed.
+**Acceptance criteria (M1 gate):** the team can demonstrate disconnected edge capture, restart recovery, replay and upload, bounded disk behavior with every loss attributed, and quarantine of malformed input, each verified against the producer's own record of what it sent; benchmark claims must be measured rather than assumed.
+
+**Acceptance criteria (P1 gate, after M1):** independently configurable ClickHouse delivery that does not change the M1 results. The Parquet and object-storage verification must still pass while ClickHouse is unavailable.
 
 ---
 
@@ -1468,24 +1460,28 @@ If delivery capacity is constrained, ship local Parquet + object storage first a
 - documentation
 - CI
 
-## Phase 1 — MVP runtime
+## Phase 1 — MVP runtime (M1)
 
 - MQTT
-- HTTP
+- capture log (durable local buffer)
+- Parquet segments
 - object store
-- ClickHouse
-- disk buffer
 - basic transforms
 - replay
 - metrics
 
-## Phase 2 — Robotics
+## Phase 2 — Robotics (M2)
 
-- ROS2
+- ROS 2: MCAP and rosbag2 offline ingestion, then a live transport
 - DDS/Zenoh evaluation
 - trajectory/pose structures
 - frame metadata
 - better timestamps
+
+## Phase 2b — Real-time analytics (M3, after the M1 gate)
+
+- ClickHouse
+- HTTP and gRPC sources, as demand dictates
 
 ## Phase 3 — Industrial
 
@@ -1725,19 +1721,19 @@ Target:
 
 ```bash
 git clone ...
-docker compose up -d
-robotic-data run examples/mqtt-to-clickhouse/pipeline.yaml
+cd thadam/examples/edge-capture
+make up
+make run
+make query
 ```
 
-Then:
+Then, in DuckDB:
 
 ```sql
-SELECT *
-FROM robot_telemetry
-ORDER BY event_time DESC;
+SELECT * FROM 'data/**/ready/telemetry/**/*.parquet' ORDER BY _event_time DESC LIMIT 20;
 ```
 
-The project should provide the demo broker, sample producer, and destination locally.
+The project should provide the demo broker, sample producer, and a local destination (a local Parquet directory, with an S3-compatible store as the second step).
 
 ---
 
@@ -1893,48 +1889,22 @@ containing:
 
 # 46. Definition of MVP done
 
-The MVP is done only when all of the following work:
+The MVP (v0.1, milestone M1) is done only when all of the following work:
 
-### Demo A
+**Demo A:** MQTT -> capture log -> normalize -> filter -> local Parquet segments
 
-```text
-MQTT -> normalize -> filter -> buffer -> ClickHouse
-```
+**Demo B:** MQTT -> capture log -> normalize -> Parquet -> S3-compatible object storage
 
-### Demo B
+**Failure demo:** source -> capture log -> network and destination outage, broker partition, process kill, disk pressure, and malformed input -> recovery -> verified delivery with zero missing acknowledged samples and zero duplicate rows
 
-```text
-MQTT -> normalize -> Parquet -> S3
-```
+**Replay demo:** a deliberately misconfigured filter loses nothing; the retained capture log is replayed through the corrected configuration into a separate output
 
-### Demo C
+**Developer experience:** A new developer can run the full demo locally with documented commands, from a clean clone to a first query result in under 10 minutes using prebuilt images.
 
-```text
-ROS2 -> canonical event -> ClickHouse
-```
+**Later gates:**
 
-### Failure demo
-
-```text
-source -> edge buffer -> network outage
-                      |
-                      X
-                      |
-                  recovery
-                      |
-                      v
-                    sink
-```
-
-### Replay demo
-
-```text
-record -> replay -> pipeline -> destination
-```
-
-### Developer experience
-
-A new developer can run the full demo locally with documented commands.
+- **M2 gate:** ROS 2 -> canonical event -> Parquet (MCAP file input first)
+- **P1 gate (M3):** MQTT -> ClickHouse, and later ROS 2 -> ClickHouse, once the M1 gate has passed
 
 ---
 

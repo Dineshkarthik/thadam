@@ -1,8 +1,8 @@
 # Proposed amendments to product.md
 
-Note: the owner approved Part A (A.1 to A.11) on 2026-10-07 and must now apply the approved amendments to `product.md` (this document does not edit it). A.11 (structured-predicate filter syntax) was added the same day after ADR-0018 was accepted.
+Note: the owner approved Part A (A.1 to A.11) on 2026-10-07. Part A is applied to `product.md` as of 2026-10-13: A.1 to A.9 and A.11 verbatim, and A.10 (the unchosen ROS 2 alternatives) is not applied. A.11 (structured-predicate filter syntax) was added the same day after ADR-0018 was accepted.
 
-Status: Part A approved by the owner (2026-10-07), including A.11. Parts B and C are still awaiting owner approval. This document proposes text; it does not change `product.md`, which stays read-only to the coding agents and the source of truth until the owner applies these edits.
+Status: Part A approved by the owner (2026-10-07), including A.11, and applied verbatim to `product.md` on 2026-10-13 (A.1 to A.9 and A.11). Parts B and C are still awaiting owner approval and are not applied. `product.md` is the source of truth; this document now records the amendments and their rationale.
 
 Date: 2026-10-07. Prepared for blocker B2 (scope freeze) in `docs/design/owner-decisions.md`, with a second, lower-priority part that aligns `product.md` with the architecture decisions in `ARCHITECTURE.md`.
 
