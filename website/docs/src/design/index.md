@@ -10,7 +10,7 @@ Thadam's design is record-first: decisions are accepted as ADRs, evidence comes 
 | [product.md](https://github.com/Dineshkarthik/thadam/blob/main/product.md) | Product requirements and scope: vision, personas, use cases, roadmap. (Amended in places by the owner decisions below.) |
 | [Readiness tracker](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md) | Per-PR implementation status and the remaining readiness blockers. |
 | [Owner decisions](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/owner-decisions.md) | The owner's decision register (scope, defaults, ADR acceptances), dated. |
-| [Product amendments](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/product-amendments.md) | Approved amendments to `product.md` not yet applied to it. |
+| [Product amendments](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/product-amendments.md) | Scope amendments to `product.md` (Part A applied; Parts B and C proposed). |
 | [Version inventory](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/version-inventory.md) | Pinned versions of formats, dependencies, and tooling. |
 
 ## Architecture decision records

@@ -6,7 +6,7 @@
 
 ## Context
 
-Thadam captures messages from robotic and IoT sources. product.md section 7 lists "ROS 2 / DDS-compatible ingestion" as a P0 protocol and section 31 makes it one of two MVP sources. ARCHITECTURE.md section 1 places ROS 2 in milestone M2, after the MQTT-to-Parquet core (M1), and says that if capacity tightens the cut order is ClickHouse first, then live ROS 2; M1 is never cut. These two statements conflicted. The owner resolved the conflict on 2026-10-07 (decision B2, D-B2-2 in `docs/design/owner-decisions.md`): ROS 2 is NOT in v0.1, and ROS 2 (MCAP first) is M2. The product.md amendment (`docs/design/product-amendments.md` Part A) is approved but not yet applied to product.md.
+Thadam captures messages from robotic and IoT sources. product.md section 7 lists "ROS 2 / DDS-compatible ingestion" as a P0 protocol and section 31 makes it one of two MVP sources. ARCHITECTURE.md section 1 places ROS 2 in milestone M2, after the MQTT-to-Parquet core (M1), and says that if capacity tightens the cut order is ClickHouse first, then live ROS 2; M1 is never cut. These two statements conflicted. The owner resolved the conflict on 2026-10-07 (decision B2, D-B2-2 in `docs/design/owner-decisions.md`): ROS 2 is NOT in v0.1, and ROS 2 (MCAP first) is M2. The product.md amendment (`docs/design/product-amendments.md` Part A) was approved on 2026-10-07 and applied to product.md on 2026-10-13.
 
 **This ADR follows the owner's decision: ROS 2 starts at M2.** Stages 1 and 2 below (the CDR decoder and MCAP file source) are the first M2 deliverables. Stage 3 (the live-transport spike) follows its own evidence.
 
