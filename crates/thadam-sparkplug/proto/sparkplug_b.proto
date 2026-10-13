@@ -1,0 +1,220 @@
+// Thadam's Sparkplug B wire schema.
+//
+// Written for Thadam (Apache-2.0, see LICENSE) from the message definitions
+// and field numbers the Sparkplug specification 3.0.0 publishes in chapter 6
+// ("Payloads"): field numbers, wire types, and message layout are protocol
+// constants every implementation must share. The normative prose behind each
+// message is cited inline; topic semantics live in chapter 4 ("Topics and
+// Message Flow") and are implemented in `topic.rs`, not here.
+//
+// The proto2 `extensions` ranges are third-party extension points
+// [tck-id-payloads-template-extension etc.]. prost has no proto2-extension
+// API, so extension content decodes as unknown fields and is skipped; core
+// Sparkplug B metrics never use them.
+
+syntax = "proto2";
+
+package thadam.sparkplug.v1;
+
+// The metric/property value type tags (spec 3.0.0, §6.4.1 "Data types").
+// Scalar integers, floats, boolean, text, and temporal types 1-15; complex
+// metric types 16-21; packed array encodings 22-34 (little-endian packed
+// bytes on the wire, per §6.4.2 "Array types").
+enum DataType {
+  UNKNOWN = 0;
+
+  INT8 = 1;
+  INT16 = 2;
+  INT32 = 3;
+  INT64 = 4;
+
+  UINT8 = 5;
+  UINT16 = 6;
+  UINT32 = 7;
+  UINT64 = 8;
+
+  FLOAT = 9;
+  DOUBLE = 10;
+  BOOLEAN = 11;
+
+  STRING = 12;    // UTF-8
+  DATE_TIME = 13; // milliseconds since the Unix epoch, UTC
+  TEXT = 14;
+  UUID = 15;
+
+  DATA_SET = 16;
+  BYTES = 17;
+  FILE = 18;
+  TEMPLATE = 19;
+
+  PROPERTY_SET = 20;
+  PROPERTY_SET_LIST = 21;
+
+  INT8_ARRAY = 22;
+  INT16_ARRAY = 23;
+  INT32_ARRAY = 24;
+  INT64_ARRAY = 25;
+  UINT8_ARRAY = 26;
+  UINT16_ARRAY = 27;
+  UINT32_ARRAY = 28;
+  UINT64_ARRAY = 29;
+  FLOAT_ARRAY = 30;
+  DOUBLE_ARRAY = 31;
+  BOOLEAN_ARRAY = 32;
+  STRING_ARRAY = 33;
+  DATE_TIME_ARRAY = 34;
+}
+
+// The whole MQTT message body (spec §6.4.3 "Payload"): every Sparkplug B
+// publish, from NBIRTH to DDEATH, is one of these.
+message Payload {
+
+  // A template definition or instance (spec §6.4.4 "Templates").
+  message Template {
+
+    // A template parameter: named and typed like a metric, but not aliased.
+    message Parameter {
+      optional string name = 1;
+      optional uint32 type = 2;
+
+      oneof value {
+        uint32 int_value = 3;
+        uint64 long_value = 4;
+        float float_value = 5;
+        double double_value = 6;
+        bool boolean_value = 7;
+        string string_value = 8;
+        ParameterValueExtension extension_value = 9;
+      }
+
+      message ParameterValueExtension {
+        extensions 1 to max;
+      }
+    }
+
+    optional string version = 1;              // template version, mismatches guarded
+    repeated Metric metrics = 2;              // the template's own metric set
+    repeated Parameter parameters = 3;        // definition: declarations; instance: values
+    optional string template_ref = 4;         // instance: its definition's name; definition: omitted
+    optional bool is_definition = 5;          // true: UDT definition; false/absent: instance
+    extensions 6 to max;
+  }
+
+  // A typed table attached to one metric (spec §6.4.5 "DataSets").
+  message DataSet {
+
+    // One cell; its `types` entry picks the oneof arm.
+    message DataSetValue {
+      oneof value {
+        uint32 int_value = 1;
+        uint64 long_value = 2;
+        float float_value = 3;
+        double double_value = 4;
+        bool boolean_value = 5;
+        string string_value = 6;
+        DataSetValueExtension extension_value = 7;
+      }
+
+      message DataSetValueExtension {
+        extensions 1 to max;
+      }
+    }
+
+    message Row {
+      repeated DataSetValue elements = 1;
+      extensions 2 to max;
+    }
+
+    optional uint64 num_of_columns = 1;
+    repeated string columns = 2;              // column headers
+    repeated uint32 types = 3;                // DataType per column
+    repeated Row rows = 4;
+    extensions 5 to max;
+  }
+
+  // One property value (spec §6.4.6 "Properties").
+  message PropertyValue {
+    optional uint32 type = 1;                 // DataType of `value`
+    optional bool is_null = 2;
+
+    oneof value {
+      uint32 int_value = 3;
+      uint64 long_value = 4;
+      float float_value = 5;
+      double double_value = 6;
+      bool boolean_value = 7;
+      string string_value = 8;
+      PropertySet propertyset_value = 9;
+      PropertySetList propertysets_value = 10; // an array of PropertySet
+      PropertyValueExtension extension_value = 11;
+    }
+
+    message PropertyValueExtension {
+      extensions 1 to max;
+    }
+  }
+
+  // Parallel arrays: keys[i] is described by values[i].
+  message PropertySet {
+    repeated string keys = 1;
+    repeated PropertyValue values = 2;
+    extensions 3 to max;
+  }
+
+  message PropertySetList {
+    repeated PropertySet propertyset = 1;
+    extensions 2 to max;
+  }
+
+  // Metric metadata (spec §6.4.7 "MetaData"): multi-part chunking, and file
+  // transfer details for FILE/BYTES metrics.
+  message MetaData {
+    optional bool is_multi_part = 1;          // value continues in later messages
+    optional string content_type = 2;         // media type
+    optional uint64 size = 3;                 // total size across parts
+    optional uint64 seq = 4;                  // this part's index in a multi-part transfer
+    optional string file_name = 5;
+    optional string file_type = 6;
+    optional string md5 = 7;
+    optional string description = 8;
+    extensions 9 to max;
+  }
+
+  // One metric (spec §6.4.8 "Metric"): name/alias, datatype, timestamps,
+  // flags, and a typed value.
+  message Metric {
+    optional string name = 1;        // required on BIRTH [tck-id-payloads-alias-birth-requirement]
+    optional uint64 alias = 2;       // the wire key on DATA/CMD [tck-id-payloads-alias-data-cmd-requirement]
+    optional uint64 timestamp = 3;   // acquisition time, ms since epoch UTC
+    optional uint32 datatype = 4;    // DataType
+    optional bool is_historical = 5;
+    optional bool is_transient = 6;  // real-time only; not stored as a tag
+    optional bool is_null = 7;       // explicit null, distinct from any value
+    optional MetaData metadata = 8;
+    optional PropertySet properties = 9;
+
+    oneof value {
+      uint32 int_value = 10;    // Int8..UInt32, packed arrays 22..28
+      uint64 long_value = 11;   // Int64/UInt64, DateTime
+      float float_value = 12;
+      double double_value = 13;
+      bool boolean_value = 14;
+      string string_value = 15; // String/Text/UUID
+      bytes bytes_value = 16;   // Bytes, File, packed float/double/bool arrays
+      DataSet dataset_value = 17;
+      Template template_value = 18;
+      MetricValueExtension extension_value = 19;
+    }
+
+    message MetricValueExtension {
+      extensions 1 to max;
+    }
+  }
+
+  optional uint64 timestamp = 1;     // publish time, ms since epoch UTC [tck-id-payloads-timestamp-in-UTC]
+  repeated Metric metrics = 2;
+  optional uint64 seq = 3;           // 0-255 walk per session [tck-id-payloads-sequence-num-incrementing]
+  optional string uuid = 4;          // schema/encoding marker for `body`
+  optional bytes body = 5;           // opaque application payload
+  extensions 6 to max;
+}

@@ -56,6 +56,7 @@
 //! `Value` size and the `Event` size budget are asserted by tests.
 
 mod batch;
+pub mod birth_store;
 mod budget;
 mod clock;
 pub mod codes;
@@ -78,6 +79,7 @@ mod value;
 pub use batch::{
     DatasetEvents, EventBatch, QUARANTINE_DATASET, RawBatch, RawMessage, SegmentBatch,
 };
+pub use birth_store::{BirthKey, BirthRecord, BirthStore};
 pub use budget::{BudgetCategory, BudgetExceeded, CategoryUsage, DiskBudget};
 pub use clock::{Clock, SyncFlag, SystemClock};
 pub use connector::{
