@@ -314,7 +314,7 @@ Several violations at once settle on the first reason in this order; flags accum
 
 ## `kind: window` {#window}
 
-**Status: In progress (experimental).** Tumbling windows on **ingest time** (`time: ingest`, the default) or **event time** (`time: event`, with per-asset watermarks and `allowed_lateness`), one aggregate event per asset and window. Sliding windows and `first`/`last`/`stddev`/`range`/`delta`/`rms` are not built yet; the design is in `docs/design/advanced-processing.md`.
+**Status: In progress (experimental).** Tumbling windows on **ingest time** (`time: ingest`, the default) or **event time** (`time: event`, with per-asset watermarks and `allowed_lateness`), one aggregate event per asset and window. Sliding windows are not built yet; the design is in `docs/design/advanced-processing.md`.
 
 ```yaml
 datasets:
@@ -353,7 +353,7 @@ Each aggregate:
 | Key | Type | Required | Description |
 |---|---|---|---|
 | `field` | string | yes | A field of the dataset as left by earlier steps. |
-| `fn` | `count`, `sum`, `min`, `max`, `mean` | yes | `count` counts non-null values and accepts any field. The others need `i8`, `i16`, `i32`, `u8`, `u16`, `u32`, `f32`, or `f64`; `i64` and `u64` are refused because the `f64` result cannot hold them exactly. |
+| `fn` | `count`, `sum`, `min`, `max`, `mean`, `first`, `last`, `stddev`, `range`, `delta`, `rms` | yes | `count` counts non-null values and accepts any field. The others need `i8`, `i16`, `i32`, `u8`, `u16`, `u32`, `f32`, or `f64` (`i64` and `u64` are refused because the `f64` result cannot hold them exactly): `first` and `last` take the earliest and latest value in the window (ordered by the window timestamp, then WAL position and sample index), `stddev` is the population standard deviation (`0.0` for a single sample), `range` is `max − min`, `delta` is `last − first`, and `rms` is `sqrt(mean(x²))`. All keep the input field's unit. |
 | `as` | string | yes | The output column. Unique, not empty, and not `window_start` or `window_end`. |
 
 **What a window emits.** With `time: ingest`, an asset's window closes when the asset sends an event whose ingest time falls in a later window. With `time: event`, each asset tracks its own watermark (`max_event_time − allowed_lateness`); an out-of-order event within `allowed_lateness` joins its window (so an asset can hold more than one open pane at once), and open windows with `window_end ≤ watermark` close and emit in ascending `window_start` order. The emitted event has `window_start` and `window_end` (`ts`), then one column per aggregate: `count` is a `u64`, the rest are `f64` (null when the window saw no value). A null or `NaN` value is skipped. The event replaces the dataset's fields, so later steps see only these columns, and the asset identity stays. Its event time is the window start, its ingest time is the closing event's, and its WAL position is the closing event's frame. Its id is derived from the dataset, asset, window start, size, and column names, so a re-read after a restart gives the same id. The events that fed the window are not emitted.
@@ -374,9 +374,66 @@ Each aggregate:
 
 - Only segment sinks (such as `parquet`) support `window`. Building a pipeline that routes a windowed dataset to a batch sink is a configuration error.
 - Late events under `time: event` are dropped and counted rather than emitting retractions or corrections.
-- Tumbling windows only; `first`, `last`, `stddev`, `range`, `delta`, and `rms` are not implemented.
+- Tumbling windows only; sliding windows, median, and percentiles are not implemented.
 
-`thadam validate` checks `size`, `time`, `allowed_lateness`, `idle_close`, the aggregates, and the field types, and the later steps are checked against the window's columns.
+`thadam validate` checks `size`, `time`, `allowed_lateness`, `idle_close`, the aggregates, and the field types, includes the per-step open-window state bound and cursor hold-back span (`size + allowed_lateness`) in its memory estimate, and checks the later steps against the window's columns.
+
+### Anomaly rules on windowed signals {#window-anomaly-rules}
+
+Because a `window` step replaces the dataset's fields with its aggregate columns and passes each emitted aggregate event through the steps after it, anomaly rules over a time window need no dedicated operator — compose `window` with `filter` (to emit only anomalous windows) or `validate` (to keep every window and flag violations in `_quality_status` and `_quality_flags`):
+
+```yaml
+transforms:
+  - kind: window
+    dataset: motor_anomalies
+    size: 1m
+    time: event
+    allowed_lateness: 5s
+    aggregates:
+      - { field: motor_temp_c, fn: mean, as: temp_mean }
+      - { field: motor_temp_c, fn: range, as: temp_range }
+      - { field: motor_temp_c, fn: stddev, as: temp_stddev }
+      - { field: motor_temp_c, fn: delta, as: temp_delta }
+  - kind: validate
+    dataset: motor_anomalies
+    rules:
+      # Sustained high temperature over 1 minute
+      - { field: temp_mean, max: 85.0, flag: OUT_OF_RANGE, status: bad }
+      # Flat-lined sensor (range == 0 over a full minute) or excessive noise
+      - { field: temp_range, min: 0.05, flag: STALE, status: uncertain }
+      - { field: temp_stddev, max: 12.0, flag: OUT_OF_RANGE, status: uncertain }
+      # Rapid rise or fall across the window (last - first)
+      - { field: temp_delta, min: -15.0, max: 15.0, flag: OUT_OF_RANGE, status: uncertain }
+```
+
+| Pattern | How to express it |
+|---|---|
+| Sustained threshold (hot for a minute) | `window` (`mean` or `max`) followed by `filter` or `validate` |
+| Flat-lined or noisy sensor | `window` (`range` or `stddev`) followed by `filter` or `validate` |
+| Net change over a window | `window` (`delta`, i.e. `last − first`) followed by `filter` or `validate` |
+| Cross-field arithmetic (e.g. z-score of latest sample) | Not expressible in structured predicates; emit `mean` and `stddev` and compute downstream |
+
+### Feature extraction for ML pipelines {#window-feature-extraction}
+
+A `window` step over high-rate sensor telemetry produces fixed-cadence feature vectors (`count`, `min`, `max`, `mean`, `stddev`, `range`, `delta`, `rms`) as a declared dataset for downstream training or scoring:
+
+```yaml
+transforms:
+  - kind: window
+    dataset: imu_features
+    size: 1s
+    time: event
+    allowed_lateness: 200ms
+    aggregates:
+      - { field: accel_z, fn: count, as: accel_z_n }
+      - { field: accel_z, fn: mean, as: accel_z_mean }
+      - { field: accel_z, fn: stddev, as: accel_z_stddev }
+      - { field: accel_z, fn: range, as: accel_z_range }
+      - { field: accel_z, fn: delta, as: accel_z_delta }
+      - { field: accel_z, fn: rms, as: accel_z_rms }
+```
+
+Spectral features (such as FFT) and in-chain model inference are **Planned** (P2; see `docs/design/advanced-processing.md`).
 
 ## Execution position
 

@@ -1253,6 +1253,13 @@ mod window {
         assert_ok(&[
             "{ kind: window, dataset: readings, size: 1m, time: event, allowed_lateness: 0s, aggregates: [{ field: temp, fn: sum, as: s }] }",
         ]);
+
+        let all_fns = "{ kind: window, dataset: readings, size: 1m, aggregates: [{ field: temp, fn: first, as: f }, { field: temp, fn: last, as: l }, { field: temp, fn: stddev, as: sd }, { field: temp, fn: range, as: r }, { field: temp, fn: delta, as: d }, { field: temp, fn: rms, as: rms }] }";
+        assert_ok(&[
+            all_fns,
+            "{ kind: filter, dataset: readings, where: { field: sd, gt: 0.5 } }",
+            "{ kind: validate, dataset: readings, rules: [{ field: r, min: 0.01, flag: OUT_OF_RANGE, status: uncertain }] }",
+        ]);
     }
 
     #[test]

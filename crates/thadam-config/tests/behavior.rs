@@ -764,6 +764,32 @@ mod estimate {
         // PR15: `state` and `events` carry 50k dedup windows as well
         // (chaos duplicates apply fleet-wide), so 4 x 500k + 2 x 50k keys.
         assert_eq!(by_label("dedup"), (4 * 500_000 + 2 * 50_000) * 48);
+        assert!(
+            est.components.iter().all(|c| c.label != "window state"),
+            "configs without a window step have no window state component"
+        );
+    }
+
+    #[test]
+    fn window_steps_add_state_bound_and_holdback_span() {
+        let yaml = edit(
+            &minimal(),
+            "sinks:\n",
+            "transforms:\n  - kind: window\n    dataset: readings\n    size: 1m\n    time: event\n    allowed_lateness: 5s\n    aggregates:\n      - { field: temp, fn: mean, as: avg }\n      - { field: temp, fn: stddev, as: sd }\n      - { field: temp, fn: rms, as: rms }\nsinks:\n",
+        );
+        let spec = check(&yaml).spec.unwrap();
+        let est = spec.memory_estimate();
+        let win = est
+            .components
+            .iter()
+            .find(|c| c.label == "window state")
+            .expect("window state component");
+        assert_eq!(win.bytes, 100_000 * (128 + 3 * 64));
+        assert!(
+            win.detail.contains("hold-back 65s"),
+            "detail: {}",
+            win.detail
+        );
     }
 
     #[test]

@@ -831,6 +831,18 @@ pub enum AggFn {
     Max,
     /// The mean.
     Mean,
+    /// The earliest value in the window.
+    First,
+    /// The latest value in the window.
+    Last,
+    /// The population standard deviation.
+    Stddev,
+    /// `max - min`.
+    Range,
+    /// `last - first`.
+    Delta,
+    /// The root mean square.
+    Rms,
 }
 
 /// One aggregate of a `window`: an output column over one input field.

@@ -16,7 +16,7 @@ use std::fmt;
 use serde_json::Value;
 
 use crate::scalars::{parse_count, parse_size};
-use crate::spec::PipelineSpec;
+use crate::spec::{PipelineSpec, TransformSpec};
 
 /// The MQTT broker window assumed when `expected_broker_window` is not set.
 pub const DEFAULT_BROKER_WINDOW: u64 = 100;
@@ -37,6 +37,12 @@ pub const DEFAULT_PART_BYTES: u64 = 8 << 20;
 /// Memory per remembered dedup key: a 16-byte ID, a timestamp, and the hash
 /// table and queue overhead.
 pub const DEDUP_BYTES_PER_KEY: u64 = 48;
+/// The per-step asset cap assumed for a `window` step (`ChainLimits::default().max_state_keys`).
+pub const DEFAULT_WINDOW_MAX_ASSETS: u64 = 100_000;
+/// Per-asset overhead in a `window` step (asset key, watermark, pane map entry).
+pub const WINDOW_BYTES_PER_ASSET: u64 = 128;
+/// Memory per aggregate accumulator in an open window pane.
+pub const WINDOW_BYTES_PER_AGG: u64 = 64;
 
 /// One term of the estimate.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,6 +166,28 @@ fn count_text(n: u64) -> String {
     n.to_string()
 }
 
+fn format_duration(d: std::time::Duration) -> String {
+    let ns = d.as_nanos();
+    if ns == 0 {
+        return "0s".into();
+    }
+    const UNITS: [(&str, u128); 7] = [
+        ("d", 86_400_000_000_000),
+        ("h", 3_600_000_000_000),
+        ("m", 60_000_000_000),
+        ("s", 1_000_000_000),
+        ("ms", 1_000_000),
+        ("us", 1_000),
+        ("ns", 1),
+    ];
+    for (unit, scale) in UNITS {
+        if ns.is_multiple_of(scale) {
+            return format!("{}{unit}", ns / scale);
+        }
+    }
+    format!("{ns}ns")
+}
+
 impl PipelineSpec {
     /// Estimates Thadam-owned memory from the configuration.
     pub fn memory_estimate(&self) -> MemoryEstimate {
@@ -267,6 +295,52 @@ impl PipelineSpec {
                 label: "dedup windows".into(),
                 bytes: dedup_keys.saturating_mul(DEDUP_BYTES_PER_KEY),
                 detail: format!("{dedup_keys} keys x {DEDUP_BYTES_PER_KEY} B (upper bound)"),
+            });
+        }
+
+        let mut window_bytes: u64 = 0;
+        let mut window_aggs: usize = 0;
+        let mut window_steps: usize = 0;
+        let mut max_holdback = std::time::Duration::ZERO;
+        for t in &self.transforms {
+            if let TransformSpec::Window {
+                size,
+                allowed_lateness,
+                aggregates,
+                ..
+            } = t
+            {
+                let per_asset = WINDOW_BYTES_PER_ASSET
+                    .saturating_add((aggregates.len() as u64).saturating_mul(WINDOW_BYTES_PER_AGG));
+                window_bytes = window_bytes
+                    .saturating_add(DEFAULT_WINDOW_MAX_ASSETS.saturating_mul(per_asset));
+                window_aggs += aggregates.len();
+                window_steps += 1;
+                let holdback = size.get().saturating_add(
+                    allowed_lateness.map_or(std::time::Duration::ZERO, |d| d.get()),
+                );
+                if holdback > max_holdback {
+                    max_holdback = holdback;
+                }
+            }
+        }
+        if window_steps > 0 {
+            let per_step = if window_steps == 1 {
+                format!(
+                    "{WINDOW_BYTES_PER_ASSET} B + {window_aggs} aggs x {WINDOW_BYTES_PER_AGG} B"
+                )
+            } else {
+                format!(
+                    "{window_steps} x {WINDOW_BYTES_PER_ASSET} B + {window_aggs} aggs x {WINDOW_BYTES_PER_AGG} B"
+                )
+            };
+            components.push(MemoryComponent {
+                label: "window state".into(),
+                bytes: window_bytes,
+                detail: format!(
+                    "{DEFAULT_WINDOW_MAX_ASSETS} assets x ({per_step}) (hold-back {})",
+                    format_duration(max_holdback)
+                ),
             });
         }
 
