@@ -138,13 +138,16 @@ pub(crate) fn reject_frame(epoch: WalEpoch, frame: &Frame, error: &ThadamError) 
         .collect()
 }
 
-/// Rebuilds step state from frames `(upto - frames, upto]` without emitting.
-/// Returns the number of frames read.
+/// Rebuilds step state from up to `frames` frames of history plus any open
+/// windows from `hold` through `upto`, without emitting. Returns the number of
+/// frames read.
 ///
-/// With `hold` (a chain that was running and lost its state), the read starts
-/// no later than `hold` and the `window` steps are fed too, so the open
-/// windows come back exactly as they were. Without it, windows are skipped:
-/// a restart re-reads them from the held-back cursor instead.
+/// With `hold` (a chain that was running and lost its state), up to `frames`
+/// frames before `hold` are fed to non-window steps via [`Chain::warm`] and
+/// frames `hold..=upto` are fed through `window` steps too via
+/// [`Chain::warm_open_windows`], so both upstream stateful steps and open
+/// windows come back as they were. Without `hold`, windows are skipped: a
+/// restart re-reads them from the held-back cursor instead.
 pub(crate) async fn warm(
     chain: &mut Chain,
     wal: &Wal,
@@ -157,13 +160,10 @@ pub(crate) async fn warm(
     if upto == 0 || (frames == 0 && hold.is_none()) {
         return Ok(0);
     }
-    let mut start = if frames == 0 {
-        upto
-    } else {
-        upto.saturating_sub(frames - 1).max(1)
-    };
-    if let Some(h) = hold {
-        start = start.min(h.max(1));
+    let win_from = hold.map_or(upto.saturating_add(1), |h| h.max(1));
+    let start = win_from.saturating_sub(frames).max(1);
+    if start > upto {
+        return Ok(0);
     }
     let epoch = wal.epoch();
     let mut reader = wal
@@ -176,7 +176,7 @@ pub(crate) async fn warm(
         match item {
             None => break,
             Some(ReadItem::Gap(g)) => {
-                if hold.is_some() {
+                if hold.is_some_and(|h| g.range().last().get() >= h) {
                     chain.on_gap();
                 }
                 if g.range().last().get() >= upto {
@@ -187,14 +187,14 @@ pub(crate) async fn warm(
                 let past = chunk.range().last().get() >= upto;
                 let frames = chunk.into_frames();
                 let keep = frames.partition_point(|f| f.seq().get() <= upto);
-                for group in clock_groups(&frames[..keep]) {
-                    with_input(epoch, group, |input| {
-                        if hold.is_some() {
-                            chain.warm_open_windows(input);
-                        } else {
-                            chain.warm(input);
-                        }
-                    });
+                let frames = &frames[..keep];
+                let win_at = frames.partition_point(|f| f.seq().get() < win_from);
+                for group in clock_groups(&frames[..win_at]) {
+                    with_input(epoch, group, |input| chain.warm(input));
+                    warmed += group.len() as u64;
+                }
+                for group in clock_groups(&frames[win_at..]) {
+                    with_input(epoch, group, |input| chain.warm_open_windows(input));
                     warmed += group.len() as u64;
                 }
                 if past {
@@ -271,13 +271,18 @@ impl ChainTask {
         if !self.cfg.has_state && hold.is_none() {
             return Ok(());
         }
+        let frames = if self.cfg.has_state {
+            self.cfg.warm_frames
+        } else {
+            0
+        };
         let name = format!("warm.{}", self.cfg.sink_id);
         let n = warm(
             &mut self.chain,
             &self.wal,
             &name,
             upto,
-            self.cfg.warm_frames,
+            frames,
             hold.map(WalPos::get),
             self.cfg.read_bytes,
         )
