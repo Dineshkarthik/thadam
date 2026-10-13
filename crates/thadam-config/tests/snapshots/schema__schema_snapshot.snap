@@ -50,6 +50,36 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
           "const": "mean",
           "description": "The mean, as `f64`; null when the window saw no value.",
           "type": "string"
+        },
+        {
+          "const": "first",
+          "description": "The earliest value in the window, as `f64`; null when the window saw no value.",
+          "type": "string"
+        },
+        {
+          "const": "last",
+          "description": "The latest value in the window, as `f64`; null when the window saw no value.",
+          "type": "string"
+        },
+        {
+          "const": "stddev",
+          "description": "The population standard deviation, as `f64`; null when the window saw no value.",
+          "type": "string"
+        },
+        {
+          "const": "range",
+          "description": "`max - min`, as `f64`; null when the window saw no value.",
+          "type": "string"
+        },
+        {
+          "const": "delta",
+          "description": "`last - first`, as `f64`; null when the window saw no value.",
+          "type": "string"
+        },
+        {
+          "const": "rms",
+          "description": "The root mean square, as `f64`; null when the window saw no value.",
+          "type": "string"
         }
       ]
     },

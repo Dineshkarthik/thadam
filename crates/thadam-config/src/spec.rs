@@ -1150,6 +1150,18 @@ pub enum AggregateFn {
     Max,
     /// The mean, as `f64`; null when the window saw no value.
     Mean,
+    /// The earliest value in the window, as `f64`; null when the window saw no value.
+    First,
+    /// The latest value in the window, as `f64`; null when the window saw no value.
+    Last,
+    /// The population standard deviation, as `f64`; null when the window saw no value.
+    Stddev,
+    /// `max - min`, as `f64`; null when the window saw no value.
+    Range,
+    /// `last - first`, as `f64`; null when the window saw no value.
+    Delta,
+    /// The root mean square, as `f64`; null when the window saw no value.
+    Rms,
 }
 
 impl AggregateFn {
@@ -1161,6 +1173,12 @@ impl AggregateFn {
             AggregateFn::Min => "min",
             AggregateFn::Max => "max",
             AggregateFn::Mean => "mean",
+            AggregateFn::First => "first",
+            AggregateFn::Last => "last",
+            AggregateFn::Stddev => "stddev",
+            AggregateFn::Range => "range",
+            AggregateFn::Delta => "delta",
+            AggregateFn::Rms => "rms",
         }
     }
 }

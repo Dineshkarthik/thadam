@@ -381,6 +381,12 @@ fn event_time_chain() -> Chain {
             "aggregates": [
                 { "field": "v", "fn": "count", "as": "n" },
                 { "field": "v", "fn": "sum", "as": "sum" },
+                { "field": "v", "fn": "first", "as": "first" },
+                { "field": "v", "fn": "last", "as": "last" },
+                { "field": "v", "fn": "stddev", "as": "stddev" },
+                { "field": "v", "fn": "range", "as": "range" },
+                { "field": "v", "fn": "delta", "as": "delta" },
+                { "field": "v", "fn": "rms", "as": "rms" },
             ],
         }],
     });

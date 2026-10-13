@@ -43,27 +43,56 @@ struct Agg {
     func: AggFn,
 }
 
+type OrderKey = (i64, u64, u32);
+
 #[derive(Clone, Copy, Debug)]
 struct Acc {
     n: u64,
     sum: f64,
+    sum_sq: f64,
+    mean: f64,
+    m2: f64,
     min: f64,
     max: f64,
+    first_key: OrderKey,
+    first_val: f64,
+    last_key: OrderKey,
+    last_val: f64,
 }
 
 impl Acc {
     const EMPTY: Acc = Acc {
         n: 0,
         sum: 0.0,
+        sum_sq: 0.0,
+        mean: 0.0,
+        m2: 0.0,
         min: f64::INFINITY,
         max: f64::NEG_INFINITY,
+        first_key: (i64::MAX, u64::MAX, u32::MAX),
+        first_val: 0.0,
+        last_key: (i64::MIN, u64::MIN, u32::MIN),
+        last_val: 0.0,
     };
 
-    fn add(&mut self, x: f64) {
+    fn add(&mut self, key: OrderKey, x: f64) {
         self.n += 1;
         self.sum += x;
+        self.sum_sq += x * x;
+        let delta = x - self.mean;
+        self.mean += delta / self.n as f64;
+        let delta2 = x - self.mean;
+        self.m2 += delta * delta2;
         self.min = self.min.min(x);
         self.max = self.max.max(x);
+        if self.n == 1 || key < self.first_key {
+            self.first_key = key;
+            self.first_val = x;
+        }
+        if self.n == 1 || key >= self.last_key {
+            self.last_key = key;
+            self.last_val = x;
+        }
     }
 }
 
@@ -260,7 +289,7 @@ fn bounds(index: i64, size_ns: i64) -> Option<(i64, i64)> {
     Some((start, start.checked_add(size_ns)?))
 }
 
-fn accumulate(aggs: &[Agg], accs: &mut [Acc], record: &Record) {
+fn accumulate(aggs: &[Agg], accs: &mut [Acc], key: OrderKey, record: &Record) {
     for (agg, acc) in aggs.iter().zip(accs) {
         let Some(v) = record.try_get_at(agg.field).filter(|v| !v.is_null()) else {
             continue;
@@ -270,7 +299,7 @@ fn accumulate(aggs: &[Agg], accs: &mut [Acc], record: &Record) {
         } else if let Some(x) = v.as_f64().or_else(|| v.as_i64().map(|i| i as f64))
             && !x.is_nan()
         {
-            acc.add(x);
+            acc.add(key, x);
         }
     }
 }
@@ -293,11 +322,12 @@ fn new_pane(
     index: i64,
     pos: WalPos,
     ingest_ns: i64,
+    key: OrderKey,
     range_start: bool,
     record: &Record,
 ) -> Pane {
     let mut accs = vec![Acc::EMPTY; aggs.len()];
-    accumulate(aggs, &mut accs, record);
+    accumulate(aggs, &mut accs, key, record);
     Pane {
         index,
         first_pos: pos,
@@ -392,6 +422,12 @@ impl Window {
                 AggFn::Min => Value::F64(acc.min),
                 AggFn::Max => Value::F64(acc.max),
                 AggFn::Mean => Value::F64(acc.sum / acc.n as f64),
+                AggFn::First => Value::F64(acc.first_val),
+                AggFn::Last => Value::F64(acc.last_val),
+                AggFn::Stddev => Value::F64((acc.m2 / acc.n as f64).max(0.0).sqrt()),
+                AggFn::Range => Value::F64(acc.max - acc.min),
+                AggFn::Delta => Value::F64(acc.last_val - acc.first_val),
+                AggFn::Rms => Value::F64((acc.sum_sq / acc.n as f64).sqrt()),
             });
         }
         let record = Record::new(self.out.clone(), values)
@@ -444,6 +480,7 @@ impl Step for Window {
         };
         let index = t_ns.div_euclid(self.size_ns);
         let pos = event.wal_pos();
+        let order_key = (t_ns, pos.get(), event.sample_idx().unwrap_or(0));
         let asset = event.asset();
 
         let mut out = Vec::new();
@@ -453,7 +490,7 @@ impl Step for Window {
                 if let Some((_, pane)) = state.panes.iter_mut().next()
                     && index <= pane.index
                 {
-                    accumulate(&self.aggs, &mut pane.accs, record);
+                    accumulate(&self.aggs, &mut pane.accs, order_key, record);
                     pane.last_ingest_ns = pane.last_ingest_ns.max(ingest_ns);
                     state.last_ingest_ns = state.last_ingest_ns.max(ingest_ns);
                 } else {
@@ -470,6 +507,7 @@ impl Step for Window {
                         index,
                         pos,
                         ingest_ns,
+                        order_key,
                         is_first && self.range_start,
                         record,
                     );
@@ -493,7 +531,15 @@ impl Step for Window {
                         self.cap
                     )));
                 }
-                let next = new_pane(&self.aggs, index, pos, ingest_ns, self.range_start, record);
+                let next = new_pane(
+                    &self.aggs,
+                    index,
+                    pos,
+                    ingest_ns,
+                    order_key,
+                    self.range_start,
+                    record,
+                );
                 pane_opened(&mut self.open, pos);
                 let mut panes = BTreeMap::new();
                 panes.insert(index, next);
@@ -541,7 +587,7 @@ impl Step for Window {
                     state.last_ingest_ns = state.last_ingest_ns.max(ingest_ns);
                 }
                 if let Some(pane) = state.panes.get_mut(&index) {
-                    accumulate(&self.aggs, &mut pane.accs, record);
+                    accumulate(&self.aggs, &mut pane.accs, order_key, record);
                     pane.last_ingest_ns = pane.last_ingest_ns.max(ingest_ns);
                 } else {
                     let is_first = !state.opened_any;
@@ -551,6 +597,7 @@ impl Step for Window {
                         index,
                         pos,
                         ingest_ns,
+                        order_key,
                         is_first && self.range_start,
                         record,
                     );
@@ -580,7 +627,15 @@ impl Step for Window {
                     self.cap
                 )));
             }
-            let next = new_pane(&self.aggs, index, pos, ingest_ns, self.range_start, record);
+            let next = new_pane(
+                &self.aggs,
+                index,
+                pos,
+                ingest_ns,
+                order_key,
+                self.range_start,
+                record,
+            );
             pane_opened(&mut self.open, pos);
             let mut panes = BTreeMap::new();
             panes.insert(index, next);
@@ -1159,6 +1214,120 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].asset().get("robot"), Some("a"));
         assert_eq!(step.hold().map(WalPos::get), Some(2));
+    }
+
+    #[test]
+    fn first_last_stddev_range_delta_and_rms_cover_empty_single_and_large_offset_windows() {
+        let mut step = build(json!({
+            "size": "10s",
+            "aggregates": [
+                { "field": "temp", "fn": "count", "as": "n" },
+                { "field": "temp", "fn": "first", "as": "first" },
+                { "field": "temp", "fn": "last", "as": "last" },
+                { "field": "temp", "fn": "stddev", "as": "stddev" },
+                { "field": "temp", "fn": "range", "as": "range" },
+                { "field": "temp", "fn": "delta", "as": "delta" },
+                { "field": "temp", "fn": "rms", "as": "rms" },
+            ],
+        }))
+        .unwrap();
+
+        // Window [0, 10): numeric accs have n == 0 (only Null / NaN).
+        feed(&mut step, "a", 1, 1, Value::Null, Value::Null);
+        feed(&mut step, "a", 2, 2, Value::F64(f64::NAN), Value::Null);
+
+        // Window [10, 20): n == 1 (value -5.0).
+        let out = temp(&mut step, "a", 12, 3, -5.0);
+        let e = &out[0];
+        for name in ["first", "last", "stddev", "range", "delta", "rms"] {
+            assert_eq!(col(e, name), &Value::Null, "{name} on empty window");
+        }
+
+        // Window [20, 30): n == 3 with large offset 1e9 + {1.0, 3.0, 2.0}.
+        let base = 1e9;
+        let out = temp(&mut step, "a", 21, 4, base + 1.0);
+        let e = &out[0];
+        assert_eq!(col(e, "n"), &Value::U64(1));
+        assert_eq!(col(e, "first"), &Value::F64(-5.0));
+        assert_eq!(col(e, "last"), &Value::F64(-5.0));
+        assert_eq!(col(e, "stddev"), &Value::F64(0.0));
+        assert_eq!(col(e, "range"), &Value::F64(0.0));
+        assert_eq!(col(e, "delta"), &Value::F64(0.0));
+        assert_eq!(col(e, "rms"), &Value::F64(5.0));
+
+        temp(&mut step, "a", 22, 5, base + 3.0);
+        temp(&mut step, "a", 25, 6, base + 2.0);
+        let out = temp(&mut step, "a", 31, 7, 0.0);
+        let e = &out[0];
+        assert_eq!(col(e, "n"), &Value::U64(3));
+        assert_eq!(col(e, "first"), &Value::F64(base + 1.0));
+        assert_eq!(col(e, "last"), &Value::F64(base + 2.0));
+        assert_eq!(col(e, "range"), &Value::F64(2.0));
+        assert_eq!(col(e, "delta"), &Value::F64(1.0));
+        let Value::F64(sd) = *col(e, "stddev") else {
+            panic!()
+        };
+        let want_sd = (2.0_f64 / 3.0).sqrt();
+        assert!((sd - want_sd).abs() < 1e-9, "sd={sd} want={want_sd}");
+
+        // Window [30, 40): known RMS on 3.0 and 4.0 -> sqrt((9 + 16) / 2) = sqrt(12.5).
+        let mut rms_step = build(json!({
+            "size": "10s",
+            "aggregates": [{ "field": "temp", "fn": "rms", "as": "rms" }],
+        }))
+        .unwrap();
+        temp(&mut rms_step, "a", 1, 1, 3.0);
+        temp(&mut rms_step, "a", 2, 2, -4.0);
+        let out = temp(&mut rms_step, "a", 11, 3, 0.0);
+        assert_eq!(col(&out[0], "rms"), &Value::F64(12.5_f64.sqrt()));
+    }
+
+    #[test]
+    fn event_time_first_last_and_delta_follow_event_time_across_out_of_order_arrivals() {
+        let mut step = build(json!({
+            "size": "10s",
+            "time": "event",
+            "allowed_lateness": "5s",
+            "aggregates": [
+                { "field": "temp", "fn": "first", "as": "first" },
+                { "field": "temp", "fn": "last", "as": "last" },
+                { "field": "temp", "fn": "delta", "as": "delta" },
+                { "field": "temp", "fn": "range", "as": "range" },
+            ],
+        }))
+        .unwrap();
+
+        let mk = |ingest_s: i64, event_s: i64, pos: u64, v: f64| {
+            let times = Times::new(Timestamp::from_secs(ingest_s).unwrap(), TimeDomain::Utc)
+                .with_source(Timestamp::from_secs(event_s).unwrap())
+                .unwrap();
+            Event::builder(
+                thadam_core::EventId::from_u128(pos as u128),
+                WalPos::new(pos),
+                times,
+            )
+            .asset(AssetPath::new([("robot", "a")]).unwrap())
+            .payload(Record::new(input(), vec![Value::F64(v), Value::Null, Value::Null]).unwrap())
+            .build()
+            .unwrap()
+        };
+
+        // Arrive at t=5s (val 20), then t=8s (val 5), then out-of-order t=2s (val 12).
+        for e in [mk(1, 5, 1, 20.0), mk(2, 8, 2, 5.0), mk(3, 2, 3, 12.0)] {
+            let StepResult::Emit(out) = step.apply(e) else {
+                panic!()
+            };
+            assert!(out.is_empty());
+        }
+        let StepResult::Emit(out) = step.apply(mk(4, 15, 4, 0.0)) else {
+            panic!()
+        };
+        assert_eq!(out.len(), 1);
+        let e = &out[0];
+        assert_eq!(col(e, "first"), &Value::F64(12.0));
+        assert_eq!(col(e, "last"), &Value::F64(5.0));
+        assert_eq!(col(e, "delta"), &Value::F64(-7.0));
+        assert_eq!(col(e, "range"), &Value::F64(15.0));
     }
 
     #[test]
