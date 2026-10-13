@@ -298,6 +298,27 @@ mod redaction {
         assert!(c.report.has_errors());
         assert!(!format!("{c:?}").contains("SECRETNODE"));
     }
+
+    #[test]
+    fn node_id_from_the_environment_resolves_and_the_fleet_shares_one_hash() {
+        let yaml = edit(
+            &minimal(),
+            "node_id: n1",
+            "node_id: \"${env:THADAM_NODE_ID}\"",
+        );
+        let load_as = |node: &str| {
+            let env = MapEnv::new().with_var("THADAM_NODE_ID", node);
+            check_str(&yaml, &env, &CheckOptions::new()).spec.unwrap()
+        };
+        let edge7 = load_as("edge-7");
+        let edge8 = load_as("edge-8");
+        assert_eq!(edge7.pipeline.node_id, "edge-7");
+        assert_eq!(edge8.pipeline.node_id, "edge-8");
+        assert_eq!(edge7.config_hash_hex(), edge8.config_hash_hex());
+
+        let unset = check_str(&yaml, &MapEnv::new(), &CheckOptions::new());
+        assert!(unset.report.has_errors(), "an unset node id is an error");
+    }
 }
 
 mod scalar_hazards {

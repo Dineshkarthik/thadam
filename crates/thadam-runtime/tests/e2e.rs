@@ -52,6 +52,69 @@ async fn delivers_every_message_once_with_ordered_acks() {
     assert!(dir.join("wal/clean_shutdown").exists());
 }
 
+/// Collects the formatted log output a test subscriber writes.
+#[derive(Clone, Default)]
+struct LogBuffer(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for LogBuffer {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogBuffer {
+    type Writer = LogBuffer;
+
+    fn make_writer(&'a self) -> LogBuffer {
+        self.clone()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn startup_record_names_the_node_build_and_configuration() {
+    let logs = LogBuffer::default();
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .with_writer(logs.clone())
+        .with_max_level(tracing::Level::INFO)
+        .finish();
+    let _ = tracing::subscriber::set_global_default(subscriber);
+
+    let dir = TempDataDir::new().unwrap();
+    let kit = Kit::default();
+    kit.sources.scripted("src", (1..=3).map(json_n));
+    let y = yaml(
+        dir.path(),
+        "  - { id: out, kind: recseg, config: { frames_per_file: 3 } }",
+        "",
+    );
+    let expected_hash = spec(&y).config_hash_hex();
+    let report = run_to_end(&kit, spec(&y), fast_opts()).await;
+    assert_eq!(report.exit, ExitStatus::Ok, "{:#?}", report.status);
+
+    let text = String::from_utf8(logs.0.lock().unwrap_or_else(|e| e.into_inner()).clone()).unwrap();
+    let line = text
+        .lines()
+        .find(|l| l.contains("pipeline starting") && l.contains(&expected_hash))
+        .unwrap_or_else(|| panic!("no startup record in:\n{text}"));
+    let record: serde_json::Value = serde_json::from_str(line).unwrap();
+    let fields = &record["fields"];
+    assert_eq!(fields["pipeline"], "test", "{line}");
+    assert_eq!(fields["node_id"], "node-1", "{line}");
+    assert_eq!(fields["config_hash"], expected_hash, "{line}");
+    assert_eq!(fields["config_hash_version"], 1, "{line}");
+    assert_eq!(fields["previous_config_hash"], "", "{line}");
+    assert_eq!(fields["thadam_version"], env!("CARGO_PKG_VERSION"), "{line}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn restart_resumes_after_the_cursor_without_duplicates() {
     let dir = TempDataDir::new().unwrap();

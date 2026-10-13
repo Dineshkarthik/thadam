@@ -41,6 +41,111 @@ fn create_test_pipeline_handle() -> thadam_runtime::PipelineHandle {
     handle
 }
 
+/// One `recseg` sink; `frames` changes the configuration and so its hash.
+fn recseg_yaml(data_dir: &std::path::Path, frames: u32) -> String {
+    yaml(
+        data_dir,
+        &format!("  - {{ id: out, kind: recseg, config: {{ frames_per_file: {frames} }} }}"),
+        "",
+    )
+}
+
+/// Runs `yaml` to completion, recording into `metrics`, and returns its handle.
+async fn run_once(yaml: &str, metrics: &Arc<PrometheusMetrics>) -> thadam_runtime::PipelineHandle {
+    let kit = Kit::default();
+    kit.sources.scripted("src", (1..=3).map(json_n));
+    let mut opts = common::fast_opts();
+    opts.metrics = metrics.clone();
+    opts.stop_when_sources_finish = true;
+    let pipeline = thadam_runtime::Pipeline::build(spec(yaml), &kit.registry(), opts)
+        .expect("failed to build pipeline");
+    let handle = pipeline.handle();
+    let report = pipeline
+        .run(thadam_core::Shutdown::new())
+        .await
+        .expect("run failed to start");
+    assert_eq!(report.exit, thadam_runtime::ExitStatus::Ok);
+    handle
+}
+
+async fn get_body(router: axum::Router, uri: &str) -> String {
+    let response = router
+        .oneshot(
+            axum::http::Request::builder()
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200, "{uri}");
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    String::from_utf8_lossy(&body).into_owned()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_identifies_the_node_build_and_configuration() {
+    let dir = TempDataDir::new().unwrap();
+    let y = recseg_yaml(dir.path(), 3);
+    let metrics = Arc::new(PrometheusMetrics::new());
+    let handle = run_once(&y, &metrics).await;
+
+    let body = get_body(router(handle, metrics, None), "/status").await;
+    let status: Value = serde_json::from_str(&body).expect("status should be valid JSON");
+    assert_eq!(status["node_id"], "node-1", "{body}");
+    assert_eq!(status["pipeline"], "test", "{body}");
+    assert_eq!(status["thadam_version"], env!("CARGO_PKG_VERSION"), "{body}");
+    assert_eq!(status["config_hash"], spec(&y).config_hash_hex(), "{body}");
+    assert_eq!(status["config_hash_version"], 1, "{body}");
+    assert_eq!(status["previous_config_hash"], Value::Null, "{body}");
+    assert!(
+        status["started_at"].as_i64().is_some_and(|t| t > 0),
+        "{body}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_names_the_configuration_of_the_run_before() {
+    let dir = TempDataDir::new().unwrap();
+    let first = recseg_yaml(dir.path(), 3);
+    let second = recseg_yaml(dir.path(), 4);
+    let metrics = Arc::new(PrometheusMetrics::new());
+    run_once(&first, &metrics).await;
+    let handle = run_once(&second, &metrics).await;
+
+    let body = get_body(router(handle, metrics, None), "/status").await;
+    let status: Value = serde_json::from_str(&body).expect("status should be valid JSON");
+    assert_eq!(
+        status["config_hash"],
+        spec(&second).config_hash_hex(),
+        "{body}"
+    );
+    assert_eq!(
+        status["previous_config_hash"],
+        spec(&first).config_hash_hex(),
+        "{body}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn build_info_gauge_names_the_running_configuration() {
+    let dir = TempDataDir::new().unwrap();
+    let y = recseg_yaml(dir.path(), 3);
+    let metrics = Arc::new(PrometheusMetrics::new());
+    let handle = run_once(&y, &metrics).await;
+
+    let body = get_body(router(handle, metrics, None), "/metrics").await;
+    let want = format!(
+        "thadam_build_info{{version=\"{}\",config_hash=\"{}\",node_id=\"node-1\",pipeline=\"test\"}} 1",
+        env!("CARGO_PKG_VERSION"),
+        spec(&y).config_hash_hex()
+    );
+    assert!(
+        body.lines().any(|line| line == want),
+        "missing `{want}` in:\n{body}"
+    );
+}
+
 #[tokio::test]
 async fn healthz_returns_200_ok() {
     let handle = create_test_pipeline_handle();

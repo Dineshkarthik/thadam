@@ -85,7 +85,7 @@ sinks:
 The config hash ( algorithm version 1, reported by `thadam version`) is taken after typed normalization and before interpolation, in canonical form. Keys at their defaults are omitted, so defaults added later do not move the hash. The hash is:
 
 - recorded in `data_dir/thadam.json` (with the previous hash when it changed) — a changed configuration is accepted and recorded; a different pipeline name or WAL epoch is refused (exit 3, see [crash recovery](../operations/crash-recovery.md));
-- written into every Parquet footer as `thadam.config_hash`, together with the enrichment-file hash — the two inputs for replay row-set equivalence.
+- written into every Parquet footer as `thadam.config_hash`, together with `thadam.enrichment_hash` (the lineage hash of the enrichment tables the sink's chain joined) — the two inputs for replay row-set equivalence.
 
 ## Where to go next
 

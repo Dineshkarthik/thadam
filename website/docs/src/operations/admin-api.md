@@ -24,7 +24,12 @@ The snapshot (`thadam status` pretty-prints exactly this):
 ```jsonc
 {
   "pipeline": "edge-capture",
-  "config_hash": "f6410eaa…",
+  "node_id": "edge-01",           // pipeline.node_id, as resolved from the configuration
+  "thadam_version": "0.0.0",       // the binary that runs this pipeline
+  "config_hash": "f6410eaa…",     // 32 hex digits; the value `thadam validate` prints
+  "config_hash_version": 1,       // the version of the hash algorithm
+  "previous_config_hash": null,   // the hash in force before the last change (thadam.json); null until one happens
+  "started_at": 1760350000000,    // Unix milliseconds when `run` began; null before that
   "phase": "running",            // built | starting | running | draining | stopped
   "ready": true,
   "components": [
@@ -74,6 +79,8 @@ The snapshot (`thadam status` pretty-prints exactly this):
 ```
 
 Component states are the error-model states: `starting`, `running`, `degraded` (retrying after transient errors), `draining`, `stopped`, `failed` (terminal for that component; readiness false, capture continues within policy).
+
+The identity fields (`node_id`, `thadam_version`, `config_hash`, `config_hash_version`, `previous_config_hash`, `started_at`) match the startup log record and the [`thadam_build_info`](metrics.md) gauge. The `thadam.config_hash` footer of each Parquet file the run writes is the same `config_hash`.
 
 ## CLI equivalents
 

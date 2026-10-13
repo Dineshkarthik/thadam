@@ -953,7 +953,9 @@ impl SegmentSinkFactory for ParquetSegmentSinkFactory {
         ctx: &thadam_core::BuildContext,
     ) -> Result<Box<dyn SegmentSink>, ThadamError> {
         let parsed = config::parse_sink_config(&cfg, ctx.data_dir.clone(), &ctx.component_id)
-            .and_then(|options| options.with_datasets(&ctx.datasets))
+            .and_then(|options| {
+                options.with_datasets(&ctx.datasets, &ctx.config_hash, &ctx.enrichment_hash)
+            })
             .map_err(config::first_error)?;
         let sink = ParquetSegmentSink::new(parsed)?;
         Ok(Box::new(sink))

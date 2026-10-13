@@ -292,6 +292,16 @@ impl Chain {
         &self.infos
     }
 
+    /// The enrichment hash of every table this chain loaded, empty when it
+    /// loaded none. See [`EnrichmentInfo`] for the per-file digest it covers.
+    pub fn enrichment_hash(&self) -> String {
+        steps::lineage_hash(self.infos.iter().flat_map(|d| {
+            d.enrichment
+                .iter()
+                .map(move |e| (&*d.id, e.sha256.as_str()))
+        }))
+    }
+
     /// Shapes the chain holds.
     pub fn shape_count(&self) -> usize {
         self.registry.len()

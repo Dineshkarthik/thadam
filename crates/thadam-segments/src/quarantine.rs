@@ -388,25 +388,34 @@ impl SegmentSinkFactory for QuarantineSinkFactory {
     ) -> Result<Box<dyn SegmentSink>, ThadamError> {
         let parsed: QuarantineConfig =
             config::parse_quarantine_config(&cfg).map_err(config::first_error)?;
-        let sink = build_quarantine_sink(parsed, ctx.data_dir.clone(), &ctx.component_id)?;
+        let sink = build_quarantine_sink(
+            parsed,
+            ctx.data_dir.clone(),
+            &ctx.component_id,
+            &ctx.config_hash,
+            &ctx.enrichment_hash,
+        )?;
         Ok(Box::new(sink))
     }
 }
 
 /// Constructs the quarantine sink: one `_quarantine` dataset with the fixed
-/// schema, budgeted under the quarantine category.
+/// schema, budgeted under the quarantine category. Its rejects come from the
+/// owning sink's chain, so it records that chain's hashes.
 pub(crate) fn build_quarantine_sink(
     cfg: QuarantineConfig,
     dir: PathBuf,
     node_id: &str,
+    config_hash: &str,
+    enrichment_hash: &str,
 ) -> Result<crate::sink::ParquetSegmentSink, SegmentError> {
     let spec = QuarantineEncoderSpec::new(cfg.timestamp_unit);
     let kvs = vec![
         crate::writer::kv(crate::writer::THADAM_VERSION_KEY, env!("CARGO_PKG_VERSION")),
         crate::writer::kv(envelope::DATASET_META_KEY, QUAR_NAME),
         crate::writer::kv(envelope::SCHEMA_FP_META_KEY, spec.fingerprint_hex()),
-        crate::writer::kv(crate::writer::CONFIG_HASH_KEY, ""),
-        crate::writer::kv(crate::writer::ENRICHMENT_HASH_KEY, ""),
+        crate::writer::kv(crate::writer::CONFIG_HASH_KEY, config_hash),
+        crate::writer::kv(crate::writer::ENRICHMENT_HASH_KEY, enrichment_hash),
     ];
     let props = crate::writer::base_props(cfg.compression, kvs)?;
     let plan = DatasetPlan {

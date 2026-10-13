@@ -103,6 +103,21 @@ pub struct SinkStateLabels {
     pub state: String,
 }
 
+/// Label set for `thadam_build_info`, the one metric whose labels identify the
+/// process: one series per process, so it is the only place a config hash or
+/// node id appears as a label.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct BuildInfoLabels {
+    /// The thadam version.
+    pub version: String,
+    /// The config hash, hexadecimal.
+    pub config_hash: String,
+    /// The node identity (`pipeline.node_id`).
+    pub node_id: String,
+    /// The pipeline name.
+    pub pipeline: String,
+}
+
 /// Buckets for whole-file operations (uploads, finalizes): tens of
 /// milliseconds up to a minute.
 fn file_op_seconds() -> Histogram {
@@ -147,6 +162,7 @@ pub struct PrometheusMetrics {
     // Gauges
     component_state: Family<ComponentStateLabels, Gauge>,
     clock_synced: Gauge,
+    build_info: Family<BuildInfoLabels, Gauge>,
     segment_files: Family<SinkStateLabels, Gauge>,
     segment_bytes: Family<SinkStateLabels, Gauge>,
     // Histograms
@@ -309,6 +325,13 @@ impl PrometheusMetrics {
             clock_synced.clone(),
         );
 
+        let build_info = Family::default();
+        registry.register(
+            "thadam_build_info",
+            "Build and configuration identity of this process; always 1",
+            build_info.clone(),
+        );
+
         let segment_files = Family::default();
         registry.register(
             "thadam_segment_files",
@@ -397,6 +420,7 @@ impl PrometheusMetrics {
             ship_uploads_total,
             component_state,
             clock_synced,
+            build_info,
             segment_files,
             segment_bytes,
             source_ack_latency_seconds,
@@ -442,6 +466,7 @@ impl PrometheusMetrics {
             "thadam_ship_uploads_total",
             "thadam_component_state",
             "thadam_clock_synced",
+            "thadam_build_info",
             "thadam_segment_files",
             "thadam_segment_bytes",
             "thadam_source_ack_latency_seconds",
@@ -615,6 +640,21 @@ impl MetricsSink for PrometheusMetrics {
             }
             MetricEvent::ClockSynced { synced } => {
                 self.clock_synced.set(if synced { 1 } else { 0 });
+            }
+            MetricEvent::BuildInfo {
+                version,
+                config_hash,
+                node_id,
+                pipeline,
+            } => {
+                self.build_info
+                    .get_or_create(&BuildInfoLabels {
+                        version: version.to_string(),
+                        config_hash: config_hash.to_string(),
+                        node_id: node_id.to_string(),
+                        pipeline: pipeline.to_string(),
+                    })
+                    .set(1);
             }
             MetricEvent::Connector(metric) => self.record_connector(metric),
         }

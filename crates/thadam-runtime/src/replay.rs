@@ -236,6 +236,8 @@ pub async fn replay(
     datadir::check_wal_binding(existing.as_ref(), wal.epoch(), opts.repair)?;
 
     let out_id = format!("replay.{}.{}", req.replay_id, req.sink);
+    let config_hash = spec.config_hash_hex();
+    let enrichment_hash = chain.enrichment_hash();
     let protected = [
         lexical_absolute(&layout.root.join("sinks")),
         lexical_absolute(&layout.wal()),
@@ -252,7 +254,8 @@ pub async fn replay(
             ));
         }
         let ctx = BuildContext::new(out_id.as_str(), Arc::clone(&opts.clock), dir.clone())
-            .with_datasets(plan::dataset_decls(spec, only.as_deref()));
+            .with_datasets(plan::dataset_decls(spec, only.as_deref()))
+            .with_config_hashes(&config_hash, &enrichment_hash);
         let built = match &factory {
             Some(SinkFactory::Segment(f)) => f.build(sink_spec.config.clone(), &ctx)?,
             _ => {

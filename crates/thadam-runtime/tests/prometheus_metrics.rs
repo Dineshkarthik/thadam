@@ -15,6 +15,7 @@ fn test_metric_names_exact_list() {
         "thadam_batch_write_seconds",
         "thadam_batch_written_events_total",
         "thadam_batch_written_total",
+        "thadam_build_info",
         "thadam_chain_events_total",
         "thadam_chain_panic_total",
         "thadam_clock_synced",
