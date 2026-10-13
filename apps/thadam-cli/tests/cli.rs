@@ -375,6 +375,25 @@ fn validate_against_data_dir_exits_2_on_a_chain_that_does_not_compile() {
     );
 }
 
+#[test]
+fn validate_against_data_dir_resolves_a_relative_enrich_file_next_to_the_config() {
+    let base = TempDataDir::new().unwrap();
+    let data = base.join("data");
+    std::fs::write(base.join("devices.csv"), "id,model\nd1,Alpha\nd2,Beta\n").unwrap();
+    let transforms = "transforms:\n  - { kind: enrich, dataset: readings, file: ./devices.csv, key: { field: device, column: id }, add: [{ name: model, type: str }], on_miss: reject }\n";
+    let config = write_config(&base, &data_dir_config(&data, "demo", "n1", transforms, ""));
+    let elsewhere = base.join("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_thadam"))
+        .current_dir(&elsewhere)
+        .args(["validate", "--against-data-dir", config.to_str().unwrap()])
+        .output()
+        .expect("run thadam");
+    assert_eq!(code(&out), 0, "{}", text(&out.stderr));
+    assert!(!data.exists());
+}
+
 #[tokio::test]
 async fn validate_against_data_dir_exits_3_on_a_pipeline_name_change() {
     let base = TempDataDir::new().unwrap();

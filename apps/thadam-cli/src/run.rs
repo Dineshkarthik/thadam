@@ -97,6 +97,7 @@ pub fn run(args: &RunArgs, err: &mut dyn Write) -> Exit {
         run_pipeline(
             &registry,
             spec,
+            path,
             args.repair,
             &admin_bind,
             admin_token_file.as_deref(),
@@ -109,6 +110,7 @@ pub fn run(args: &RunArgs, err: &mut dyn Write) -> Exit {
 async fn run_pipeline(
     registry: &thadam_runtime::Registry,
     spec: thadam_config::PipelineSpec,
+    path: &Path,
     repair: bool,
     admin_bind: &str,
     admin_token_file: Option<&Path>,
@@ -118,6 +120,10 @@ async fn run_pipeline(
     let mut opts = RuntimeOptions::default();
     opts.repair = repair;
     opts.stop_when_sources_finish = exit_when_sources_finish;
+    opts.config_dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf);
     let metrics = Arc::new(PrometheusMetrics::new());
     opts.metrics = metrics.clone();
 
