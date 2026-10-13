@@ -246,7 +246,7 @@ impl Broker {
 impl Drop for Broker {
     fn drop(&mut self) {
         let _ = Command::new("docker")
-            .args(["rm", "-f", &self.name])
+            .args(["rm", "-f", "-v", &self.name])
             .output();
     }
 }
@@ -328,6 +328,6 @@ fn emqx_env(opts: &Opts, window: u32) -> Vec<(String, String)> {
 pub fn remove_leftovers() {
     let ids = docker_ok(&["ps", "-aq", "--filter", "label=thadam-mqtt-test"]);
     for id in ids.split_whitespace() {
-        let _ = docker(&["rm", "-f", id]);
+        let _ = docker(&["rm", "-f", "-v", id]);
     }
 }
