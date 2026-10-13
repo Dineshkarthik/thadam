@@ -80,14 +80,26 @@ pub fn run(args: &RunArgs, err: &mut dyn Write) -> Exit {
         }
     };
 
+    // The admin API settings come from `observability.admin`; `--admin-bind`
+    // and `--admin-token-file` override them for this run. The section's
+    // schema default serves the admin API on loopback.
+    let admin_bind = args
+        .admin_bind
+        .clone()
+        .unwrap_or_else(|| spec.observability.admin.bind.clone());
+    let admin_token_file = args
+        .admin_token_file
+        .clone()
+        .or_else(|| spec.observability.admin.token_file.clone());
+
     // 5. Run the pipeline inside the Tokio runtime
     runtime.block_on(async {
         run_pipeline(
             &registry,
             spec,
             args.repair,
-            args.admin_bind.as_deref(),
-            args.admin_token_file.as_deref(),
+            &admin_bind,
+            admin_token_file.as_deref(),
             args.exit_when_sources_finish,
         )
         .await
@@ -98,7 +110,7 @@ async fn run_pipeline(
     registry: &thadam_runtime::Registry,
     spec: thadam_config::PipelineSpec,
     repair: bool,
-    admin_bind: Option<&str>,
+    admin_bind: &str,
     admin_token_file: Option<&Path>,
     exit_when_sources_finish: bool,
 ) -> Exit {
@@ -159,54 +171,50 @@ async fn run_pipeline(
         handle_clone.force_shutdown();
     });
 
-    // Spawn admin server if requested
-    let admin_task = if let Some(bind) = admin_bind {
-        let bind_addr: std::net::SocketAddr = match bind.parse() {
-            Ok(addr) => addr,
+    // Serve the admin API for the whole run; the bind and token were resolved
+    // from `observability.admin` with any CLI overrides applied by the caller.
+    let bind_addr: std::net::SocketAddr = match admin_bind.parse() {
+        Ok(addr) => addr,
+        Err(e) => {
+            let _ = writeln!(
+                std::io::stderr(),
+                "invalid admin bind address `{admin_bind}`: {e}"
+            );
+            return Exit::InvalidConfig;
+        }
+    };
+
+    let token = if let Some(token_path) = admin_token_file {
+        match tokio::fs::read_to_string(token_path).await {
+            Ok(content) => Some(content.trim().to_string()),
             Err(e) => {
                 let _ = writeln!(
                     std::io::stderr(),
-                    "invalid admin bind address `{bind}`: {e}"
+                    "cannot read admin token file `{}`: {e}",
+                    token_path.display()
                 );
-                return Exit::InvalidConfig;
+                return Exit::RuntimeFailure;
             }
-        };
-
-        let token = if let Some(token_path) = admin_token_file {
-            match tokio::fs::read_to_string(token_path).await {
-                Ok(content) => Some(content.trim().to_string()),
-                Err(e) => {
-                    let _ = writeln!(
-                        std::io::stderr(),
-                        "cannot read admin token file `{}`: {e}",
-                        token_path.display()
-                    );
-                    return Exit::RuntimeFailure;
-                }
-            }
-        } else {
-            None
-        };
-
-        let admin_config = AdminConfig {
-            bind: bind_addr,
-            token,
-        };
-
-        let metrics = metrics.clone();
-        let admin_handle = handle.clone();
-        let admin_shutdown = shutdown.clone();
-
-        Some(tokio::spawn(async move {
-            if let Err(e) =
-                thadam_runtime::serve(admin_config, admin_handle, metrics, admin_shutdown).await
-            {
-                tracing::error!(error = %e, "admin server error");
-            }
-        }))
+        }
     } else {
         None
     };
+
+    let admin_config = AdminConfig {
+        bind: bind_addr,
+        token,
+    };
+
+    let admin_metrics = metrics.clone();
+    let admin_handle = handle.clone();
+    let admin_shutdown = shutdown.clone();
+    let admin_task = tokio::spawn(async move {
+        if let Err(e) =
+            thadam_runtime::serve(admin_config, admin_handle, admin_metrics, admin_shutdown).await
+        {
+            tracing::error!(error = %e, "admin server error");
+        }
+    });
 
     // Run the pipeline
     let run_result = pipeline.run(shutdown.clone()).await;
@@ -214,10 +222,8 @@ async fn run_pipeline(
     // Cancel signal handler
     signal_task.abort();
 
-    // Cancel admin server if running
-    if let Some(task) = admin_task {
-        task.abort();
-    }
+    // Cancel the admin server
+    admin_task.abort();
 
     // Map the result to an exit code
     match run_result {

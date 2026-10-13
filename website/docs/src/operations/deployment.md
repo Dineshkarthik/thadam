@@ -60,7 +60,7 @@ docker inspect -f '{{.State.Health.Status}}' thadam
 
 The first command prints `ok`; the second prints `healthy` once the first probe passes.
 
-If you override `CMD`, keep `--admin-bind` and `--admin-token-file`. Without them, `thadam run` starts no admin server and the container reports `unhealthy`; this happened in testing (`curl` exit 7, connection refused).
+If you override `CMD`, keep `--admin-bind` and `--admin-token-file`. They pin the image's contract for any mounted `pipeline.yaml`: without `--admin-bind`, `thadam run` falls back to the config's `observability.admin` section (loopback `127.0.0.1:9464` when the section is absent), so the host-published port stops working even though the in-container healthcheck still passes; a non-loopback bind without `--admin-token-file` is refused.
 
 ### Stop
 
@@ -75,8 +75,6 @@ docker inspect -f '{{.State.ExitCode}}' thadam
 
 ### Known limits
 
-- `thadam run` applies only the admin bind and token from its flags. The `observability.admin` section of the configuration is validated but not applied. The image passes the flags for this reason.
-- `docker logs` showed nothing while the container ran. After a stop it showed only the first runtime log line (`wal recovered`), not the later lines. To watch a running pipeline, use `/status` and `/metrics`.
 - Only the default image and the `opcua` feature image were built and run. The image is not signed or scanned.
 
 ## systemd
@@ -107,7 +105,7 @@ Then enable and start the `thadam` unit with systemd. That step was not run here
 What the unit does:
 
 - Runs as `thadam`. systemd creates `/var/lib/thadam` (`StateDirectory=`, mode 0750) for the data directory, and `pipeline.data_dir` should point there.
-- Starts `thadam run --admin-bind 127.0.0.1:9464 /etc/thadam/pipeline.yaml`. The admin API is loopback-only and needs no token. `--admin-bind` is required because `thadam run` ignores the `observability.admin` section, as noted above.
+- Starts `thadam run --admin-bind 127.0.0.1:9464 /etc/thadam/pipeline.yaml`. The admin API is loopback-only and needs no token. `thadam run` reads the `observability.admin` section of the configuration; the flag pins the bind to loopback so a non-loopback value in the configuration does not take effect for this unit.
 - Restarts on failure after 5 seconds. Exit codes 2 (invalid configuration) and 3 (data directory locked or incompatible) are not restarted, because they do not clear on retry. Exit 0 is a clean stop and is not restarted.
 - Stops with SIGTERM and allows 40 seconds (`TimeoutStopSec=40s`) before SIGKILL, above `thadam`'s 30-second shutdown bound.
 - Hardening: `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, an empty `CapabilityBoundingSet`, and `RestrictAddressFamilies` limited to `AF_UNIX`, `AF_INET`, `AF_INET6`, and `AF_NETLINK`. The unit also sets the other `Protect*` and `Restrict*` options listed in the file. `LimitNOFILE=65536`.

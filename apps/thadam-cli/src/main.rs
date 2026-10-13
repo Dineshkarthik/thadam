@@ -195,7 +195,16 @@ fn main() -> ExitCode {
                 Exit::RuntimeFailure
             }
         },
-        Command::Run(args) => run::run(&args, &mut err),
+        // The run's logs go through a background writer that takes the
+        // process-wide stderr lock for every line. Holding `StderrLock` across
+        // the run would block that writer until exit, so logs would go missing
+        // when stderr is not a TTY. Drop the lock and pass a handle that locks
+        // per write instead.
+        Command::Run(args) => {
+            drop(err);
+            let mut run_err = std::io::stderr();
+            run::run(&args, &mut run_err)
+        }
         Command::Status(args) => status::run(
             args.admin_url.as_deref(),
             args.token_file.as_deref(),

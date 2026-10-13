@@ -9,8 +9,9 @@ Wants=network-online.target
 Type=simple
 User=thadam
 Group=thadam
-# shortcut: `thadam run` serves the admin API only from `--admin-bind`; the
-# `observability.admin` config section is not read yet.
+# Pin the admin API to loopback. `thadam run` reads `observability.admin`, so
+# without this flag a non-loopback bind in the config would be honoured; with
+# it the unit keeps serving loopback only (no token needed).
 ExecStart=/usr/local/bin/thadam run --admin-bind 127.0.0.1:9464 /etc/thadam/pipeline.yaml
 WorkingDirectory=/var/lib/thadam
 StateDirectory=thadam

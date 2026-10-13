@@ -58,6 +58,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 ENTRYPOINT ["thadam"]
 # The admin API binds all interfaces so `-p 127.0.0.1:9464:9464` can reach it. A
 # non-loopback bind needs the token file, mounted at run time and never baked in.
-# shortcut: `thadam run` serves the admin API only from `--admin-bind`; the
-# `observability.admin` config section is parsed but not read yet.
+# `thadam run` reads `observability.admin`; these flags stay because the image's
+# contract (publishable port on 0.0.0.0, token at /etc/thadam/admin-token) must
+# hold for any mounted pipeline.yaml, whatever its config says.
 CMD ["run", "--admin-bind", "0.0.0.0:9464", "--admin-token-file", "/etc/thadam/admin-token", "/etc/thadam/pipeline.yaml"]
