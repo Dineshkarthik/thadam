@@ -470,6 +470,50 @@ async fn a_chain_panic_mid_window_rebuilds_the_open_windows() {
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_chain_panic_mid_window_behind_sample_rebuilds_phase_and_open_windows() {
+    let sampled_cfg = |dir: &Path| {
+        config(dir).replace(
+            "transforms:\n",
+            "transforms:\n  - { kind: sample, dataset: d, every_n: 3 }\n",
+        )
+    };
+    let msgs = script(60);
+    let base_dir = TempDataDir::new().unwrap();
+    let base_kit = Kit::default();
+    feed(&base_kit, &msgs);
+    let base = run_to_end(&base_kit, spec(&sampled_cfg(base_dir.path())), per_frame()).await;
+    assert_eq!(base.exit, ExitStatus::Ok, "{:#?}", base.status);
+    let want = rows(&base_kit);
+    assert!(want.len() >= 6, "{} aggregates", want.len());
+
+    // At frame 30, the oldest open window started at frame 21 (`hold = 21`), so
+    // `warm_start_frames = 20` reaches back to frame 1 when measured before
+    // `hold`, whereas measuring from `upto = 29` would start at frame 10 and
+    // shift the `sample every_n: 3` phase.
+    for read in READS {
+        let dir = TempDataDir::new().unwrap();
+        let kit = Kit::default();
+        feed(&kit, &msgs);
+        let mut o = reading(read);
+        o.warm_start_frames = 20;
+        o.failpoints.panic_chain_at(WalPos::new(30), 1);
+        let report = run_to_end(&kit, spec(&sampled_cfg(dir.path())), o).await;
+        assert_eq!(
+            report.exit,
+            ExitStatus::Ok,
+            "read={read}: {:#?}",
+            report.status
+        );
+        assert!(
+            component(&report.status, "chain:out").counters.panics >= 1,
+            "read={read}: {:#?}",
+            report.status
+        );
+        assert_eq!(rows(&kit), want, "read={read}");
+    }
+}
+
 #[test]
 fn a_window_on_a_batch_sink_is_refused_at_build() {
     let dir = TempDataDir::new().unwrap();
