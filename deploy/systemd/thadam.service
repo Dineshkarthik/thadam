@@ -1,0 +1,50 @@
+# Runs `thadam run` as an unprivileged service. Install steps and the exit-code
+# restart rules are in website/docs/src/operations/deployment.md.
+[Unit]
+Description=Thadam data capture pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=thadam
+Group=thadam
+# shortcut: `thadam run` serves the admin API only from `--admin-bind`; the
+# `observability.admin` config section is not read yet.
+ExecStart=/usr/local/bin/thadam run --admin-bind 127.0.0.1:9464 /etc/thadam/pipeline.yaml
+WorkingDirectory=/var/lib/thadam
+StateDirectory=thadam
+StateDirectoryMode=0750
+
+# Exit 2 (invalid configuration) and 3 (data directory locked or incompatible)
+# do not clear on retry; exit 0 is a clean stop and is not restarted.
+Restart=on-failure
+RestartSec=5s
+RestartPreventExitStatus=2 3
+
+# After SIGTERM thadam drains for up to its 30 s shutdown timeout; leave margin
+# before systemd sends SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=40s
+LimitNOFILE=65536
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/thadam
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+# AF_NETLINK: glibc getaddrinfo reads interfaces over netlink. Add AF_CAN for the
+# `can` source; see the CAN note in the deployment docs.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

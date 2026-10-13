@@ -63,6 +63,7 @@
 - [Logging](operations/logging.md)
 - [Exit codes](operations/exit-codes.md)
 - [Error code reference](operations/error-codes.md)
+- [Deployment (Docker and systemd)](operations/deployment.md)
 
 # SDKs
 
