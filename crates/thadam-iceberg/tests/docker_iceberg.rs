@@ -10,12 +10,14 @@
 //! ```
 //!
 //! Images: public Docker Hub only, pinned by tag (never a corporate mirror);
-//! re-pin with `THADAM_TEST_S3_IMAGE` / `THADAM_TEST_ICEBERG_REST_IMAGE`.
-//! `docker` and `curl` CLIs must be available. Containers and the per-test
-//! network are labelled `thadam-iceberg-test` and removed on Drop, including
-//! on panic. Logs: run with `RUST_LOG=debug` (the harness installs a
-//! subscriber).
+//! re-pin with `THADAM_TEST_S3_IMAGE` / `THADAM_TEST_ICEBERG_REST_IMAGE` /
+//! `THADAM_TEST_PROXY_IMAGE`. `docker` and `curl` CLIs must be available.
+//! Containers and the per-test network are labelled `thadam-iceberg-test` and
+//! removed on Drop, including on panic. Logs: run with `RUST_LOG=debug` (the
+//! harness installs a subscriber).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+mod common;
 
 use std::process::{Command, Output};
 use std::sync::Arc;
@@ -23,8 +25,9 @@ use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use thadam_core::{
-    BudgetCategory, DiskBudget, FieldDef, FieldType, ServiceContext, SharedObjects, Shutdown,
-    SystemClock, WalEpoch, WalPos, WalRange,
+    BudgetCategory, DiskBudget, Event, EventBatch, EventId, FieldDef, FieldType, Record,
+    ServiceContext, Shape, ShapeRef, SharedObjects, Shutdown, SystemClock, TimeDomain, Times,
+    Timestamp, Value, WalEpoch, WalPos, WalRange,
 };
 use thadam_segments::{SegmentCatalog, SegmentId, SegmentRecord};
 use sha2::{Digest, Sha256};
@@ -33,11 +36,15 @@ use tempfile::TempDir;
 use thadam_arrow::{ArrowOptions, BatchContext, BatchEncoder, DatasetSchema, UnsignedPolicy};
 use thadam_iceberg::IcebergRegistrarFactory;
 
+use common::certs::Certs;
+
 /// The pinned SeaweedFS image (same as the shipper's tests).
 const S3_IMAGE: &str = "chrislusf/seaweedfs:3.81";
 /// The pinned Iceberg REST catalog fixture (in-memory catalog implementing
 /// Iceberg REST spec 0.14; verified on Docker Hub).
 const REST_IMAGE: &str = "apache/iceberg-rest-fixture:1.10.1";
+/// The pinned Caddy image for the TLS-terminating proxy test.
+const PROXY_IMAGE: &str = "caddy:2.10.2";
 const LABEL: &str = "thadam-iceberg-test";
 const ROOT_USER: &str = "thadam-test";
 const ROOT_SECRET: &str = "thadam-test-secret-16+bytes";
@@ -58,6 +65,10 @@ const EPOCH: u64 = 7;
 
 fn s3_image() -> String {
     std::env::var("THADAM_TEST_S3_IMAGE").unwrap_or_else(|_| S3_IMAGE.to_owned())
+}
+
+fn proxy_image() -> String {
+    std::env::var("THADAM_TEST_PROXY_IMAGE").unwrap_or_else(|_| PROXY_IMAGE.to_owned())
 }
 
 fn rest_image() -> String {
@@ -128,6 +139,8 @@ struct Stack {
     network: String,
     seaweed: String,
     rest: String,
+    /// The TLS-terminating proxy in front of the REST catalog, once started.
+    proxy: Option<String>,
     /// Owns the mounted S3 auth config file.
     _auth_dir: tempfile::TempDir,
     /// `http://127.0.0.1:PORT` of the S3 endpoint (host side).
@@ -275,6 +288,7 @@ impl Stack {
                 network: network.clone(),
                 seaweed: seaweed.clone(),
                 rest,
+                proxy: None,
                 _auth_dir: auth_dir,
                 s3_endpoint,
                 rest_uri,
@@ -291,6 +305,9 @@ impl Stack {
 
 impl Drop for Stack {
     fn drop(&mut self) {
+        if let Some(proxy) = &self.proxy {
+            let _ = docker(&["rm", "-f", "-v", proxy]);
+        }
         let _ = docker(&["rm", "-f", "-v", &self.rest]);
         let _ = docker(&["rm", "-f", "-v", &self.seaweed]);
         let _ = docker(&["network", "rm", &self.network]);
@@ -311,38 +328,77 @@ fn s3_client(endpoint: &str, bucket: &str) -> object_store::aws::AmazonS3 {
         .expect("s3 builder")
 }
 
-/// The `unsigned: signed` dataset schema the Iceberg-compatible segment is
-/// written with (Iceberg has no unsigned types; docs/design/iceberg-append.md).
-fn dataset_schema() -> Arc<DatasetSchema> {
-    DatasetSchema::builder(DATASET)
-        .options(ArrowOptions::default().with_unsigned(UnsignedPolicy::Signed))
-        .field(FieldDef::new("n", FieldType::I64).with_field_id(1000))
-        .build()
-        .map(Arc::new)
-        .expect("dataset schema")
+/// A dataset schema with the declared `(name, type, field id)` columns, under
+/// the `unsigned: signed` Arrow policy Iceberg-compatible segments are written
+/// with (Iceberg has no unsigned types; docs/design/iceberg-append.md).
+fn schema_of(cols: &[(&str, FieldType, u32)]) -> Arc<DatasetSchema> {
+    let mut builder = DatasetSchema::builder(DATASET)
+        .options(ArrowOptions::default().with_unsigned(UnsignedPolicy::Signed));
+    for (name, ty, id) in cols {
+        builder = builder.field(FieldDef::new(*name, ty.clone()).with_field_id(*id));
+    }
+    builder.build().map(Arc::new).expect("dataset schema")
 }
 
-/// Writes a real Parquet segment of `count` rows through `thadam-arrow`
-/// (same writer the production sink uses, minus its WriterProperties
-/// customization that is irrelevant here) and catalogs it Finalized +
-/// Eligible.
-async fn write_segment(
+fn dataset_schema() -> Arc<DatasetSchema> {
+    schema_of(&[("n", FieldType::I64, 1000)])
+}
+
+/// One event at WAL frame `pos` whose record holds `cols`.
+fn event(pos: u64, cols: &[(&str, Value)]) -> Event {
+    let defs = cols
+        .iter()
+        .map(|(name, value)| {
+            let ty = match value {
+                Value::I32(_) => FieldType::I32,
+                Value::I64(_) => FieldType::I64,
+                Value::F64(_) => FieldType::F64,
+                other => panic!("test event column type {other:?}"),
+            };
+            FieldDef::new(*name, ty)
+        })
+        .collect();
+    let shape = ShapeRef::new(Shape::new(defs).expect("shape"));
+    let record = Record::new(shape, cols.iter().map(|(_, v)| v.clone()).collect()).expect("record");
+    Event::builder(
+        EventId::from_u128(u128::from(pos)),
+        WalPos::new(pos),
+        Times::new(Timestamp::from_nanos(pos as i64), TimeDomain::Utc),
+    )
+    .payload(record)
+    .build()
+    .expect("event")
+}
+
+/// A batch of frames `first..=last`, each event built by `cols(pos)`.
+fn batch_of(first: u64, last: u64, cols: impl Fn(u64) -> Vec<(&'static str, Value)>) -> EventBatch {
+    let origin =
+        WalRange::new(WalEpoch::new(EPOCH), WalPos::new(first), WalPos::new(last)).expect("range");
+    let events = (first..=last).map(|pos| event(pos, &cols(pos))).collect();
+    EventBatch::new(events, origin, true)
+}
+
+/// Writes a real Parquet segment of `batch` through `thadam-arrow` (same
+/// writer the production sink uses, minus its WriterProperties customization
+/// that is irrelevant here) and catalogs it Finalized + Eligible.
+async fn write_rows(
     catalog: &SegmentCatalog,
     root: &std::path::Path,
-    count: u64,
+    schema: &Arc<DatasetSchema>,
+    batch: EventBatch,
 ) -> SegmentRecord {
-    let schema = dataset_schema();
-    let mut encoder = BatchEncoder::new(Arc::clone(&schema), count as usize);
+    let count = batch.events.len() as u64;
+    let (first, last) = (batch.origin.first().get(), batch.origin.last().get());
+    let mut encoder = BatchEncoder::new(Arc::clone(schema), count as usize);
     encoder.set_context(BatchContext {
         epoch: WalEpoch::new(EPOCH),
         clock_synced: true,
     });
-    let batch = thadam_testkit::test_batch(EPOCH, 0, count - 1);
     let rejects = encoder.push_batch(&batch);
     assert!(rejects.is_empty(), "encoder rejects: {rejects:?}");
     let record_batch = encoder.finish();
 
-    let name = format!("edge01_{EPOCH:016x}_{:020}_{:020}.parquet", 0u64, count - 1);
+    let name = format!("edge01_{EPOCH:016x}_{first:020}_{last:020}.parquet");
     let rel = format!("ready/{DATASET}/date=2026-10-12/hour=13/{name}");
     let abs = root.join(&rel);
     std::fs::create_dir_all(abs.parent().expect("parent")).expect("mkdir");
@@ -363,7 +419,7 @@ async fn write_segment(
         SegmentId(rel.clone()),
         DATASET,
         Some(std::path::PathBuf::from(&rel)),
-        WalRange::new(WalEpoch::new(EPOCH), WalPos::new(0), WalPos::new(count - 1)).expect("range"),
+        WalRange::new(WalEpoch::new(EPOCH), WalPos::new(first), WalPos::new(last)).expect("range"),
         count,
         content.len() as u64,
         None,
@@ -380,6 +436,17 @@ async fn write_segment(
         .await
         .expect("eligible");
     record
+}
+
+/// A segment of `count` rows of the dataset's single column `n` = frame
+/// position, from frame 0.
+async fn write_segment(
+    catalog: &SegmentCatalog,
+    root: &std::path::Path,
+    count: u64,
+) -> SegmentRecord {
+    let batch = thadam_testkit::test_batch(EPOCH, 0, count - 1);
+    write_rows(catalog, root, &dataset_schema(), batch).await
 }
 
 /// The segment catalog in a tempdir (mirrors the shipper tests' `Sink`).
@@ -449,10 +516,21 @@ async fn wait_until(what: &str, mut check: impl FnMut() -> bool) {
 }
 
 fn config_json(stack: &Stack, create_table: bool) -> serde_json::Value {
-    serde_json::json!({
+    config_for(stack, create_table, &stack.rest_uri, None)
+}
+
+/// The registrar config against `catalog_uri` (the plain REST port, or the
+/// TLS proxy), optionally trusting only the CA in `ca_file`.
+fn config_for(
+    stack: &Stack,
+    create_table: bool,
+    catalog_uri: &str,
+    ca_file: Option<&std::path::Path>,
+) -> serde_json::Value {
+    let mut config = serde_json::json!({
         "from": "local",
         "pipeline": "edge-capture",
-        "catalog_uri": stack.rest_uri,
+        "catalog_uri": catalog_uri,
         "url": format!("s3://{}/lake", stack.bucket),
         "namespace": "robotics",
         "create_table": create_table,
@@ -464,10 +542,18 @@ fn config_json(stack: &Stack, create_table: bool) -> serde_json::Value {
             "secret_access_key": ROOT_SECRET,
         },
         "retry": { "initial": "100ms", "max": "1500ms", "jitter": true },
-    })
+    });
+    if let Some(ca) = ca_file {
+        config["catalog_ca_file"] = serde_json::json!(ca.to_str().expect("utf-8 path"));
+    }
+    config
 }
 
 fn build_registrar(stack: &Stack, create_table: bool) -> Box<dyn thadam_core::Service> {
+    build_registrar_from(config_json(stack, create_table))
+}
+
+fn build_registrar_from(config: serde_json::Value) -> Box<dyn thadam_core::Service> {
     use thadam_core::ServiceFactory;
     let factory = IcebergRegistrarFactory::new();
     let ctx = thadam_core::BuildContext::new(
@@ -475,9 +561,7 @@ fn build_registrar(stack: &Stack, create_table: bool) -> Box<dyn thadam_core::Se
         Arc::new(SystemClock::new()),
         std::path::PathBuf::from("/tmp/thadam-iceberg-test-factory-ctx"),
     );
-    factory
-        .build(config_json(stack, create_table), &ctx)
-        .expect("build registrar")
+    factory.build(config, &ctx).expect("build registrar")
 }
 
 fn shipper_config(stack: &Stack) -> serde_json::Value {
@@ -542,32 +626,41 @@ fn table_ident() -> iceberg::TableIdent {
     )
 }
 
-/// The sum of the `n` column over a full scan (None when the table is
-/// missing). u64 sums to i64 here: rows are 0..=24.
-async fn sum_column_n(catalog: &Arc<dyn iceberg::Catalog>) -> Option<i64> {
-    use arrow_array58::{Array, Int64Array};
+/// `(sum, null count)` of the numeric column `name` over a full scan (None
+/// when the table is missing), read as the type the table currently declares
+/// (long or double).
+async fn scan_column(catalog: &Arc<dyn iceberg::Catalog>, name: &str) -> Option<(f64, usize)> {
+    use arrow_array58::{Array, Float64Array, Int64Array};
 
     let table = catalog.load_table(&table_ident()).await.ok()?;
     let scan = table.scan().build().expect("scan");
     let mut stream = scan.to_arrow().await.expect("to_arrow");
-    let mut sum = 0i64;
-    let mut cols = 0;
+    let (mut sum, mut nulls, mut batches) = (0f64, 0usize, 0);
     while let Some(batch) = stream.next().await {
         let batch = batch.expect("batch");
         let col = batch
-            .column_by_name("n")
-            .expect("column n in the scanned batch")
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .expect("n is long");
-        assert_eq!(col.null_count(), 0, "n must read back non-null");
-        cols += 1;
-        for v in col.iter().flatten() {
-            sum += v;
+            .column_by_name(name)
+            .unwrap_or_else(|| panic!("column {name} in the scanned batch"));
+        if let Some(longs) = col.as_any().downcast_ref::<Int64Array>() {
+            sum += longs.iter().flatten().map(|v| v as f64).sum::<f64>();
+        } else if let Some(doubles) = col.as_any().downcast_ref::<Float64Array>() {
+            sum += doubles.iter().flatten().sum::<f64>();
+        } else {
+            panic!("column {name} read back as {:?}", col.data_type());
         }
+        nulls += col.null_count();
+        batches += 1;
     }
-    assert!(cols > 0, "at least one batch");
-    Some(sum)
+    assert!(batches > 0, "at least one batch");
+    Some((sum, nulls))
+}
+
+/// The sum of the `n` column over a full scan (None when the table is
+/// missing); `n` must read back non-null.
+async fn sum_column_n(catalog: &Arc<dyn iceberg::Catalog>) -> Option<i64> {
+    let (sum, nulls) = scan_column(catalog, "n").await?;
+    assert_eq!(nulls, 0, "n must read back non-null");
+    Some(sum as i64)
 }
 
 /// Row count of the table, or None when it does not exist (yet).
@@ -681,8 +774,10 @@ async fn existing_table_schema_mismatch_is_a_fatal_error() {
     wait_until("segment uploaded", || !sink.catalog.uploaded().is_empty()).await;
     stop_service(shipper).await.expect("shipper stops clean");
 
-    // Pre-create the table deliberately missing the declared `n` column:
-    // the segment's footer has a field (id 1000) the table does not.
+    // Pre-create the table through REST `create_table`, which renumbers the
+    // field IDs: its `_ingest_time` becomes id 1, an ID the segment's footer
+    // uses for a different column. Reusing a field ID with a different type
+    // is never evolved around.
     let reader = connect_catalog(&stack).await;
     let ns = iceberg::NamespaceIdent::from_vec(vec!["robotics".to_owned()]).expect("namespace");
     reader
@@ -720,6 +815,277 @@ async fn existing_table_schema_mismatch_is_a_fatal_error() {
         "unexpected error: {error}"
     );
     assert_eq!(error.retry, thadam_core::Retry::Fatal);
+    assert!(error.message.contains("field ID"), "{error}");
+}
+
+/// Removes the container unless defused; covers panics while it starts.
+struct ContainerGuard(String);
+
+impl Drop for ContainerGuard {
+    fn drop(&mut self) {
+        let _ = docker(&["rm", "-f", "-v", &self.0]);
+    }
+}
+
+/// Starts `caddy` on the stack's network, terminating TLS with the test
+/// server certificate in front of the REST fixture. Returns the container
+/// name (the [`Stack`] removes it) and the `https://127.0.0.1:PORT` URI.
+fn start_tls_proxy(network: &str, rest: &str, certs: &Certs) -> (String, String) {
+    let caddyfile = format!(
+        "{{\n\tadmin off\n\tauto_https off\n}}\n:8443 {{\n\ttls /certs/server.pem /certs/server.key\n\treverse_proxy {rest}:8181\n}}\n"
+    );
+    std::fs::write(certs.path("Caddyfile"), caddyfile).expect("Caddyfile");
+    let name = unique("tls");
+    for _ in 0..8 {
+        let port = free_port();
+        let out = docker(&[
+            "run",
+            "-d",
+            "--name",
+            &name,
+            "--label",
+            LABEL,
+            "--network",
+            network,
+            "-p",
+            &format!("127.0.0.1:{port}:8443"),
+            "-v",
+            &format!("{}:/certs:ro", certs.dir.path().display()),
+            "-v",
+            &format!(
+                "{}:/etc/caddy/Caddyfile:ro",
+                certs.path("Caddyfile").display()
+            ),
+            &proxy_image(),
+        ]);
+        if !out.status.success() {
+            let e = err(&out);
+            let _ = docker(&["rm", "-f", "-v", &name]);
+            if e.contains("port is already allocated") || e.contains("address already in use") {
+                continue;
+            }
+            panic!("docker run caddy: {e}");
+        }
+        let guard = ContainerGuard(name.clone());
+        let uri = format!("https://127.0.0.1:{port}");
+        let started = Instant::now();
+        // `-k`: only readiness is probed here; the tests below verify trust.
+        while !Command::new("curl")
+            .args(["-s", "-k", "-o", "/dev/null", "--max-time", "5"])
+            .arg(format!("{uri}/v1/config"))
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            assert!(
+                started.elapsed() < TIMEOUT,
+                "tls proxy did not become ready"
+            );
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        std::mem::forget(guard);
+        return (name, uri);
+    }
+    panic!("tls proxy did not start after port retries");
+}
+
+/// Waits for a service to end on its own (without a shutdown signal) and
+/// returns its result.
+async fn service_ends_by_itself(handle: ServiceHandle) -> Result<(), thadam_core::ThadamError> {
+    let started = Instant::now();
+    while !handle.task.is_finished() {
+        assert!(
+            started.elapsed() < Duration::from_secs(60),
+            "the service kept running instead of failing"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    handle.task.await.expect("service task")
+}
+
+async fn ship_all(stack: &Stack, sink: &Sink, uploaded: usize) {
+    let shipper = start_service(build_shipper(stack), "s3", &sink.catalog);
+    wait_until("segments uploaded", || {
+        sink.catalog.uploaded().len() == uploaded
+    })
+    .await;
+    stop_service(shipper).await.expect("shipper stops clean");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs Docker (SeaweedFS + apache/iceberg-rest-fixture)"]
+async fn schema_evolves_before_each_append_and_incompatible_changes_are_fatal() {
+    init_test_runtime();
+    let stack = Stack::start("warehouse").await;
+    let sink = Sink::open().await;
+    let root = sink.dir.path();
+
+    // v1: `n` is an int (id 1000).
+    let v1 = schema_of(&[("n", FieldType::I32, 1000)]);
+    let rows = batch_of(0, 4, |pos| vec![("n", Value::I32(pos as i32))]);
+    write_rows(&sink.catalog, root, &v1, rows).await;
+    // v2: `n` widens to long and `speed` (id 1001) appears.
+    let v2 = schema_of(&[("n", FieldType::I64, 1000), ("speed", FieldType::F64, 1001)]);
+    let rows = batch_of(5, 9, |pos| {
+        vec![
+            ("n", Value::I64(pos as i64)),
+            ("speed", Value::F64(pos as f64 * 0.5)),
+        ]
+    });
+    write_rows(&sink.catalog, root, &v2, rows).await;
+    // v3: id 1000 is renamed `count`.
+    let v3 = schema_of(&[
+        ("count", FieldType::I64, 1000),
+        ("speed", FieldType::F64, 1001),
+    ]);
+    let rows = batch_of(10, 14, |pos| {
+        vec![
+            ("count", Value::I64(pos as i64)),
+            ("speed", Value::F64(pos as f64 * 0.5)),
+        ]
+    });
+    write_rows(&sink.catalog, root, &v3, rows).await;
+    ship_all(&stack, &sink, 3).await;
+
+    // One registrar run registers all three: create from v1, then evolve
+    // (promote + add), then evolve (rename), each ahead of its append.
+    let reader = connect_catalog(&stack).await;
+    let registrar = start_service(build_registrar(&stack, true), "iceberg", &sink.catalog);
+    wait_table_rows("all three segments", &reader, 15).await;
+
+    let table = reader.load_table(&table_ident()).await.expect("load table");
+    let schema = table.metadata().current_schema();
+    let count = schema.field_by_id(1000).expect("id 1000 survives");
+    assert_eq!(count.name, "count", "renamed by ID");
+    assert_eq!(
+        *count.field_type,
+        iceberg::spec::Type::Primitive(iceberg::spec::PrimitiveType::Long),
+        "int promoted to long"
+    );
+    let speed = schema
+        .field_by_id(1001)
+        .expect("new column keeps its own ID");
+    assert_eq!(speed.name, "speed");
+    assert!(!speed.required, "added columns are optional");
+    assert_eq!(
+        *speed.field_type,
+        iceberg::spec::Type::Primitive(iceberg::spec::PrimitiveType::Double)
+    );
+    assert_eq!(
+        table.metadata().schemas_iter().count(),
+        3,
+        "create + 2 evolutions"
+    );
+    let schema_id = table.metadata().current_schema_id();
+    assert_eq!(
+        table.metadata().snapshots().len(),
+        3,
+        "one append per segment"
+    );
+    // Values, not just counts: the old int file reads through the promoted
+    // `count`, and the rows that predate `speed` read it as null.
+    assert_eq!(scan_column(&reader, "count").await, Some((105.0, 0)));
+    assert_eq!(scan_column(&reader, "speed").await, Some((47.5, 5)));
+
+    // v4 narrows `count` to int: fatal, and nothing about the table moves.
+    let v4 = schema_of(&[
+        ("count", FieldType::I32, 1000),
+        ("speed", FieldType::F64, 1001),
+    ]);
+    let rows = batch_of(15, 19, |pos| {
+        vec![
+            ("count", Value::I32(pos as i32)),
+            ("speed", Value::F64(pos as f64 * 0.5)),
+        ]
+    });
+    write_rows(&sink.catalog, root, &v4, rows).await;
+    ship_all(&stack, &sink, 4).await;
+    let error = service_ends_by_itself(registrar)
+        .await
+        .expect_err("narrowing must fail the service");
+    assert_eq!(error.code, "sink.iceberg_schema_mismatch", "{error}");
+    assert_eq!(error.retry, thadam_core::Retry::Fatal);
+    assert!(error.message.contains("narrowing"), "{error}");
+    let table = reader.load_table(&table_ident()).await.expect("reload");
+    assert_eq!(table.metadata().current_schema_id(), schema_id);
+    assert_eq!(
+        table.metadata().snapshots().len(),
+        3,
+        "the bad segment is not registered"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs Docker (SeaweedFS + apache/iceberg-rest-fixture + caddy)"]
+async fn https_catalog_works_with_its_ca_and_fails_fatally_without_trust() {
+    init_test_runtime();
+    let mut stack = Stack::start("warehouse").await;
+    let certs = Certs::generate();
+    let (network, rest) = (stack.network.clone(), stack.rest.clone());
+    let certs = Arc::new(certs);
+    let (proxy, https_uri) = {
+        let certs = Arc::clone(&certs);
+        tokio::task::spawn_blocking(move || start_tls_proxy(&network, &rest, &certs))
+            .await
+            .expect("proxy task")
+    };
+    stack.proxy = Some(proxy);
+
+    // Two segments, the second adding a column: the table is created and
+    // then evolved, so both the catalog client and the schema commit
+    // travel over TLS.
+    let sink = Sink::open().await;
+    let root = sink.dir.path();
+    let v1 = schema_of(&[("n", FieldType::I64, 1000)]);
+    let rows = batch_of(0, 4, |pos| vec![("n", Value::I64(pos as i64))]);
+    write_rows(&sink.catalog, root, &v1, rows).await;
+    let v2 = schema_of(&[("n", FieldType::I64, 1000), ("speed", FieldType::F64, 1001)]);
+    let rows = batch_of(5, 9, |pos| {
+        vec![
+            ("n", Value::I64(pos as i64)),
+            ("speed", Value::F64(pos as f64)),
+        ]
+    });
+    write_rows(&sink.catalog, root, &v2, rows).await;
+    ship_all(&stack, &sink, 2).await;
+    let reader = connect_catalog(&stack).await;
+
+    // A CA that did not sign the catalog's certificate, and no CA at all
+    // (the platform roots do not know the test CA): both fail fast and
+    // fatally, and register nothing.
+    let other_ca = certs.path("other-ca.pem");
+    for ca in [Some(other_ca.as_path()), None] {
+        let config = config_for(&stack, true, &https_uri, ca);
+        let handle = start_service(build_registrar_from(config), "iceberg", &sink.catalog);
+        let error = service_ends_by_itself(handle)
+            .await
+            .expect_err("an untrusted catalog certificate must fail the service");
+        assert_eq!(error.retry, thadam_core::Retry::Fatal, "{error}");
+        assert_eq!(error.code, thadam_core::codes::CONFIG_INVALID, "{error}");
+        assert!(
+            error.message.contains("invalid peer certificate"),
+            "the operator must see the TLS cause: {error}"
+        );
+    }
+    assert_eq!(table_rows(&reader).await, None, "nothing was registered");
+
+    // With the right CA it registers both segments and evolves the schema.
+    let ca = certs.path("ca.pem");
+    let config = config_for(&stack, true, &https_uri, Some(&ca));
+    let registrar = start_service(build_registrar_from(config), "iceberg", &sink.catalog);
+    wait_table_rows("registration over https", &reader, 10).await;
+    stop_service(registrar)
+        .await
+        .expect("registrar stops clean");
+    let table = reader.load_table(&table_ident()).await.expect("load table");
+    assert!(
+        table
+            .metadata()
+            .current_schema()
+            .field_by_id(1001)
+            .is_some(),
+        "the schema commit went through the TLS catalog"
+    );
 }
 
 fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {

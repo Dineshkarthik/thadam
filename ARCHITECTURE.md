@@ -362,7 +362,7 @@ A dataset is an output table: a `match` (source and topic), a decode format, an 
 - **Production:** declared schemas are required. Fields have a name, type, source path, optional unit, optional `convert_to`, and optional `required: true`.
 - **Development:** inference is allowed with widening only and lock-after-first-file, to avoid file churn from JSON `1` versus `1.5`.
 - **Unknown fields:** strict mode quarantines, lenient mode drops and counts, and an optional `_unmapped` column can capture them.
-- **Evolution rules (Iceberg-compatible):** add optional columns, widen `int` to `long` and `float` to `double`, never rename or narrow. Anything else is a new dataset version (`dataset@v2`).
+- **Evolution rules (Iceberg-compatible):** add optional columns, widen `int` to `long` and `float` to `double`, never rename or narrow. Anything else is a new dataset version (`dataset@v2`). The Iceberg registrar applies these by field ID and also follows a rename; it stops fatally on narrowing, an ID reused with another type, or a required-ness change (`docs/design/iceberg-append.md`).
 - **Unsigned integers** follow a per-sink unsigned policy (`ArrowOptions.unsigned`). The default is `Native` (`UInt8` to `UInt64`); `Signed` maps to the next wider signed type, with `u64` staying `Int64` and a value above `i64::MAX` rejected (`schema.narrowing`). Reader support for unsigned logical types is still **[V]**.
 - **Field IDs.** Every column is written with a stable Parquet field ID (`PARQUET:field_id`) from the first release. This makes a later Iceberg `fast_append` stage cheap, with no rewrite. The assignment policy (O5, closed in PR13, ADR-0013): envelope and lineage IDs 1 to 99 are fixed by `thadam-arrow` (format v1); identity level IDs are explicit in 100 to 199; declared top-level field IDs are explicit, required, and in 1000 to 4,194,303; nested IDs (list elements and record children) are derived from the parent ID and tree position, starting at 8,388,608. IDs are never reused after a field is removed (the configuration owner enforces this; `thadam-arrow` rejects duplicates and out-of-range IDs). `_wal_record_idx` (O4) is not written and ID 13 is reserved for it. Other encoding choices: `sample_idx` is `UInt16`, list elements are named `element`, and `thadam.schema_fp` is a 16-byte SHA-256-based fingerprint over a canonical, versioned column encoding (ADR-0013, "PR13 implementation decisions"). The pipeline configuration has no key for field IDs or level IDs yet.
 
@@ -794,7 +794,7 @@ Places where the current plans disagreed and how this document resolves them.
 
 This replaces the implementation plan's PR list (itself a revision of the original plan's PR list) with the demo `[IMPL]` items and the maturity-review changes folded in. PR numbers follow the implementation plan, because the readiness gate refers to them. Spikes are throwaway work whose reports live in `docs/design/spikes/`.
 
-### Status (updated 2026-10-11, through `e9e94f7`)
+### Status (updated 2026-10-11, through `e9e94f7`; Iceberg rows added 2026-10-13)
 
 | Work | Status | Commit |
 |---|---|---|
@@ -828,6 +828,8 @@ This replaces the implementation plan's PR list (itself a revision of the origin
 | SocketCAN source | Done | `2bdc25d` (vcan tests run in the `can-vcan` CI job) |
 | Connector registration and CI | Done | `f2d10ce` |
 | MQTT publish sink | Done | `d0570b1` |
+| Iceberg registrar (`kind: iceberg`, P2, experimental; `fast_append` of shipped segments) | Done | `bf7596b` |
+| Iceberg step 2: schema evolution by field ID, conflict test, HTTPS catalog test | Done (experimental) | on top of `9ae1e17` |
 | MCAP exporter and `thadam export --mcap` (ADR-0015, Draft) | Done | `edcdcc1`, `8c7ad90`, `bf9d874`, `592c3ba` |
 | ROS 2 fuzz targets (`msg_parse`, `cdr_decode`) | Done (CI job pending) | `fc37847` |
 | WAL hardware bench script and runbook | Done (tooling; ADR-0004 hardware runs pending) | `e4e8bd6` |

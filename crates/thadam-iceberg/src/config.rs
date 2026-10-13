@@ -28,6 +28,10 @@ pub struct IcebergConfig {
     pub pipeline: String,
     /// The Iceberg REST catalog URI (`http://` or `https://`).
     pub catalog_uri: String,
+    /// PEM file of the CA that signed the catalog's certificate; replaces
+    /// the platform trust roots for the catalog connection (and nothing
+    /// else: the S3 store keeps its own trust).
+    pub catalog_ca_file: Option<String>,
     /// The `s3://bucket/prefix` URL, as parsed (same semantics as the
     /// shipper's `url`).
     pub url: String,
@@ -120,6 +124,8 @@ struct RawIcebergConfig {
     from: String,
     pipeline: String,
     catalog_uri: String,
+    #[serde(default)]
+    catalog_ca_file: Option<String>,
     url: String,
     namespace: String,
     #[serde(default)]
@@ -272,6 +278,17 @@ pub fn parse_iceberg_config(value: &serde_json::Value) -> Result<IcebergConfig, 
             "`catalog_uri` must be an `http://` or `https://` URI of an Iceberg REST catalog",
         ));
     }
+    if raw.catalog_ca_file.as_deref().is_some_and(str::is_empty) {
+        errors.push(config_error(
+            "catalog_ca_file",
+            "`catalog_ca_file` must be a PEM file path",
+        ));
+    } else if raw.catalog_ca_file.is_some() && raw.catalog_uri.starts_with("http://") {
+        errors.push(config_error(
+            "catalog_ca_file",
+            "`catalog_ca_file` needs an `https://` `catalog_uri`",
+        ));
+    }
     let (bucket, prefix) = match parse_s3_url(&raw.url) {
         Ok(parts) => parts,
         Err(message) => {
@@ -351,6 +368,7 @@ pub fn parse_iceberg_config(value: &serde_json::Value) -> Result<IcebergConfig, 
         from: raw.from,
         pipeline: raw.pipeline,
         catalog_uri: raw.catalog_uri.trim_end_matches('/').to_owned(),
+        catalog_ca_file: raw.catalog_ca_file,
         url: raw.url,
         bucket,
         prefix,
@@ -387,6 +405,8 @@ pub fn iceberg_config_schema() -> serde_json::Value {
                 "description": "Pipeline name; must match the shipper's `pipeline`. Written into the table location."},
             "catalog_uri": {"type": "string", "pattern": "^https?://",
                 "description": "The Iceberg REST catalog URI."},
+            "catalog_ca_file": {"type": "string", "minLength": 1,
+                "description": "PEM file of the CA that signed the REST catalog's certificate; replaces the platform trust roots for the catalog connection. Needs an https:// catalog_uri."},
             "url": {"type": "string", "pattern": "^s3://",
                 "description": "s3://bucket/prefix; the bucket the shipper writes data files into. Tables are created at {url}/thadam/v1/{pipeline}/{dataset}."},
             "namespace": {"type": "string", "minLength": 1,
@@ -489,6 +509,22 @@ mod tests {
         assert!(paths.contains(&"url"), "{paths:?}");
         assert!(paths.contains(&"namespace"), "{paths:?}");
         assert!(paths.contains(&"store.access_key_id"), "{paths:?}");
+    }
+
+    #[test]
+    fn catalog_ca_file_needs_an_https_catalog() {
+        let mut v = base();
+        v["catalog_ca_file"] = serde_json::json!("/etc/thadam/ca.pem");
+        let errors = parse_iceberg_config(&v).unwrap_err();
+        assert!(errors.iter().any(|e| {
+            e.context
+                .get("path")
+                .is_some_and(|p| p == "catalog_ca_file")
+        }));
+        v["catalog_uri"] = serde_json::json!("https://catalog.example:8181/");
+        let cfg = parse_iceberg_config(&v).expect("valid");
+        assert_eq!(cfg.catalog_ca_file.as_deref(), Some("/etc/thadam/ca.pem"));
+        assert_eq!(cfg.catalog_uri, "https://catalog.example:8181");
     }
 
     #[test]

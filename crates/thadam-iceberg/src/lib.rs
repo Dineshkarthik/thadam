@@ -16,6 +16,10 @@
 //!   place are what Iceberg needs.
 //! - Idempotent across crashes and retries (committed keys ride in the
 //!   snapshot summaries; see [`crate::table`]).
+//! - The table schema evolves ahead of each append, driven by Parquet field
+//!   IDs: new columns are added optional, a new name on a known ID renames,
+//!   int/float/decimal widen; anything else is a fatal schema mismatch (see
+//!   `schema` and `rest`, and the design doc for the crash ordering).
 //!
 //! # Configuration
 //!
@@ -26,7 +30,8 @@
 //!     config:
 //!       from: local
 //!       pipeline: edge-capture
-//!       catalog_uri: http://iceberg-rest:8181
+//!       catalog_uri: https://iceberg-rest:8181
+//!       catalog_ca_file: /etc/thadam/catalog-ca.pem   # optional; replaces platform roots
 //!       url: s3://warehouse/lake
 //!       namespace: robotics
 //!       create_table: false
@@ -57,6 +62,7 @@ mod config;
 mod error;
 mod factory;
 mod registrar;
+mod rest;
 mod schema;
 pub mod storage;
 mod table;

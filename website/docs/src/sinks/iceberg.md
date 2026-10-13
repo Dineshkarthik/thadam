@@ -1,6 +1,6 @@
 # Apache Iceberg registrar
 
-**Status: In progress (step 1; experimental, P2).** The `iceberg` kind registers already-shipped Parquet segments in Apache Iceberg tables, using the REST catalog. It is configured as a `sinks:` entry and runs as a service (the registrar), consuming the segment catalog of a [`parquet`](parquet.md) sink — normally the same sink an [`object_store`](object-store.md) shipper ships. It is built only with `thadam --features iceberg` (off by default: it adds a second Arrow/Parquet dependency tree).
+**Status: In progress (steps 1 and 2; experimental, P2).** The `iceberg` kind registers already-shipped Parquet segments in Apache Iceberg tables, using the REST catalog. It is configured as a `sinks:` entry and runs as a service (the registrar), consuming the segment catalog of a [`parquet`](parquet.md) sink — normally the same sink an [`object_store`](object-store.md) shipper ships. It is built only with `thadam --features iceberg` (off by default: it adds a second Arrow/Parquet dependency tree).
 
 ## How it works
 
@@ -12,7 +12,24 @@ A segment reaches a table only through the same commit-then-ship chain as [objec
 
 ### Tables
 
-One table per dataset, named `{namespace}.{dataset}`, unpartitioned, format version 2. The table location is `{url}/thadam/v1/{pipeline}/{dataset}` — the same directory the shipper owns. With `create_table: false` (the default) the table must exist: on first contact the registrar reads a segment footer and checks that every file column's field ID is present in the table schema with an equal or Iceberg-promotable type (`int`→`long`, `float`→`double`); a mismatch is the fatal `sink.iceberg_schema_mismatch`. With `create_table: true` an absent table (and namespace) is created from the footer schema.
+One table per dataset, named `{namespace}.{dataset}`, unpartitioned, format version 2. The table location is `{url}/thadam/v1/{pipeline}/{dataset}` — the same directory the shipper owns. With `create_table: false` (the default) the table must exist. With `create_table: true` an absent table (and namespace) is created from the footer schema. Either way the table's schema is brought up to each segment before that segment is appended (next section).
+
+### Schema evolution
+
+Before appending a segment, the registrar reads that segment's Parquet footer and merges its schema into the table's **by field ID** (the stable IDs written into every file, see [Parquet segments](parquet.md)):
+
+| What the segment has | What happens |
+|---|---|
+| A field ID the table does not have | The column is **added** as optional, keeping the file's own ID (a required column also lands optional, because older files have no value for it) |
+| A known field ID under a new name | The column is **renamed** to the new name (the ID is the identity) |
+| A wider type than the table's: `long` over `int`, `double` over `float`, or `decimal(P',S)` over `decimal(P,S)` with `P' > P` | The table column is **promoted** (Iceberg's lossless promotions; existing files are read through the wider type) |
+| A column the dataset no longer has | The table column **stays** (it must be optional) |
+| A narrower type than the table's (`long`→`int`, `double`→`float`, smaller decimal precision) | **Fatal** |
+| Any other type change on a field ID, including a primitive turning into a record or list, or a decimal scale change | **Fatal** |
+| Optional where the table says required, or required where the table says optional, or no value for a required table column | **Fatal** |
+| A new field ID that reuses the name of another column | **Fatal** |
+
+Fatal means the service stops with `sink.iceberg_schema_mismatch`, and the message lists every violation with the column path, field ID, and both types. The table is left untouched and the segment stays in the segment catalog (nothing is dropped); fix the dataset or the table and restart. Evolution is two commits per changed segment, schema first and then the append, ordered so that a crash between them is harmless: on restart the same change is re-derived as "nothing to do" and only the append runs (see the [design note](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/iceberg-append.md)).
 
 ### Duplicates, crashes, and retries
 
@@ -33,7 +50,8 @@ sinks:
     config:
       from: local                            # the segment sink id (same as the shipper's `from`)
       pipeline: edge-capture                 # must match the shipper's `pipeline`
-      catalog_uri: http://iceberg-rest:8181  # Iceberg REST catalog
+      catalog_uri: https://iceberg-rest:8181 # Iceberg REST catalog
+      catalog_ca_file: /etc/thadam/catalog-ca.pem  # optional: CA behind an https:// catalog
       url: s3://warehouse/lake               # bucket + prefix (same semantics as the shipper's)
       namespace: robotics                    # dotted names allowed (a.b -> two levels)
       create_table: false                    # default: tables must exist and match
@@ -48,7 +66,7 @@ sinks:
 
 Notes:
 
-- `catalog_uri` is the Iceberg REST catalog endpoint; HTTP in demos, HTTPS elsewhere (rustls + `ring`, the process-wide provider, like every other thadam sink).
+- `catalog_uri` is the Iceberg REST catalog endpoint; HTTP in demos, HTTPS elsewhere (rustls + `ring`, the process-wide provider, like every other thadam sink). Without `catalog_ca_file` an HTTPS catalog is verified against the platform trust roots. With `catalog_ca_file` (a PEM bundle, `https://` only) the file **replaces** the platform roots for the catalog connection, so only that CA is trusted; the S3 `store` is unaffected. A certificate the registrar does not trust (unknown issuer, expired, wrong name) is a fatal `config.invalid` error that names the TLS cause, not an endless retry; an unreadable or certificate-less CA file fails the same way at startup. Client certificates (mutual TLS) to the catalog are not supported yet.
 - `url` gives the bucket and key prefix. Tables are created at `{url}/thadam/v1/{pipeline}/{dataset}`; data-file URIs come from the catalog's recorded object keys, never from string templates.
 - Credentials in `store` arrive already resolved by `${env:}`/`${file:}` ([secrets](../configuration/index.md#secrets)) and are never logged.
 - Created tables carry the segment footers' own field IDs. With `create_table: true` thadam authors the initial `v1.metadata.json` itself and registers it, because Iceberg reassigns IDs at REST `create_table` (verified against `apache/iceberg-rest-fixture:1.10.1`).
@@ -65,11 +83,12 @@ Docker-gated tests run a real pipeline: a real Parquet segment is shipped to Sea
 cargo nextest run -p thadam-iceberg --run-ignored only -E 'binary(docker_iceberg)'
 ```
 
-Images are public Docker Hub images pinned by tag (`chrislusf/seaweedfs:3.81`, `apache/iceberg-rest-fixture:1.10.1`; re-pin with `THADAM_TEST_S3_IMAGE` / `THADAM_TEST_ICEBERG_REST_IMAGE`). They assert row counts, field IDs (the table keeps the file's own IDs), a read-back of column values, that a restarted registrar appends nothing twice, and that a pre-existing mismatched table fails with `sink.iceberg_schema_mismatch`. Two fixture notes: SeaweedFS runs with S3 auth enabled (its 3.81 gateway rejects classic aws-chunked writes with auth off and cannot unwrap SDK v2 trailing-checksum writes), and the fixture runs with `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` for that reason.
+Images are public Docker Hub images pinned by tag (`chrislusf/seaweedfs:3.81`, `apache/iceberg-rest-fixture:1.10.1`, `caddy:2.10.2`; re-pin with `THADAM_TEST_S3_IMAGE` / `THADAM_TEST_ICEBERG_REST_IMAGE`). They assert row counts, field IDs (the table keeps the file's own IDs), a read-back of column values, that a restarted registrar appends nothing twice, and that a pre-existing mismatched table fails with `sink.iceberg_schema_mismatch`. Schema evolution is tested end to end: one dataset goes from `int` to `long` with a new column and then a rename, the table follows (new column keeps its configured ID, rows older than it read as null, values read back through the promoted type), and a later narrowing to `int` stops the service with the fatal error and leaves the table unchanged. TLS is tested with `caddy:2.10.2` (re-pin with `THADAM_TEST_PROXY_IMAGE`) terminating TLS with a throwaway test CA in front of the REST fixture: the registrar registers segments and commits a schema change over HTTPS with the CA configured, and fails fast and fatally both with a different CA and with no CA. A conflicting second writer is tested in-process and deterministically (a catalog wrapper commits a competing writer's segment just before the registrar's commit): the registrar reloads, skips a segment the other writer already registered, and retries a different one on the fresh table, with no lost and no duplicated data file. Two fixture notes: SeaweedFS runs with S3 auth enabled (its 3.81 gateway rejects classic aws-chunked writes with auth off and cannot unwrap SDK v2 trailing-checksum writes), and the fixture runs with `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` for that reason.
 
-## Limits (step 1)
+## Limits
 
-- **Schema evolution is step 2.** The schema is checked once per dataset per process; widening a dataset's declared fields requires evolving the table out-of-band (or a fresh table) until step 2 lands.
+- A schema change and the segment's append are two commits (schema first), because the Iceberg Rust client in use (0.10.1) cannot put both in one; the order makes a crash between them safe. The schema commit goes straight to the REST update endpoint, and no authentication header is sent to the catalog yet (the registrar has no catalog credentials), so a catalog that requires a token is not supported.
+- The footer of every not-yet-registered segment is read (two small ranged reads) to derive the schema change.
 - Tables are unpartitioned (partition transforms come later; file skipping uses manifest record counts).
 - Column metrics on data files are not populated (row counts only).
 - Datasets must use the `unsigned: signed` Arrow policy (see above).

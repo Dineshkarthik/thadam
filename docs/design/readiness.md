@@ -64,6 +64,8 @@ The overall verdict is a conjunction. The practical question is which work can s
 | SocketCAN source | Earlier PRs | **Done**, `2bdc25d` (vcan tests run in the `can-vcan` CI job). |
 | Connector registration and CI | Earlier PRs | **Done**, `f2d10ce`. |
 | MQTT publish sink | Earlier PRs | **Done**, `d0570b1`. |
+| Iceberg registrar (`kind: iceberg`, P2, experimental): `fast_append` of shipped segments into one table per dataset, behind the default-off `iceberg` feature | Earlier PRs | **Done** (experimental), `bf7596b`. |
+| Iceberg step 2: schema evolution by field ID (add optional, rename, promote; narrowing and ID reuse fatal), concurrent-writer conflict test, HTTPS catalog test with a private CA | Iceberg registrar | **Done** (experimental), on top of `9ae1e17`. Not yet covered: catalog authentication, mutual TLS to the catalog, compaction, partitioning. |
 
 ### Implementation status (waves 2 and 3)
 
