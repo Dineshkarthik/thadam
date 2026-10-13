@@ -1,4 +1,6 @@
-//! The REST catalog's HTTP client (optional private CA) and schema commits.
+//! The REST catalog's HTTP client (optional private CA and client
+//! certificate) and schema commits, which carry the catalog's authentication
+//! themselves: the crate's token is private to its client.
 //!
 //! Why schema commits do not use the crate's `update_schema` API (0.10.1):
 //! `UpdateSchemaAction` assigns fresh sequential IDs to added columns from
@@ -23,18 +25,21 @@ use iceberg::table::Table;
 use iceberg::{Error, ErrorKind, TableRequirement, TableUpdate};
 use iceberg_catalog_rest::{CommitTableRequest, CommitTableResponse};
 
+use crate::config::{CatalogAuth, CatalogCredential};
 use crate::error::IcebergError;
 
 /// The reqwest 0.12 client the catalog (and the schema commits) use: rustls
 /// with the process `ring` provider (ADR-0020). With `ca_file` the platform
 /// roots are replaced by the PEM bundle's certificates, so only that CA is
-/// trusted for the catalog connection.
-pub(crate) fn http_client(ca_file: Option<&str>) -> Result<reqwest012::Client, IcebergError> {
+/// trusted for the catalog connection. With `client_identity` (the PEM
+/// certificate chain and its key) every connection presents that certificate.
+pub(crate) fn http_client(
+    ca_file: Option<&str>,
+    client_identity: Option<(&str, &str)>,
+) -> Result<reqwest012::Client, IcebergError> {
     let mut builder = reqwest012::Client::builder();
     if let Some(path) = ca_file {
-        let pem = std::fs::read(path).map_err(|e| IcebergError::Config {
-            message: format!("catalog_ca_file {path}: {e}"),
-        })?;
+        let pem = read_file("catalog_ca_file", path)?;
         let certs = reqwest012::Certificate::from_pem_bundle(&pem)
             .ok()
             .filter(|certs| !certs.is_empty())
@@ -46,9 +51,23 @@ pub(crate) fn http_client(ca_file: Option<&str>) -> Result<reqwest012::Client, I
             builder = builder.add_root_certificate(cert);
         }
     }
-    builder
-        .build()
-        .map_err(|e| IcebergError::Internal(format!("http client for the catalog: {e}")))
+    if let Some((cert, key)) = client_identity {
+        let mut pem = read_file("catalog_client_cert", cert)?;
+        pem.extend(read_file("catalog_client_key", key)?);
+        let identity = reqwest012::Identity::from_pem(&pem).map_err(|e| IcebergError::Config {
+            message: format!("catalog_client_cert {cert} and catalog_client_key {key}: {e}"),
+        })?;
+        builder = builder.identity(identity);
+    }
+    builder.build().map_err(|e| IcebergError::Config {
+        message: format!("TLS client for the catalog: {e}"),
+    })
+}
+
+fn read_file(key: &str, path: &str) -> Result<Vec<u8>, IcebergError> {
+    std::fs::read(path).map_err(|e| IcebergError::Config {
+        message: format!("{key} {path}: {e}"),
+    })
 }
 
 /// Iceberg REST catalog commit access for schema updates.
@@ -57,6 +76,10 @@ pub(crate) struct RestCommitter {
     /// `{catalog_uri}/v1` or `{catalog_uri}/v1/{prefix}` when the catalog
     /// serves under a prefix (discovered from `/v1/config`).
     base: String,
+    /// The bearer token every direct call sends: the static `catalog_token`,
+    /// or one client-credentials exchange made at connect (the catalog client
+    /// holds its own token for its calls, with the same lifetime).
+    bearer: Option<String>,
 }
 
 /// The REST spec's `/v1/config` response: the catalog's `prefix`, if any.
@@ -70,14 +93,20 @@ struct CatalogConfig {
 
 impl RestCommitter {
     /// Resolves the catalog's URL prefix from `/v1/config` (the same GET the
-    /// catalog client makes at load) over the shared `client`.
+    /// catalog client makes at load) over the shared `client`, authenticated
+    /// as the catalog client is.
     pub(crate) async fn connect(
         client: reqwest012::Client,
         catalog_uri: &str,
+        auth: &CatalogAuth,
     ) -> Result<RestCommitter, IcebergError> {
+        let bearer = match auth {
+            CatalogAuth::None => None,
+            CatalogAuth::Token(token) => Some(token.expose().to_owned()),
+            CatalogAuth::Credential(credential) => Some(exchange(&client, credential).await?),
+        };
         let config_url = format!("{catalog_uri}/v1/config");
-        let resp = client
-            .get(&config_url)
+        let resp = authorized(client.get(&config_url), bearer.as_deref())
             .send()
             .await
             .map_err(|e| request_error(&format!("GET {config_url}"), e))?;
@@ -106,7 +135,11 @@ impl RestCommitter {
             Some(prefix) => format!("{catalog_uri}/v1/{prefix}"),
             None => format!("{catalog_uri}/v1"),
         };
-        Ok(RestCommitter { client, base })
+        Ok(RestCommitter {
+            client,
+            base,
+            bearer,
+        })
     }
 
     /// Commits `updates` against `table`, guarded by `requirements`
@@ -133,9 +166,7 @@ impl RestCommitter {
         })
         .map_err(|e| IcebergError::Internal(format!("commit request does not serialize: {e}")))?;
         let what = format!("schema commit to {}", ident.name());
-        let resp = self
-            .client
-            .post(&url)
+        let resp = authorized(self.client.post(&url), self.bearer.as_deref())
             .header(reqwest012::header::CONTENT_TYPE, "application/json")
             .body(body)
             .send()
@@ -165,6 +196,60 @@ impl RestCommitter {
             .build()
             .map_err(IcebergError::Catalog)
     }
+}
+
+fn authorized(
+    request: reqwest012::RequestBuilder,
+    bearer: Option<&str>,
+) -> reqwest012::RequestBuilder {
+    match bearer {
+        Some(token) => request.bearer_auth(token),
+        None => request,
+    }
+}
+
+/// The OAuth2 client-credentials exchange at the token endpoint, for the
+/// direct calls. The catalog client runs the same exchange for its own calls
+/// (through the crate's `credential` property); its token is private, so this
+/// one is fetched here.
+async fn exchange(
+    client: &reqwest012::Client,
+    credential: &CatalogCredential,
+) -> Result<String, IcebergError> {
+    #[derive(serde::Deserialize)]
+    struct TokenResponse {
+        access_token: String,
+    }
+
+    let what = format!("token request to {}", credential.token_url);
+    let scope = credential.scope.as_deref().unwrap_or("catalog");
+    let resp = client
+        .post(&credential.token_url)
+        .form(&[
+            ("grant_type", "client_credentials"),
+            ("client_id", credential.client_id.as_str()),
+            ("client_secret", credential.client_secret.expose()),
+            ("scope", scope),
+        ])
+        .send()
+        .await
+        .map_err(|e| request_error(&what, e))?;
+    let status = resp.status();
+    let text = resp.bytes().await.map_err(|e| request_error(&what, e))?;
+    if !status.is_success() {
+        let detail: String = String::from_utf8_lossy(&text).chars().take(512).collect();
+        return Err(IcebergError::Catalog(Error::new(
+            ErrorKind::Unexpected,
+            format!("{what}: status {status}: {detail}"),
+        )));
+    }
+    let token: TokenResponse = serde_json::from_slice(&text).map_err(|e| {
+        IcebergError::Catalog(Error::new(
+            ErrorKind::Unexpected,
+            format!("{what}: response does not parse: {e}"),
+        ))
+    })?;
+    Ok(token.access_token)
 }
 
 /// A transport failure, with the reqwest error kept as the `source` so the
@@ -211,11 +296,27 @@ mod tests {
     fn a_missing_or_empty_ca_file_is_a_config_error() {
         let dir = tempfile::tempdir().expect("dir");
         let missing = dir.path().join("nope.pem");
-        let e = http_client(missing.to_str()).expect_err("missing file");
+        let e = http_client(missing.to_str(), None).expect_err("missing file");
         assert!(matches!(e, IcebergError::Config { .. }), "{e}");
         let empty = dir.path().join("empty.pem");
         std::fs::write(&empty, "not a certificate").expect("write");
-        let e = http_client(empty.to_str()).expect_err("no certificate");
+        let e = http_client(empty.to_str(), None).expect_err("no certificate");
         assert!(e.to_string().contains("no PEM certificate"), "{e}");
+    }
+
+    #[test]
+    fn a_client_identity_must_be_readable_pem() {
+        let dir = tempfile::tempdir().expect("dir");
+        let cert = dir.path().join("client.pem");
+        let key = dir.path().join("client.key");
+        std::fs::write(&cert, "not a certificate").expect("write");
+        let cert_path = cert.to_str().expect("utf-8");
+        let key_path = key.to_str().expect("utf-8");
+        let e = http_client(None, Some((cert_path, key_path))).expect_err("missing key");
+        assert!(matches!(e, IcebergError::Config { .. }), "{e}");
+        assert!(e.to_string().contains("catalog_client_key"), "{e}");
+        std::fs::write(&key, "not a key").expect("write");
+        let e = http_client(None, Some((cert_path, key_path))).expect_err("no PEM identity");
+        assert!(matches!(e, IcebergError::Config { .. }), "{e}");
     }
 }

@@ -124,10 +124,41 @@ fn is_certificate_failure(error: &iceberg::Error) -> bool {
     false
 }
 
+/// Whether the catalog's TLS server rejected our client certificate: it
+/// sent a fatal alert (missing, untrusted, or refused certificate). The
+/// alert names are rustls' `AlertReceived` spellings, the same ones the
+/// Kafka sink matches.
+fn is_client_certificate_rejection(error: &iceberg::Error) -> bool {
+    const ALERTS: [&str; 3] = ["CertificateRequired", "BadCertificate", "UnknownCA"];
+    let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(e) = cause {
+        let text = e.to_string();
+        if ALERTS
+            .iter()
+            .any(|alert| text.contains(&format!("received fatal alert: {alert}")))
+        {
+            return true;
+        }
+        cause = e.source();
+    }
+    false
+}
+
+/// Whether `text` names HTTP status `code` as a whole number, so `:40123` in
+/// a URL does not read as status 401.
+fn names_status(text: &str, code: &str) -> bool {
+    text.match_indices(code).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + code.len()..].chars().next();
+        !before.is_some_and(|c| c.is_ascii_digit()) && !after.is_some_and(|c| c.is_ascii_digit())
+    })
+}
+
 /// Classifies an `iceberg::Error` for the retry loop:
 ///
 /// - A rejected TLS certificate (untrusted CA, expired, wrong name) is Fatal
 ///   configuration: retrying cannot heal it.
+/// - A rejected client certificate (the catalog's alert) is Fatal auth.
 /// - 401/403-flavored messages are Fatal auth (the REST client folds the
 ///   status into the error text; there is no structured accessor in 0.10.1).
 ///   shortcut: classify by message scan; upgrade when iceberg exposes the
@@ -143,8 +174,11 @@ pub(crate) fn classify_iceberg(error: &iceberg::Error) -> (Retry, ErrorDomain, &
     if is_certificate_failure(error) {
         return (Retry::Fatal, ErrorDomain::Config, codes::CONFIG_INVALID);
     }
+    if is_client_certificate_rejection(error) {
+        return (Retry::Fatal, ErrorDomain::Auth, codes::AUTH_FAILED);
+    }
     let text = error.to_string().to_ascii_lowercase();
-    if text.contains("401") || text.contains("403") || text.contains("unauthorized") {
+    if names_status(&text, "401") || names_status(&text, "403") || text.contains("unauthorized") {
         return (Retry::Fatal, ErrorDomain::Auth, codes::AUTH_FAILED);
     }
     if text.contains("forbidden") || text.contains("permission denied") {
@@ -283,6 +317,52 @@ mod tests {
             "tls handshake: certificate verify failed",
         );
         assert_eq!(classify_iceberg(&e).0, Retry::Fatal);
+    }
+
+    #[test]
+    fn a_rejected_client_certificate_is_fatal_auth() {
+        let e = iceberg::Error::new(
+            ErrorKind::Unexpected,
+            "GET https://catalog/v1/config: request failed",
+        )
+        .with_source(std::io::Error::other(
+            "received fatal alert: CertificateRequired",
+        ));
+        assert_eq!(
+            classify_iceberg(&e),
+            (Retry::Fatal, ErrorDomain::Auth, codes::AUTH_FAILED)
+        );
+        let e = iceberg::Error::new(
+            ErrorKind::Unexpected,
+            "error sending request: received fatal alert: BadCertificate",
+        );
+        assert_eq!(classify_iceberg(&e).0, Retry::Fatal);
+    }
+
+    #[test]
+    fn a_rejected_token_request_is_fatal_auth() {
+        let e = iceberg::Error::new(
+            ErrorKind::Unexpected,
+            "token request to https://catalog/v1/oauth/tokens: status 401 Unauthorized: {}",
+        );
+        assert_eq!(
+            classify_iceberg(&e),
+            (Retry::Fatal, ErrorDomain::Auth, codes::AUTH_FAILED)
+        );
+    }
+
+    #[test]
+    fn digits_inside_a_port_are_not_a_status() {
+        let e = iceberg::Error::new(
+            ErrorKind::Unexpected,
+            "error sending request for url (https://127.0.0.1:40123/v1/config): connection refused",
+        );
+        assert_eq!(
+            classify_iceberg(&e),
+            (Retry::Transient, ErrorDomain::Sink, codes::SINK_UNAVAILABLE)
+        );
+        assert!(names_status("status 401 unauthorized", "401"));
+        assert!(!names_status("https://h:4011/x", "401"));
     }
 
     #[test]

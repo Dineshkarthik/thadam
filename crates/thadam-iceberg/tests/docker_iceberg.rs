@@ -45,6 +45,8 @@ const S3_IMAGE: &str = "chrislusf/seaweedfs:3.81";
 const REST_IMAGE: &str = "apache/iceberg-rest-fixture:1.10.1";
 /// The pinned Caddy image for the TLS-terminating proxy test.
 const PROXY_IMAGE: &str = "caddy:2.10.2";
+/// The static bearer token the `Front::Bearer` tests require.
+const BEARER_TOKEN: &str = "thadam-test-catalog-token";
 const LABEL: &str = "thadam-iceberg-test";
 const ROOT_USER: &str = "thadam-test";
 const ROOT_SECRET: &str = "thadam-test-secret-16+bytes";
@@ -438,6 +440,41 @@ async fn write_rows(
     record
 }
 
+/// Two segments, the second adding `speed` (id 1001): one registrar run
+/// creates the table and evolves its schema ahead of the second append.
+async fn write_two_schema_segments(sink: &Sink) {
+    let root = sink.dir.path();
+    let v1 = schema_of(&[("n", FieldType::I64, 1000)]);
+    let rows = batch_of(0, 4, |pos| vec![("n", Value::I64(pos as i64))]);
+    write_rows(&sink.catalog, root, &v1, rows).await;
+    let v2 = schema_of(&[("n", FieldType::I64, 1000), ("speed", FieldType::F64, 1001)]);
+    let rows = batch_of(5, 9, |pos| {
+        vec![
+            ("n", Value::I64(pos as i64)),
+            ("speed", Value::F64(pos as f64)),
+        ]
+    });
+    write_rows(&sink.catalog, root, &v2, rows).await;
+}
+
+fn path_text(path: &std::path::Path) -> &str {
+    path.to_str().expect("utf-8 path")
+}
+
+/// The table has the evolved column `speed` (id 1001): the schema commit
+/// went through the front.
+async fn assert_evolved(reader: &Arc<dyn iceberg::Catalog>) {
+    let table = reader.load_table(&table_ident()).await.expect("load table");
+    assert!(
+        table
+            .metadata()
+            .current_schema()
+            .field_by_id(1001)
+            .is_some(),
+        "the schema commit reached the catalog"
+    );
+}
+
 /// A segment of `count` rows of the dataset's single column `n` = frame
 /// position, from frame 0.
 async fn write_segment(
@@ -827,14 +864,53 @@ impl Drop for ContainerGuard {
     }
 }
 
+/// What the TLS front admits before the REST fixture.
+#[derive(Clone)]
+enum Front {
+    /// Server TLS only.
+    Open,
+    /// `Authorization: Bearer <token>` on every request; anything else is 401.
+    Bearer(String),
+    /// A client certificate signed by the test CA is required; without one
+    /// the TLS handshake fails.
+    ClientCert,
+    /// `/v1/oauth/tokens` runs the fixture's token endpoint, which issues
+    /// `client-credentials-token:sub=<client_id>` whatever the secret is, so
+    /// the front only sees the client id. `/deny/oauth/tokens` answers 401.
+    /// The catalog accepts only the token the matching client id gets.
+    OAuth2 { client_id: String },
+}
+
+/// The Caddyfile for `front` in front of the REST fixture at `rest`.
+fn caddyfile(rest: &str, front: &Front) -> String {
+    let tls = match front {
+        Front::ClientCert => {
+            "tls /certs/server.pem /certs/server.key {\n\t\tclient_auth {\n\t\t\tmode require_and_verify\n\t\t\ttrusted_ca_cert_file /certs/ca.pem\n\t\t}\n\t}"
+        }
+        _ => "tls /certs/server.pem /certs/server.key",
+    };
+    let routes = match front {
+        Front::Open | Front::ClientCert => format!("reverse_proxy {rest}:8181"),
+        Front::Bearer(token) => format!(
+            "@authorized header Authorization \"Bearer {token}\"\n\thandle @authorized {{\n\t\treverse_proxy {rest}:8181\n\t}}\n\thandle {{\n\t\trespond 401\n\t}}"
+        ),
+        Front::OAuth2 { client_id } => format!(
+            "@issue path /v1/oauth/tokens\n\thandle @issue {{\n\t\treverse_proxy {rest}:8181\n\t}}\n\t@deny path /deny/oauth/tokens\n\thandle @deny {{\n\t\trespond `{{\"error\":{{\"message\":\"client credentials rejected\",\"type\":\"NotAuthorizedException\",\"code\":401}}}}` 401\n\t}}\n\t@catalog header Authorization \"Bearer client-credentials-token:sub={client_id}\"\n\thandle @catalog {{\n\t\treverse_proxy {rest}:8181\n\t}}\n\thandle {{\n\t\trespond 401\n\t}}"
+        ),
+    };
+    // With `client_auth`, Caddy answers 421 unless the TLS SNI equals the Host
+    // header, and a client dialing an IP sends no SNI.
+    format!(
+        "{{\n\tadmin off\n\tauto_https off\n\tservers {{\n\t\tstrict_sni_host insecure_off\n\t}}\n}}\n:8443 {{\n\t{tls}\n\t{routes}\n}}\n"
+    )
+}
+
 /// Starts `caddy` on the stack's network, terminating TLS with the test
-/// server certificate in front of the REST fixture. Returns the container
-/// name (the [`Stack`] removes it) and the `https://127.0.0.1:PORT` URI.
-fn start_tls_proxy(network: &str, rest: &str, certs: &Certs) -> (String, String) {
-    let caddyfile = format!(
-        "{{\n\tadmin off\n\tauto_https off\n}}\n:8443 {{\n\ttls /certs/server.pem /certs/server.key\n\treverse_proxy {rest}:8181\n}}\n"
-    );
-    std::fs::write(certs.path("Caddyfile"), caddyfile).expect("Caddyfile");
+/// server certificate in front of the REST fixture, admitting requests as
+/// `front` says. Returns the container name (the [`Stack`] removes it) and
+/// the `https://127.0.0.1:PORT` URI.
+fn start_tls_proxy(network: &str, rest: &str, certs: &Certs, front: &Front) -> (String, String) {
+    std::fs::write(certs.path("Caddyfile"), caddyfile(rest, front)).expect("Caddyfile");
     let name = unique("tls");
     for _ in 0..8 {
         let port = free_port();
@@ -870,8 +946,13 @@ fn start_tls_proxy(network: &str, rest: &str, certs: &Certs) -> (String, String)
         let uri = format!("https://127.0.0.1:{port}");
         let started = Instant::now();
         // `-k`: only readiness is probed here; the tests below verify trust.
+        // The client certificate lets the probe through a front that requires
+        // one; the other fronts never ask for it.
         while !Command::new("curl")
-            .args(["-s", "-k", "-o", "/dev/null", "--max-time", "5"])
+            .args(["-s", "-k", "-o", "/dev/null", "--max-time", "5", "--cert"])
+            .arg(certs.path("client.pem"))
+            .arg("--key")
+            .arg(certs.path("client.key"))
             .arg(format!("{uri}/v1/config"))
             .output()
             .map(|o| o.status.success())
@@ -887,6 +968,19 @@ fn start_tls_proxy(network: &str, rest: &str, certs: &Certs) -> (String, String)
         return (name, uri);
     }
     panic!("tls proxy did not start after port retries");
+}
+
+/// Starts the TLS front for `front` on the stack, recording it for cleanup.
+/// Returns the `https://` catalog URI.
+async fn start_front(stack: &mut Stack, certs: &Arc<Certs>, front: Front) -> String {
+    let (network, rest) = (stack.network.clone(), stack.rest.clone());
+    let certs = Arc::clone(certs);
+    let (proxy, uri) =
+        tokio::task::spawn_blocking(move || start_tls_proxy(&network, &rest, &certs, &front))
+            .await
+            .expect("proxy task");
+    stack.proxy = Some(proxy);
+    uri
 }
 
 /// Waits for a service to end on its own (without a shutdown signal) and
@@ -1020,33 +1114,14 @@ async fn schema_evolves_before_each_append_and_incompatible_changes_are_fatal() 
 async fn https_catalog_works_with_its_ca_and_fails_fatally_without_trust() {
     init_test_runtime();
     let mut stack = Stack::start("warehouse").await;
-    let certs = Certs::generate();
-    let (network, rest) = (stack.network.clone(), stack.rest.clone());
-    let certs = Arc::new(certs);
-    let (proxy, https_uri) = {
-        let certs = Arc::clone(&certs);
-        tokio::task::spawn_blocking(move || start_tls_proxy(&network, &rest, &certs))
-            .await
-            .expect("proxy task")
-    };
-    stack.proxy = Some(proxy);
+    let certs = Arc::new(Certs::generate());
+    let https_uri = start_front(&mut stack, &certs, Front::Open).await;
 
     // Two segments, the second adding a column: the table is created and
     // then evolved, so both the catalog client and the schema commit
     // travel over TLS.
     let sink = Sink::open().await;
-    let root = sink.dir.path();
-    let v1 = schema_of(&[("n", FieldType::I64, 1000)]);
-    let rows = batch_of(0, 4, |pos| vec![("n", Value::I64(pos as i64))]);
-    write_rows(&sink.catalog, root, &v1, rows).await;
-    let v2 = schema_of(&[("n", FieldType::I64, 1000), ("speed", FieldType::F64, 1001)]);
-    let rows = batch_of(5, 9, |pos| {
-        vec![
-            ("n", Value::I64(pos as i64)),
-            ("speed", Value::F64(pos as f64)),
-        ]
-    });
-    write_rows(&sink.catalog, root, &v2, rows).await;
+    write_two_schema_segments(&sink).await;
     ship_all(&stack, &sink, 2).await;
     let reader = connect_catalog(&stack).await;
 
@@ -1086,6 +1161,175 @@ async fn https_catalog_works_with_its_ca_and_fails_fatally_without_trust() {
             .is_some(),
         "the schema commit went through the TLS catalog"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs Docker (SeaweedFS + apache/iceberg-rest-fixture + caddy)"]
+async fn bearer_token_authenticates_the_catalog_and_its_schema_commits() {
+    init_test_runtime();
+    let mut stack = Stack::start("warehouse").await;
+    let certs = Arc::new(Certs::generate());
+    let https_uri = start_front(&mut stack, &certs, Front::Bearer(BEARER_TOKEN.to_owned())).await;
+    let sink = Sink::open().await;
+    write_two_schema_segments(&sink).await;
+    ship_all(&stack, &sink, 2).await;
+
+    let reader = connect_catalog(&stack).await;
+    let mut config = config_for(&stack, true, &https_uri, Some(&certs.path("ca.pem")));
+    config["catalog_token"] = serde_json::json!(BEARER_TOKEN);
+    let registrar = start_service(build_registrar_from(config), "iceberg", &sink.catalog);
+    wait_table_rows("registration through the bearer front", &reader, 10).await;
+    stop_service(registrar)
+        .await
+        .expect("registrar stops clean");
+    assert_evolved(&reader).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs Docker (SeaweedFS + apache/iceberg-rest-fixture + caddy)"]
+async fn wrong_bearer_token_is_a_fatal_auth_error() {
+    init_test_runtime();
+    let mut stack = Stack::start("warehouse").await;
+    let certs = Arc::new(Certs::generate());
+    let https_uri = start_front(&mut stack, &certs, Front::Bearer(BEARER_TOKEN.to_owned())).await;
+    let sink = Sink::open().await;
+    write_two_schema_segments(&sink).await;
+    ship_all(&stack, &sink, 2).await;
+
+    let mut config = config_for(&stack, true, &https_uri, Some(&certs.path("ca.pem")));
+    config["catalog_token"] = serde_json::json!("not-the-catalog-token");
+    let handle = start_service(build_registrar_from(config), "iceberg", &sink.catalog);
+    let error = service_ends_by_itself(handle)
+        .await
+        .expect_err("a rejected token must fail the service");
+    assert_eq!(error.code, thadam_core::codes::AUTH_FAILED, "{error}");
+    assert_eq!(error.retry, thadam_core::Retry::Fatal, "{error}");
+    let reader = connect_catalog(&stack).await;
+    assert_eq!(table_rows(&reader).await, None, "nothing was registered");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs Docker (SeaweedFS + apache/iceberg-rest-fixture + caddy)"]
+async fn client_certificate_authenticates_the_catalog_and_its_schema_commits() {
+    init_test_runtime();
+    let mut stack = Stack::start("warehouse").await;
+    let certs = Arc::new(Certs::generate());
+    let https_uri = start_front(&mut stack, &certs, Front::ClientCert).await;
+    let sink = Sink::open().await;
+    write_two_schema_segments(&sink).await;
+    ship_all(&stack, &sink, 2).await;
+
+    let reader = connect_catalog(&stack).await;
+    let mut config = config_for(&stack, true, &https_uri, Some(&certs.path("ca.pem")));
+    config["catalog_client_cert"] = serde_json::json!(path_text(&certs.path("client.pem")));
+    config["catalog_client_key"] = serde_json::json!(path_text(&certs.path("client.key")));
+    let registrar = start_service(build_registrar_from(config), "iceberg", &sink.catalog);
+    wait_table_rows("registration through the mutual TLS front", &reader, 10).await;
+    stop_service(registrar)
+        .await
+        .expect("registrar stops clean");
+    assert_evolved(&reader).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs Docker (SeaweedFS + apache/iceberg-rest-fixture + caddy)"]
+async fn missing_or_untrusted_client_certificate_is_a_fatal_auth_error() {
+    init_test_runtime();
+    let mut stack = Stack::start("warehouse").await;
+    let certs = Arc::new(Certs::generate());
+    let https_uri = start_front(&mut stack, &certs, Front::ClientCert).await;
+    let sink = Sink::open().await;
+    write_two_schema_segments(&sink).await;
+    ship_all(&stack, &sink, 2).await;
+
+    // No client certificate at all, then one signed by a CA the front does
+    // not trust: the catalog refuses both with a TLS alert.
+    let identities = [None, Some(("other-client.pem", "other-client.key"))];
+    for identity in identities {
+        let mut config = config_for(&stack, true, &https_uri, Some(&certs.path("ca.pem")));
+        if let Some((cert, key)) = identity {
+            config["catalog_client_cert"] = serde_json::json!(path_text(&certs.path(cert)));
+            config["catalog_client_key"] = serde_json::json!(path_text(&certs.path(key)));
+        }
+        let handle = start_service(build_registrar_from(config), "iceberg", &sink.catalog);
+        let error = service_ends_by_itself(handle)
+            .await
+            .expect_err("a refused client certificate must fail the service");
+        assert_eq!(
+            error.code,
+            thadam_core::codes::AUTH_FAILED,
+            "{identity:?}: {error}"
+        );
+        assert_eq!(
+            error.retry,
+            thadam_core::Retry::Fatal,
+            "{identity:?}: {error}"
+        );
+    }
+    let reader = connect_catalog(&stack).await;
+    assert_eq!(table_rows(&reader).await, None, "nothing was registered");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs Docker (SeaweedFS + apache/iceberg-rest-fixture + caddy)"]
+async fn oauth2_client_credentials_authenticate_the_catalog_and_its_schema_commits() {
+    init_test_runtime();
+    let mut stack = Stack::start("warehouse").await;
+    let certs = Arc::new(Certs::generate());
+    let front = Front::OAuth2 {
+        client_id: "thadam-catalog".to_owned(),
+    };
+    let https_uri = start_front(&mut stack, &certs, front).await;
+    let sink = Sink::open().await;
+    write_two_schema_segments(&sink).await;
+    ship_all(&stack, &sink, 2).await;
+
+    let reader = connect_catalog(&stack).await;
+    let mut config = config_for(&stack, true, &https_uri, Some(&certs.path("ca.pem")));
+    config["catalog_credential"] = serde_json::json!({
+        "client_id": "thadam-catalog",
+        "client_secret": "s3cr3t-value",
+        "scope": "catalog",
+    });
+    let registrar = start_service(build_registrar_from(config), "iceberg", &sink.catalog);
+    wait_table_rows("registration with OAuth2 credentials", &reader, 10).await;
+    stop_service(registrar)
+        .await
+        .expect("registrar stops clean");
+    assert_evolved(&reader).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs Docker (SeaweedFS + apache/iceberg-rest-fixture + caddy)"]
+async fn rejected_oauth2_credential_is_a_fatal_auth_error() {
+    init_test_runtime();
+    let mut stack = Stack::start("warehouse").await;
+    let certs = Arc::new(Certs::generate());
+    let front = Front::OAuth2 {
+        client_id: "thadam-catalog".to_owned(),
+    };
+    let https_uri = start_front(&mut stack, &certs, front).await;
+    let sink = Sink::open().await;
+    write_two_schema_segments(&sink).await;
+    ship_all(&stack, &sink, 2).await;
+
+    // The token endpoint named by `oauth2_server_uri` answers 401; the
+    // default endpoint would have issued a token, so this also shows the
+    // explicit endpoint is the one used.
+    let mut config = config_for(&stack, true, &https_uri, Some(&certs.path("ca.pem")));
+    config["catalog_credential"] = serde_json::json!({
+        "client_id": "thadam-catalog",
+        "client_secret": "not-the-secret",
+        "oauth2_server_uri": format!("{https_uri}/deny/oauth/tokens"),
+    });
+    let handle = start_service(build_registrar_from(config), "iceberg", &sink.catalog);
+    let error = service_ends_by_itself(handle)
+        .await
+        .expect_err("a rejected credential must fail the service");
+    assert_eq!(error.code, thadam_core::codes::AUTH_FAILED, "{error}");
+    assert_eq!(error.retry, thadam_core::Retry::Fatal, "{error}");
+    let reader = connect_catalog(&stack).await;
+    assert_eq!(table_rows(&reader).await, None, "nothing was registered");
 }
 
 fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {

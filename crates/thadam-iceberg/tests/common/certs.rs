@@ -10,8 +10,21 @@ use rcgen::{
     SanType,
 };
 
+/// The files `generate` writes: `ca.pem`, `server.pem`/`server.key` (for
+/// `localhost` and `127.0.0.1`), `client.pem`/`client.key` (signed by the
+/// CA, client-auth usage), and `other-ca.pem` with `other-client.pem`/
+/// `other-client.key` (signed by that second CA, which nothing trusts).
 pub struct Certs {
     pub dir: tempfile::TempDir,
+}
+
+fn client_params() -> CertificateParams {
+    let mut params = CertificateParams::new(Vec::<String>::new()).expect("client params");
+    params
+        .distinguished_name
+        .push(DnType::CommonName, "thadam-test-client");
+    params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
+    params
 }
 
 fn write(dir: &Path, name: &str, pem: &str) -> PathBuf {
@@ -60,12 +73,31 @@ impl Certs {
         write(dir.path(), "server.pem", &server.pem());
         write(dir.path(), "server.key", &server_key.serialize_pem());
 
-        // A second CA that signed nothing here, for the untrusted cases.
+        let client_key = KeyPair::generate().expect("client key");
+        let client = client_params()
+            .signed_by(&client_key, &issuer)
+            .expect("client cert");
+        write(dir.path(), "client.pem", &client.pem());
+        write(dir.path(), "client.key", &client_key.serialize_pem());
+
+        // A second CA that signed nothing trusted here, for the untrusted cases.
         let other_key = KeyPair::generate().expect("other ca key");
         let mut other_params = CertificateParams::new(Vec::<String>::new()).expect("other params");
         other_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         let other = other_params.self_signed(&other_key).expect("other ca");
         write(dir.path(), "other-ca.pem", &other.pem());
+        let other_issuer = Issuer::new(other_params, other_key);
+
+        let other_client_key = KeyPair::generate().expect("other client key");
+        let other_client = client_params()
+            .signed_by(&other_client_key, &other_issuer)
+            .expect("other client cert");
+        write(dir.path(), "other-client.pem", &other_client.pem());
+        write(
+            dir.path(),
+            "other-client.key",
+            &other_client_key.serialize_pem(),
+        );
 
         Certs { dir }
     }

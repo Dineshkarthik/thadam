@@ -32,6 +32,9 @@
 //!       pipeline: edge-capture
 //!       catalog_uri: https://iceberg-rest:8181
 //!       catalog_ca_file: /etc/thadam/catalog-ca.pem   # optional; replaces platform roots
+//!       catalog_token: "${file:/run/secrets/catalog_token}"  # or catalog_credential
+//!       catalog_client_cert: /etc/thadam/catalog-client.pem   # optional mutual TLS, with
+//!       catalog_client_key: /etc/thadam/catalog-client-key.pem  # catalog_client_key
 //!       url: s3://warehouse/lake
 //!       namespace: robotics
 //!       create_table: false
@@ -68,8 +71,8 @@ pub mod storage;
 mod table;
 
 pub use config::{
-    Credentials, IcebergConfig, RetryConfig, StoreConfig, iceberg_config_schema,
-    parse_iceberg_config,
+    CatalogAuth, CatalogCredential, Credentials, IcebergConfig, RetryConfig, Secret, StoreConfig,
+    iceberg_config_schema, parse_iceberg_config,
 };
 pub use error::IcebergError;
 pub use factory::IcebergRegistrarFactory;
