@@ -26,8 +26,15 @@ pub enum IcebergError {
     /// The Iceberg catalog or the `iceberg` crate reported an error.
     /// Classification is derived from its kind and message in
     /// [`classify_iceberg`].
-    #[error("iceberg: {0}")]
+    #[error("iceberg: {}", describe(.0))]
     Catalog(iceberg::Error),
+    /// The registrar's configuration cannot be used (unreadable or empty
+    /// `catalog_ca_file`).
+    #[error("config: {message}")]
+    Config {
+        /// What is wrong.
+        message: String,
+    },
     /// A segment-catalog operation failed (local catalog log).
     #[error("segments: {0}")]
     Segments(thadam_segments::SegmentError),
@@ -75,6 +82,20 @@ pub enum IcebergError {
     Internal(String),
 }
 
+/// The error text plus every cause below the first: `iceberg::Error` prints
+/// its direct source, but reqwest's own `Display` stops at "error sending
+/// request", hiding the TLS or socket cause an operator needs.
+fn describe(error: &iceberg::Error) -> String {
+    let mut text = error.to_string();
+    let mut cause = std::error::Error::source(error).and_then(|c| c.source());
+    while let Some(c) = cause {
+        text.push_str(": ");
+        text.push_str(&c.to_string());
+        cause = c.source();
+    }
+    text
+}
+
 fn store_class(error: &StoreError) -> (Retry, ErrorDomain, &'static str) {
     match error {
         StoreError::Unauthenticated { .. } => (Retry::Fatal, ErrorDomain::Auth, codes::AUTH_FAILED),
@@ -88,8 +109,25 @@ fn store_class(error: &StoreError) -> (Retry, ErrorDomain, &'static str) {
     }
 }
 
+/// Whether the error or any of its causes is a TLS certificate rejection
+/// (rustls: `invalid peer certificate: UnknownIssuer`, `...Expired`, ...).
+/// reqwest's `Display` omits its causes, so the `source` chain is walked.
+fn is_certificate_failure(error: &iceberg::Error) -> bool {
+    let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(e) = cause {
+        let text = e.to_string().to_ascii_lowercase();
+        if text.contains("invalid peer certificate") || text.contains("certificate verify failed") {
+            return true;
+        }
+        cause = e.source();
+    }
+    false
+}
+
 /// Classifies an `iceberg::Error` for the retry loop:
 ///
+/// - A rejected TLS certificate (untrusted CA, expired, wrong name) is Fatal
+///   configuration: retrying cannot heal it.
 /// - 401/403-flavored messages are Fatal auth (the REST client folds the
 ///   status into the error text; there is no structured accessor in 0.10.1).
 ///   shortcut: classify by message scan; upgrade when iceberg exposes the
@@ -102,6 +140,9 @@ fn store_class(error: &StoreError) -> (Retry, ErrorDomain, &'static str) {
 ///   Transient. Conflicts themselves are handled inside the append loop
 ///   before this runs.
 pub(crate) fn classify_iceberg(error: &iceberg::Error) -> (Retry, ErrorDomain, &'static str) {
+    if is_certificate_failure(error) {
+        return (Retry::Fatal, ErrorDomain::Config, codes::CONFIG_INVALID);
+    }
     let text = error.to_string().to_ascii_lowercase();
     if text.contains("401") || text.contains("403") || text.contains("unauthorized") {
         return (Retry::Fatal, ErrorDomain::Auth, codes::AUTH_FAILED);
@@ -126,9 +167,9 @@ impl Classify for IcebergError {
             IcebergError::Store(e) => store_class(e).1,
             IcebergError::Catalog(e) => classify_iceberg(e).1,
             IcebergError::Segments(e) => e.domain(),
-            IcebergError::TableMissing { .. } | IcebergError::BadTableName { .. } => {
-                ErrorDomain::Config
-            }
+            IcebergError::TableMissing { .. }
+            | IcebergError::BadTableName { .. }
+            | IcebergError::Config { .. } => ErrorDomain::Config,
             IcebergError::UnsupportedType(_) => ErrorDomain::Sink,
             IcebergError::SchemaMismatch { .. } => ErrorDomain::Sink,
             IcebergError::CommitFailed { .. } => ErrorDomain::Sink,
@@ -143,7 +184,9 @@ impl Classify for IcebergError {
             IcebergError::Catalog(e) => classify_iceberg(e).2,
             IcebergError::Segments(e) => e.code(),
             IcebergError::TableMissing { .. } => CODE_TABLE_MISSING,
-            IcebergError::BadTableName { .. } => codes::CONFIG_INVALID,
+            IcebergError::BadTableName { .. } | IcebergError::Config { .. } => {
+                codes::CONFIG_INVALID
+            }
             IcebergError::UnsupportedType(_) => CODE_UNSUPPORTED_TYPE,
             IcebergError::SchemaMismatch { .. } => CODE_SCHEMA_MISMATCH,
             IcebergError::CommitFailed { .. } => CODE_COMMIT,
@@ -159,6 +202,7 @@ impl Classify for IcebergError {
             IcebergError::Segments(e) => e.retry(),
             IcebergError::TableMissing { .. }
             | IcebergError::BadTableName { .. }
+            | IcebergError::Config { .. }
             | IcebergError::UnsupportedType(_)
             | IcebergError::SchemaMismatch { .. }
             | IcebergError::Internal(_) => Retry::Fatal,
@@ -215,6 +259,30 @@ mod tests {
         let e = iceberg::Error::new(ErrorKind::TableNotFound, "no such table");
         assert_eq!(classify_iceberg(&e).0, Retry::Fatal);
         assert_eq!(classify_iceberg(&e).2, CODE_TABLE_MISSING);
+    }
+
+    #[test]
+    fn certificate_failures_are_fatal_config() {
+        // reqwest's Display hides the rustls cause; it lives in the source.
+        let e = iceberg::Error::new(ErrorKind::Unexpected, "Failed to execute http request")
+            .with_source(std::io::Error::other(
+                "invalid peer certificate: UnknownIssuer",
+            ));
+        assert_eq!(classify_iceberg(&e).0, Retry::Fatal);
+
+        let e = iceberg::Error::new(
+            ErrorKind::Unexpected,
+            "error sending request: invalid peer certificate: UnknownIssuer",
+        );
+        assert_eq!(
+            classify_iceberg(&e),
+            (Retry::Fatal, ErrorDomain::Config, codes::CONFIG_INVALID)
+        );
+        let e = iceberg::Error::new(
+            ErrorKind::Unexpected,
+            "tls handshake: certificate verify failed",
+        );
+        assert_eq!(classify_iceberg(&e).0, Retry::Fatal);
     }
 
     #[test]

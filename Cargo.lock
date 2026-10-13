@@ -5266,6 +5266,7 @@ dependencies = [
  "object_store",
  "parquet 58.4.0",
  "parquet 60.0.0",
+ "rcgen",
  "reqwest 0.12.28",
  "reqwest 0.13.5",
  "thadam-arrow",

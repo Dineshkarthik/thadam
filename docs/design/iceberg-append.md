@@ -1,7 +1,7 @@
-# Iceberg append, step 1: register shipped segments with `fast_append`
+# Iceberg append: register shipped segments with `fast_append` (steps 1 and 2)
 
-- **Status:** Implementation note (not an ADR; step 1 of the P2 table-format work planned in `product.md` and anticipated by ADR-0013). Step 2 will own schema evolution.
-- **Date:** 2026-10-12
+- **Status:** Implementation note (not an ADR; the P2 table-format work planned in `product.md` and anticipated by ADR-0013). Step 1 registers segments; step 2 adds schema evolution, a concurrent-writer conflict test, and an HTTPS catalog test.
+- **Date:** 2026-10-12 (step 1); 2026-10-13 (step 2)
 - **Crate:** `crates/thadam-iceberg` (new), exposed by `thadam-cli` as `kind: iceberg` behind the default-off `iceberg` feature.
 
 ## Where the append happens
@@ -45,6 +45,7 @@ the key was already in the `Uploaded` log record.
     from: local                 # segment sink id (same as the shipper's)
     pipeline: edge-capture      # written into the table location; must match the shipper's
     catalog_uri: http://iceberg-rest:8181
+    catalog_ca_file: null       # PEM of the CA behind an https:// catalog (replaces platform roots)
     url: s3://warehouse/lake    # bucket + prefix; same semantics as the shipper's `url`
     namespace: robotics         # dotted names allowed (a.b -> two levels)
     create_table: false         # default: tables must exist and match
@@ -67,25 +68,102 @@ the key was already in the `Uploaded` log record.
   shipper owns. Data-file URIs are `s3://{bucket}/{uploaded-key}` and come from
   the catalog record, never from string templates, so a config drift cannot
   fabricate a path.
-- `create_table: false` (default): the table must exist; on first contact the
-  registrar reads one segment's Parquet footer (ranged tail read through the
-  table's `FileIO`), converts its Arrow schema (field IDs included) to an
-  Iceberg schema, and checks assignability against the table's current schema:
-  every file field ID must exist with a type equal to or promotable from the
-  file type (`int`→`long`, `float`→`double`; names may differ — IDs win; a
-  nullable file field against a required table field is a mismatch). Failure is
-  Fatal `sink.iceberg_schema_mismatch`. `create_table: true`: if the table is
-  absent the schema is derived the same way, the namespace is created if
-  needed, and the table is created (format v2, unpartitioned) — by **client-authored
-  initial metadata plus `register_table`**, not the REST `create_table`
-  endpoint. Reason: Iceberg assigns fresh sequential field IDs at create time
-  (verified against `apache/iceberg-rest-fixture:1.10.1`, which turned
-  `[2, 1000]` into `[1, 2]`; iceberg-rust's own `TableMetadataBuilder` does
-  the same), which would orphan the stable Parquet field IDs ADR-0013
-  guarantees and leave data files unreadable-by-id. So thadam authors the v1
-  metadata JSON with the file's own IDs, writes it through its FileIO, and
-  asks the catalog to `register_table` it. The schema check runs once per
-  dataset per process, not per file.
+- `create_table: false` (default): the table must exist, otherwise Fatal
+  `sink.iceberg_table_missing`. `create_table: true`: if the table is absent
+  the schema is derived from the first pending segment's footer (see "Schema
+  mapping"), the namespace is created if needed, and the table is created
+  (format v2, unpartitioned) — by **client-authored initial metadata plus
+  `register_table`**, not the REST `create_table` endpoint. Reason: Iceberg
+  assigns fresh sequential field IDs at create time (verified against
+  `apache/iceberg-rest-fixture:1.10.1`, which turned `[2, 1000]` into
+  `[1, 2]`; iceberg-rust's own `TableMetadataBuilder` does the same), which
+  would orphan the stable Parquet field IDs ADR-0013 guarantees and leave data
+  files unreadable-by-id. So thadam authors the v1 metadata JSON with the
+  file's own IDs, writes it through its FileIO, and asks the catalog to
+  `register_table` it.
+- Whether the table matches is decided per segment, ahead of its append, by
+  schema evolution (next section); there is no separate first-contact check.
+- `catalog_ca_file`: with an `https://` `catalog_uri`, the PEM bundle that
+  signed the catalog's certificate. It **replaces** the platform trust roots
+  for the catalog connection (and for nothing else: the S3 store keeps its
+  own trust). Absent, the platform roots apply. See "TLS to the catalog".
+
+## Schema evolution (step 2)
+
+Before each segment is appended, the registrar reads that segment's footer
+schema (two ranged GETs; the footer is the single source of truth, see "Schema
+mapping") and merges it into the table's current schema **by field ID**
+(`schema::schema_evolution`, a pure function):
+
+| Same field ID, file vs table | Outcome |
+|---|---|
+| ID not in the table | Added as an **optional** column with the file's own ID (a required file column lands optional: older files have no value for it) |
+| Same type, new name | **Rename** (the file's spelling wins; IDs are the identity, ADR-0013) |
+| Table `int`, file `long`; table `float`, file `double`; table `decimal(P,S)`, file `decimal(P',S)` with `P' > P` | **Promotion**: the table column widens |
+| Equal | Nothing |
+| Table column the file lacks (the dataset dropped the field) | The column **stays** (it must be optional, see below) |
+| File type narrower than the table's (`long`→`int`, `double`→`float`, smaller decimal precision) | **Fatal** (narrowing) |
+| Any other type change (`int`→`string`, primitive→struct, decimal scale change, ...), i.e. ID reuse with a different type | **Fatal** |
+| Required-ness differs in either direction (optional→required, required→optional), or a **required** table column is missing from the file | **Fatal** |
+| List element / map key / map value IDs differ | **Fatal**; element/key/value types otherwise follow the rules above, struct children merge recursively by ID |
+| A new ID whose name another column already has | **Fatal** (the merged schema fails Iceberg's own validation) |
+
+Every violation in a segment is reported together (`sink.iceberg_schema_mismatch`,
+Fatal, naming the column path, field ID, and both types); the table is not
+touched. The merge is **idempotent**: deriving it again from the merged table
+schema returns "no change", which is what makes the crash ordering below safe.
+
+### How the schema is committed
+
+Not through the `iceberg` crate's `update_schema` action: in 0.10.1
+`UpdateSchemaAction` assigns fresh sequential IDs to added columns (the same
+reason step 1 avoids REST `create_table`: configured ID 1001 would become
+`last-column-id + 1` and the Parquet files would be unreadable-by-id) and has
+no rename or promotion at all. The escape hatch is sealed: `TableCommit`'s
+builder is `pub(crate)` and `TransactionAction` is a crate-private trait, so no
+caller can hand a catalog a custom update. The registrar therefore posts the
+commit to the REST update endpoint itself (`rest::RestCommitter`), with the
+crate's own public wire types (`CommitTableRequest`, `CommitTableResponse`):
+updates `add-schema` (the merged schema, files' own IDs) and
+`set-current-schema -1`, requirements `assert-table-uuid`,
+`assert-current-schema-id`, and `assert-last-assigned-field-id`. The catalog
+applies both updates atomically. A 409 (another writer changed the schema)
+reloads the table and re-derives the merge, bounded like append conflicts; a
+merge that a concurrent writer already made derives "no change". Verified
+against `apache/iceberg-rest-fixture:1.10.1`: it honors client-supplied field
+IDs in `add-schema`, and the renamed/promoted/added schema reads back
+correctly through the Iceberg Rust scan (old `int` files through the promoted
+`long`, rows older than a new column read it as null).
+
+### Crash ordering: schema first, then append
+
+Atomically committing the schema change *with* the append would need a custom
+`TableUpdate` list on the snapshot commit, which 0.10.1 does not allow (above:
+the append uses `Transaction::fast_append`, the schema change the REST
+endpoint). So they are two commits, **schema first**:
+
+1. **Crash before the schema commit**: nothing changed; on restart the same
+   merge is derived from the same footer.
+2. **Crash after the schema commit, before the append** (or the schema
+   commit's response was lost): the table holds the merged schema and the
+   segment is not in the committed set. On restart the merge from the
+   (already merged) current schema is "no change", and the append runs. If the
+   response of the schema commit was lost and the commit did apply, the retry
+   fails its `assert-current-schema-id`, reloads, and derives "no change"; if it
+   did not apply, the retry applies it. Either way: one schema change.
+3. **Crash inside the append**: the step 1 argument (committed key in the
+   snapshot summary, or not).
+
+The intermediate state of case 2 is safe for readers: an evolved schema only
+adds optional columns (null for every existing file), widens types with
+Iceberg's lossless promotions (readers promote existing files), and renames by
+ID (no data touches). No file is reinterpreted, nothing is lost. The reverse
+order would not be safe: a file referencing ID 1001 appended to a table whose
+schema lacks it is invisible to readers for that column, and a crash after
+the append marks the segment "committed" so nothing would ever add the column.
+
+The table's schema history therefore gains at most one entry per segment that
+changes the schema, and none when it does not.
 
 ## Schema mapping
 
@@ -127,7 +205,12 @@ idempotence key is the deterministic object key.
   base and retries (bounded, jittered; still conflicting => Transient error and
   the next catalog tick retries). This is the race with concurrent writers:
   conflicts never duplicate a file because the check runs on the fresh table
-  state inside each attempt.
+  state inside each attempt. Two layers cover a writer whose view is stale:
+  `Transaction::commit` re-bases on the newest table before every commit, and
+  `FastAppendAction` (iceberg 0.10.1 `check_duplicate`, on by default) rejects
+  there a data file path the table already references (`DataInvalid`); that
+  failure lands in the reload-and-recheck branch, finds the key committed, and
+  reports "already registered". Tested deterministically (see below).
 - REST fixture / real catalogs: HTTP 409 maps to `CatalogCommitConflicts` in
   iceberg-rust 0.10.1.
 
@@ -138,6 +221,21 @@ Unpartitioned (spec id 0), the smallest option. Thadam's Hive-style
 `_ingest_time` has the wrong granularity and the unsynced-copy case does not
 fit one column). File skipping still uses the manifest-level record counts;
 column min/max metrics are not populated in step 1 (see limits).
+
+## TLS to the catalog
+
+`iceberg-catalog-rest` 0.10.1 has no TLS or CA property of its own, but
+`RestCatalogBuilder::with_client(reqwest::Client)` takes a ready-made client.
+The registrar builds one reqwest 0.12 client (rustls + the process `ring`
+provider, ADR-0020) — with `catalog_ca_file` its trust roots are replaced by
+the PEM bundle (`tls_built_in_root_certs(false)` plus the bundle's
+certificates) — and hands the same client to the catalog and to the schema
+committer. An unreadable or certificate-less CA file is Fatal
+`config.invalid` at startup. A rejected server certificate (untrusted issuer,
+expired, wrong name: rustls `invalid peer certificate: ...`) is classified
+Fatal `config.invalid` rather than retried forever; reqwest's `Display` hides
+that cause, so the classifier and the error message walk the `source` chain.
+No client certificates (mTLS) to the catalog in this release.
 
 ## Dependency choice (audit summary)
 
@@ -171,8 +269,10 @@ column min/max metrics are not populated in step 1 (see limits).
 - **Transient (retry forever, visible):** catalog unreachable / timeout /
   5xx / 429, S3 IO failures, commit conflicts past the bounded retry.
 - **Fatal:** auth (401/403, store `Unauthenticated`/`PermissionDenied`), the
-  named table missing with `create_table: false`, schema mismatch, unsupported
-  footer type (e.g. `UInt64` under `unsigned: native`), configuration errors.
+  named table missing with `create_table: false`, schema mismatch (every
+  evolution rule violation above), unsupported footer type (e.g. `UInt64`
+  under `unsigned: native`), a rejected catalog TLS certificate, configuration
+  errors (including an unusable `catalog_ca_file`).
 
 ## Test-harness discoveries (SeaweedFS + REST fixture)
 
@@ -197,11 +297,27 @@ not pay it again:
   `thadam-object-store`'s `docker_s3` copy of `amz_times` and surfaces the
   day anyone flips auth on there.
 
-## Deliberately out of scope (step 2 and later)
+## Tests (step 2)
 
-- Schema evolution (evolve the table schema when a dataset gains fields —
-  step 2; today additive fields surface only via `create_table` mismatch on a
-  fresh table, and existing tables must be evolved out-of-band).
+- `schema::tests`: every row of the evolution table, including nested
+  struct/list/map and "all reasons listed".
+- `table::tests` (in-process `MemoryCatalog`, deterministic): a stale second
+  writer neither duplicates nor loses; a `Racing` catalog wrapper makes writer
+  A commit just before B's commit reaches the catalog, so B gets a real commit
+  conflict — B reloads and skips the segment A committed, or (different
+  segment) retries on the fresh base; snapshot and committed-key counts are
+  asserted.
+- Docker (`apache/iceberg-rest-fixture:1.10.1` + SeaweedFS):
+  `schema_evolves_before_each_append_and_incompatible_changes_are_fatal`
+  (int→long + new column, then rename; values read back; narrowing fatal and
+  the table unchanged) and
+  `https_catalog_works_with_its_ca_and_fails_fatally_without_trust`
+  (`caddy:2.10.2` terminating TLS with an `rcgen` CA in front of the fixture:
+  works with the CA — including the schema commit over TLS — and fails fast
+  and fatally with another CA and with no CA).
+
+## Deliberately out of scope (later)
+
 - Compaction / snapshot expiry / data deletion; replay isolation for Iceberg
   (replays must still not point at a production table).
 - Populating column metrics on data files (`shortcut:` bounds checks could
@@ -212,9 +328,18 @@ not pay it again:
 
 ### `shortcut:` limits carried in code
 
-- One catalog schema check per dataset per process; a dataset whose Parquet
-  layout changes mid-run is only re-validated on restart (step 2 re-derives
-  per file).
+- The schema is re-derived from every not-yet-committed segment's footer (two
+  small ranged GETs each); a per-dataset cache keyed by schema fingerprint is
+  the upgrade if that read cost shows up.
+- Schema commits and the append are two commits (crash-safe by ordering, see
+  above), because 0.10.1 offers no custom commit; revisit if a later iceberg
+  release exposes `TableCommit` construction or custom transaction actions.
+- The schema commit bypasses the crate's REST client for the update POST and
+  discovers the catalog `prefix` itself from `/v1/config`; no authentication
+  header is sent (the registrar has no catalog credentials yet), so a catalog
+  that needs a token cannot be used until both paths gain one.
+- Fast-append duplicate-file validation reads every manifest of the current
+  snapshot per commit; fine until manifests accumulate (no compaction yet).
 - The committed-key set is rebuilt by scanning snapshot summaries at load;
   unbounded snapshot history makes that scan grow (persist a local committed
   cursor when it hurts).

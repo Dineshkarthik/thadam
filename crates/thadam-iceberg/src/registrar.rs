@@ -17,6 +17,7 @@ use thadam_segments::SegmentCatalog;
 
 use crate::config::IcebergConfig;
 use crate::error::IcebergError;
+use crate::rest::{RestCommitter, http_client};
 use crate::storage::{S3Io, S3IoFactory};
 use crate::table::TableHandle;
 
@@ -43,7 +44,7 @@ impl Registrar {
     }
 
     async fn run_inner(&mut self, ctx: &ServiceContext) -> Result<(), IcebergError> {
-        let catalog_client = self.connect(ctx).await?;
+        let (catalog_client, committer) = self.connect(ctx).await?;
         let catalog = self.await_catalog(ctx).await?;
         let mut watch_rx = catalog.subscribe();
         let mut handles: HashMap<String, TableHandle> = HashMap::new();
@@ -53,7 +54,7 @@ impl Registrar {
 
         loop {
             match self
-                .run_pass(&catalog_client, &io, &catalog, &mut handles)
+                .run_pass(&catalog_client, &committer, &io, &catalog, &mut handles)
                 .await
             {
                 Ok(()) => {
@@ -94,6 +95,7 @@ impl Registrar {
     async fn run_pass(
         &mut self,
         catalog_client: &Arc<dyn Catalog>,
+        committer: &RestCommitter,
         io: &Arc<S3Io>,
         catalog: &SegmentCatalog,
         handles: &mut HashMap<String, TableHandle>,
@@ -114,6 +116,23 @@ impl Registrar {
             let handle = handles
                 .get_mut(dataset)
                 .unwrap_or_else(|| unreachable!("inserted or present: {dataset}"));
+            if handle.is_committed(&segment.key) {
+                tracing::debug!(
+                    dataset = %dataset,
+                    segment = %segment.key,
+                    "segment already registered"
+                );
+                continue;
+            }
+            handle
+                .evolve_schema(
+                    catalog_client,
+                    committer,
+                    io,
+                    &io.uri_of(&segment.key),
+                    &segment.key,
+                )
+                .await?;
             let wal_range = format!(
                 "{:016x}.{:020}.{:020}",
                 segment.record.range.epoch().get(),
@@ -152,11 +171,15 @@ impl Registrar {
     /// Connects to the REST catalog, retrying transient failures forever
     /// (the catalog may simply be down at startup) and failing fast on
     /// fatal ones.
-    async fn connect(&self, ctx: &ServiceContext) -> Result<Arc<dyn Catalog>, IcebergError> {
+    async fn connect(
+        &self,
+        ctx: &ServiceContext,
+    ) -> Result<(Arc<dyn Catalog>, RestCommitter), IcebergError> {
         use iceberg::CatalogBuilder;
         use iceberg_catalog_rest::RestCatalogBuilder;
 
         let warehouse = format!("s3://{}", self.config.bucket);
+        let http = http_client(self.config.catalog_ca_file.as_deref())?;
         let mut backoff = Backoff::new(self.config.retry, seed_of(&self.id));
         let mut first_failed: Option<std::time::Instant> = None;
         loop {
@@ -175,9 +198,20 @@ impl Registrar {
             })?;
             let builder = RestCatalogBuilder::default()
                 .with_storage_factory(Arc::new(self.storage.clone()))
+                .with_client(http.clone())
                 .with_runtime(runtime);
-            match builder.load("thadam", props).await {
-                Ok(catalog) => {
+            let connected = async {
+                let catalog = builder
+                    .load("thadam", props)
+                    .await
+                    .map_err(IcebergError::Catalog)?;
+                let committer =
+                    RestCommitter::connect(http.clone(), &self.config.catalog_uri).await?;
+                Ok::<_, IcebergError>((catalog, committer))
+            }
+            .await;
+            match connected {
+                Ok((catalog, committer)) => {
                     let catalog: Arc<dyn Catalog> = Arc::new(catalog);
                     tracing::info!(
                         id = %self.id,
@@ -185,18 +219,16 @@ impl Registrar {
                         warehouse = %warehouse,
                         "connected to the Iceberg REST catalog"
                     );
-                    return Ok(catalog);
+                    return Ok((catalog, committer));
                 }
-                Err(e) => {
-                    let kind = e.kind();
-                    let error = IcebergError::Catalog(e);
+                Err(error) => {
                     if error.retry() != Retry::Transient {
                         return Err(error);
                     }
                     let since = first_failed.get_or_insert_with(std::time::Instant::now);
                     let delay = backoff.next_delay();
                     tracing::warn!(
-                        kind = ?kind,
+                        error = %error,
                         retry_age_seconds = since.elapsed().as_secs(),
                         delay_ms = delay.as_millis() as u64,
                         uri = %self.config.catalog_uri,

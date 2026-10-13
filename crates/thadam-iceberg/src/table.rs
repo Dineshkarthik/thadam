@@ -16,11 +16,14 @@ use iceberg::io::FileIOBuilder;
 use iceberg::spec::{DataContentType, DataFileBuilder, DataFileFormat, Struct};
 use iceberg::table::Table;
 use iceberg::transaction::{ApplyTransactionAction, Transaction};
-use iceberg::{Catalog, ErrorKind, MetadataLocation, NamespaceIdent, TableIdent};
+use iceberg::{
+    Catalog, ErrorKind, MetadataLocation, NamespaceIdent, TableIdent, TableRequirement, TableUpdate,
+};
 
 use crate::config::IcebergConfig;
 use crate::error::IcebergError;
-use crate::schema::{iceberg_schema_of, schema_mismatches};
+use crate::rest::RestCommitter;
+use crate::schema::{iceberg_schema_of, schema_evolution};
 use crate::storage::{S3Io, S3IoFactory};
 
 /// Snapshot summary property carrying the committed segment object key.
@@ -70,11 +73,11 @@ pub(crate) struct TableHandle {
 }
 
 impl TableHandle {
-    /// Opens the dataset's table: loads it and validates the schema of the
-    /// first segment's footer against it, or (with `create_table`) creates
-    /// the namespace and table from that same footer. `first_uri` is any
+    /// Opens the dataset's table: loads it, or (with `create_table`) creates
+    /// the namespace and table from `first_uri`'s footer. `first_uri` is any
     /// uploaded segment of the dataset; datasets are processed oldest-first,
-    /// so it is the earliest one pending.
+    /// so it is the earliest one pending. Schema agreement is established
+    /// per segment by [`TableHandle::evolve_schema`], not here.
     pub(crate) async fn open(
         catalog: &Arc<dyn Catalog>,
         io: &Arc<S3Io>,
@@ -97,29 +100,6 @@ impl TableHandle {
             }
             Err(e) => return Err(IcebergError::Catalog(e)),
         };
-
-        if config.create_table {
-            // The schema the table was created from moments ago; nothing to
-            // re-check this process. On restart with an existing table the
-            // load path above applies the check.
-            let committed = scan_committed(&table);
-            return Ok(TableHandle {
-                name,
-                table,
-                committed,
-            });
-        }
-
-        // Existing table: the segment footers must be readable through it.
-        let file_schema = iceberg_schema_of(io, first_uri).await?;
-        let mismatches =
-            schema_mismatches(table.metadata().current_schema().as_ref(), &file_schema);
-        if !mismatches.is_empty() {
-            return Err(IcebergError::SchemaMismatch {
-                table: name,
-                detail: mismatches.join("; "),
-            });
-        }
         let committed = scan_committed(&table);
         Ok(TableHandle {
             name,
@@ -128,11 +108,103 @@ impl TableHandle {
         })
     }
 
+    /// Whether `key` is already committed (by this handle's last view of the
+    /// table; the set only grows, so `true` is always right).
+    pub(crate) fn is_committed(&self, key: &str) -> bool {
+        self.committed.contains(key)
+    }
+
+    /// Brings the table's schema up to the segment file at `uri` (ahead of
+    /// its append; rules and crash ordering in
+    /// `docs/design/iceberg-append.md`): new IDs are added optional, a new
+    /// name on a known ID renames, int/float/decimal widen. Anything else is
+    /// a fatal [`IcebergError::SchemaMismatch`] naming every reason; the
+    /// table is untouched then. A schema commit that conflicts reloads the
+    /// table and re-derives the change (a concurrent writer may have made
+    /// it already).
+    pub(crate) async fn evolve_schema(
+        &mut self,
+        catalog: &Arc<dyn Catalog>,
+        committer: &RestCommitter,
+        io: &S3Io,
+        uri: &str,
+        key: &str,
+    ) -> Result<(), IcebergError> {
+        let file_schema = iceberg_schema_of(io, uri).await?;
+        for attempt in 1..=CONFLICT_ATTEMPTS {
+            let metadata = self.table.metadata();
+            let merged = match schema_evolution(metadata.current_schema(), &file_schema) {
+                Ok(None) => return Ok(()),
+                Ok(Some(merged)) => merged,
+                Err(reasons) => {
+                    return Err(IcebergError::SchemaMismatch {
+                        table: self.name.clone(),
+                        detail: format!("segment {key}: {}", reasons.join("; ")),
+                    });
+                }
+            };
+            let requirements = vec![
+                TableRequirement::UuidMatch {
+                    uuid: metadata.uuid(),
+                },
+                TableRequirement::CurrentSchemaIdMatch {
+                    current_schema_id: metadata.current_schema_id(),
+                },
+                TableRequirement::LastAssignedFieldIdMatch {
+                    last_assigned_field_id: metadata.last_column_id(),
+                },
+            ];
+            let updates = vec![
+                TableUpdate::AddSchema { schema: merged },
+                TableUpdate::SetCurrentSchema { schema_id: -1 },
+            ];
+            match committer.commit(&self.table, requirements, updates).await {
+                Ok(table) => {
+                    tracing::info!(
+                        table = %self.name,
+                        segment = %key,
+                        schema_id = table.metadata().current_schema_id(),
+                        "evolved the Iceberg table schema"
+                    );
+                    self.table = table;
+                    return Ok(());
+                }
+                Err(IcebergError::Catalog(e)) if is_conflict(&e) => {
+                    tracing::warn!(
+                        table = %self.name,
+                        segment = %key,
+                        attempt,
+                        error = %e,
+                        "iceberg schema commit conflict; retrying on a fresh table"
+                    );
+                    self.refresh(catalog).await?;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(IcebergError::CommitFailed {
+            table: self.name.clone(),
+            key: key.to_owned(),
+        })
+    }
+
     /// Appends one uploaded segment. Returns `true` when this call committed
     /// it, `false` when it was already present. Conflict handling: reload the
     /// table, re-derive the committed set, skip if now present, otherwise
     /// rebuild the append on the fresh base and retry (bounded); all lost-
     /// response and zombie-writer outcomes still leave exactly one data file.
+    ///
+    /// What makes a stale base safe: `Transaction::commit` re-bases on the
+    /// newest table and re-applies the append, and `FastAppendAction`
+    /// validates there that the data file path is not already referenced
+    /// (iceberg 0.10.1 `check_duplicate`, on by default), failing with
+    /// `DataInvalid` when a concurrent writer committed the same segment.
+    /// That failure lands in the reload-and-recheck branch below and becomes
+    /// "already committed".
+    ///
+    /// shortcut: the duplicate-file validation reads every manifest of the
+    /// current snapshot per commit; fine until manifests accumulate (no
+    /// compaction yet), then keep a manifest-count bound or compact.
     pub(crate) async fn append(
         &mut self,
         catalog: &Arc<dyn Catalog>,
@@ -443,5 +515,235 @@ mod tests {
         assert_eq!(df.record_count(), 42);
         assert_eq!(df.file_size_in_bytes(), 1234);
         assert_eq!(df.file_path(), "s3://warehouse/lake/f.parquet");
+    }
+
+    /// `inner` plus one deterministic racing writer: just before the first
+    /// commit that reaches the catalog, writer A commits `a_key` through
+    /// `inner`. The commit being delivered was based on the table as it stood
+    /// before A, so the catalog rejects it with a real commit conflict.
+    #[derive(Debug)]
+    struct Racing {
+        inner: Arc<dyn Catalog>,
+        a_key: std::sync::Mutex<Option<&'static str>>,
+        updates: std::sync::atomic::AtomicU32,
+    }
+
+    #[async_trait::async_trait]
+    impl Catalog for Racing {
+        async fn update_table(&self, commit: iceberg::TableCommit) -> iceberg::Result<Table> {
+            self.updates
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let a_key = self.a_key.lock().expect("lock").take();
+            if let Some(key) = a_key {
+                let table = self.inner.load_table(commit.identifier()).await?;
+                let mut a = TableHandle {
+                    name: "ns.t".to_owned(),
+                    table,
+                    committed: HashSet::new(),
+                };
+                assert!(a.append(&self.inner, key, 10, 100, "r").await.expect("A"));
+            }
+            self.inner.update_table(commit).await
+        }
+
+        async fn list_namespaces(
+            &self,
+            parent: Option<&NamespaceIdent>,
+        ) -> iceberg::Result<Vec<NamespaceIdent>> {
+            self.inner.list_namespaces(parent).await
+        }
+        async fn create_namespace(
+            &self,
+            namespace: &NamespaceIdent,
+            properties: HashMap<String, String>,
+        ) -> iceberg::Result<iceberg::Namespace> {
+            self.inner.create_namespace(namespace, properties).await
+        }
+        async fn get_namespace(
+            &self,
+            namespace: &NamespaceIdent,
+        ) -> iceberg::Result<iceberg::Namespace> {
+            self.inner.get_namespace(namespace).await
+        }
+        async fn namespace_exists(&self, namespace: &NamespaceIdent) -> iceberg::Result<bool> {
+            self.inner.namespace_exists(namespace).await
+        }
+        async fn update_namespace(
+            &self,
+            namespace: &NamespaceIdent,
+            properties: HashMap<String, String>,
+        ) -> iceberg::Result<()> {
+            self.inner.update_namespace(namespace, properties).await
+        }
+        async fn drop_namespace(&self, namespace: &NamespaceIdent) -> iceberg::Result<()> {
+            self.inner.drop_namespace(namespace).await
+        }
+        async fn list_tables(
+            &self,
+            namespace: &NamespaceIdent,
+        ) -> iceberg::Result<Vec<TableIdent>> {
+            self.inner.list_tables(namespace).await
+        }
+        async fn create_table(
+            &self,
+            namespace: &NamespaceIdent,
+            creation: iceberg::TableCreation,
+        ) -> iceberg::Result<Table> {
+            self.inner.create_table(namespace, creation).await
+        }
+        async fn load_table(&self, table: &TableIdent) -> iceberg::Result<Table> {
+            self.inner.load_table(table).await
+        }
+        async fn drop_table(&self, table: &TableIdent) -> iceberg::Result<()> {
+            self.inner.drop_table(table).await
+        }
+        async fn purge_table(&self, table: &TableIdent) -> iceberg::Result<()> {
+            self.inner.purge_table(table).await
+        }
+        async fn table_exists(&self, table: &TableIdent) -> iceberg::Result<bool> {
+            self.inner.table_exists(table).await
+        }
+        async fn rename_table(&self, src: &TableIdent, dest: &TableIdent) -> iceberg::Result<()> {
+            self.inner.rename_table(src, dest).await
+        }
+        async fn register_table(
+            &self,
+            table: &TableIdent,
+            metadata_location: String,
+        ) -> iceberg::Result<Table> {
+            self.inner.register_table(table, metadata_location).await
+        }
+    }
+
+    async fn memory_table() -> (tempfile::TempDir, Arc<dyn Catalog>, Table) {
+        use iceberg::CatalogBuilder;
+        use iceberg::memory::MemoryCatalogBuilder;
+        use iceberg::spec::{NestedField, PrimitiveType, Type};
+
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let catalog: Arc<dyn Catalog> = Arc::new(
+            MemoryCatalogBuilder::default()
+                .load(
+                    "memory",
+                    HashMap::from([(
+                        iceberg::memory::MEMORY_CATALOG_WAREHOUSE.to_owned(),
+                        dir.path().to_string_lossy().into_owned(),
+                    )]),
+                )
+                .await
+                .expect("memory catalog"),
+        );
+        let ns = NamespaceIdent::from_vec(vec!["ns".to_owned()]).expect("ns");
+        catalog
+            .create_namespace(&ns, HashMap::new())
+            .await
+            .expect("namespace");
+        let schema = iceberg::spec::Schema::builder()
+            .with_fields([Arc::new(NestedField::required(
+                1,
+                "n",
+                Type::Primitive(PrimitiveType::Long),
+            ))])
+            .build()
+            .expect("schema");
+        let creation = iceberg::TableCreation::builder()
+            .name("t".to_owned())
+            .schema(schema)
+            .build();
+        let table = catalog
+            .create_table(&ns, creation)
+            .await
+            .expect("create table");
+        (dir, catalog, table)
+    }
+
+    fn handle(table: &Table) -> TableHandle {
+        TableHandle {
+            name: "ns.t".to_owned(),
+            table: table.clone(),
+            committed: HashSet::new(),
+        }
+    }
+
+    async fn committed_keys(catalog: &Arc<dyn Catalog>, table: &Table) -> (usize, HashSet<String>) {
+        let table = catalog
+            .load_table(table.identifier())
+            .await
+            .expect("reload");
+        (table.metadata().snapshots().len(), scan_committed(&table))
+    }
+
+    /// A second writer whose view of the table is stale: it must neither
+    /// append what the other writer already committed nor lose its own
+    /// segment.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stale_writer_neither_loses_nor_duplicates() {
+        let (_dir, catalog, table) = memory_table().await;
+        let (mut a, mut b) = (handle(&table), handle(&table));
+
+        assert!(a.append(&catalog, "k-a", 10, 100, "r").await.expect("a"));
+        assert!(
+            !b.append(&catalog, "k-a", 10, 100, "r")
+                .await
+                .expect("b skips"),
+            "the stale writer must discover k-a on reload"
+        );
+        assert!(b.append(&catalog, "k-b", 5, 50, "r").await.expect("b"));
+
+        let (snapshots, keys) = committed_keys(&catalog, &table).await;
+        assert_eq!(snapshots, 2, "one snapshot per distinct segment");
+        assert_eq!(keys, HashSet::from(["k-a".to_owned(), "k-b".to_owned()]));
+    }
+
+    /// The conflict path itself: B's commit is rejected by the catalog
+    /// because A committed in between; B reloads and re-checks.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn commit_conflict_reloads_and_skips_the_segment_the_other_writer_committed() {
+        let (_dir, inner, table) = memory_table().await;
+        let racing = Arc::new(Racing {
+            inner: Arc::clone(&inner),
+            a_key: std::sync::Mutex::new(Some("k-same")),
+            updates: std::sync::atomic::AtomicU32::new(0),
+        });
+        let catalog: Arc<dyn Catalog> = racing.clone();
+
+        let mut b = handle(&table);
+        let committed = b.append(&catalog, "k-same", 10, 100, "r").await.expect("b");
+        assert!(
+            !committed,
+            "A committed k-same first; B must not append it again"
+        );
+        assert_eq!(
+            racing.updates.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "B's one commit reached the catalog and was rejected"
+        );
+        let (snapshots, keys) = committed_keys(&inner, &table).await;
+        assert_eq!((snapshots, keys), (1, HashSet::from(["k-same".to_owned()])));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn commit_conflict_retries_a_different_segment_on_the_fresh_table() {
+        let (_dir, inner, table) = memory_table().await;
+        let racing = Arc::new(Racing {
+            inner: Arc::clone(&inner),
+            a_key: std::sync::Mutex::new(Some("k-a")),
+            updates: std::sync::atomic::AtomicU32::new(0),
+        });
+        let catalog: Arc<dyn Catalog> = racing.clone();
+
+        let mut b = handle(&table);
+        assert!(
+            b.append(&catalog, "k-b", 5, 50, "r").await.expect("b"),
+            "B's own segment commits after the conflict"
+        );
+        assert_eq!(
+            racing.updates.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "one rejected commit, one retry on the fresh base"
+        );
+        let (snapshots, keys) = committed_keys(&inner, &table).await;
+        assert_eq!(snapshots, 2);
+        assert_eq!(keys, HashSet::from(["k-a".to_owned(), "k-b".to_owned()]));
     }
 }

@@ -45,6 +45,7 @@ arrow-array = { workspace = true }
 arrow-array58 = { package = "arrow-array", version = "58" }
 futures-util = "0.3"
 parquet = { workspace = true }
+rcgen = { workspace = true }
 thadam-arrow = { path = "../thadam-arrow" }
 thadam-object-store = { path = "../thadam-object-store" }
 thadam-testkit = { path = "../thadam-testkit" }
