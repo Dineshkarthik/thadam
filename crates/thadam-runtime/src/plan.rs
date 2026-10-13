@@ -220,6 +220,7 @@ fn dataset_value(d: &DatasetSpec, path: &str) -> Result<Value, ThadamError> {
     let decode = match d.decode {
         DecodeFormat::Json => "json",
         DecodeFormat::Ros2 => "ros2",
+        DecodeFormat::SparkplugB => "sparkplug_b",
         _ => {
             return Err(config_error(
                 &format!("{path}.decode"),
@@ -365,6 +366,24 @@ pub(crate) fn chain_spec(
         Some(dir) => cs.with_schema_dir(dir),
         None => cs,
     })
+}
+
+/// Points a sink's chain at its own birth-store directory under `births_root`.
+/// One store per sink chain: chains run at different WAL positions, and a
+/// shared store would let a lagging chain overwrite a newer BIRTH. Replay
+/// passes `read_only` so history never overwrites production seeds.
+pub(crate) fn with_births(
+    cs: ChainSpec,
+    births_root: &Path,
+    sink_id: &str,
+    read_only: bool,
+) -> ChainSpec {
+    let cs = cs.with_births_dir(births_root.join(sink_id));
+    if read_only {
+        cs.with_births_read_only()
+    } else {
+        cs
+    }
 }
 
 #[cfg(test)]
@@ -528,6 +547,27 @@ datasets:
             panic!("transforms: {kinds:?}")
         };
         assert_eq!(p.fields, ["n", "temp_c", "model"]);
+    }
+
+    #[test]
+    fn each_sink_chain_gets_its_own_birth_store_and_replay_is_read_only() {
+        let spec = spec_with_parts("  - { id: a, kind: recseg }", "", "");
+        let root = Path::new("/data/sparkplug/births");
+        let live = with_births(
+            chain_spec(&spec, "a", None, None, None).unwrap(),
+            root,
+            "a",
+            false,
+        );
+        assert_eq!(live.births_dir.as_deref(), Some(root.join("a").as_path()));
+        assert!(!live.births_read_only);
+        let replay = with_births(
+            chain_spec(&spec, "a", None, None, None).unwrap(),
+            root,
+            "a",
+            true,
+        );
+        assert!(replay.births_read_only);
     }
 
     #[test]

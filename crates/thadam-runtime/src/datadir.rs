@@ -44,12 +44,23 @@ pub const WAL_DIR: &str = "wal";
 /// schemas written by sources before messages referencing them reach the
 /// WAL, read back by chain decoders (and exports) by hash.
 pub const SCHEMAS_DIR: &str = "schemas";
+/// The Sparkplug birth-store root inside the data directory
+/// ([`thadam_core::BirthStore`]): the latest BIRTH of every edge node and
+/// device, one subdirectory per sink chain, so a restarted `decode:
+/// sparkplug_b` chain resolves aliases whose BIRTH the WAL no longer holds.
+pub const BIRTHS_DIR: &str = "sparkplug/births";
 
 const LOCK_FILE: &str = "LOCK";
 
 /// The schema-store directory of the data directory at `root`.
 pub fn schemas_dir(root: &Path) -> PathBuf {
     root.join(SCHEMAS_DIR)
+}
+
+/// The birth-store root of the data directory at `root`; each sink's chain
+/// uses the subdirectory named by its id.
+pub fn births_dir(root: &Path) -> PathBuf {
+    root.join(BIRTHS_DIR)
 }
 
 /// Contents of `data_dir/thadam.json`.
@@ -334,6 +345,9 @@ impl Layout {
     }
     pub fn schemas(&self) -> PathBuf {
         self.root.join(SCHEMAS_DIR)
+    }
+    pub fn births(&self) -> PathBuf {
+        births_dir(&self.root)
     }
     pub fn sink(&self, id: &str) -> PathBuf {
         self.root.join("sinks").join(id)

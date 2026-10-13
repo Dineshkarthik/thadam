@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Complete (evaluation for product.md Phase 3 "Sparkplug B / OPC UA PubSub evaluation"; no ADR proposed yet) |
+| Status | Complete (evaluation for product.md Phase 3 "Sparkplug B / OPC UA PubSub evaluation"; no ADR proposed yet). **Implemented since**: `thadam-sparkplug` and the birth store (`9b2f1a4`), then `decode: sparkplug_b` in the chain (step 1b, per-sink birth store; see [readiness](../readiness.md)); the `.proto` is Thadam-authored, so open question O-1 is resolved. |
 | Date | 2026-10-12 |
 | Code | `spikes/sparkplug-eval/` (standalone Cargo project, own `[workspace]`, excluded by root `exclude = ["spikes"]`) |
 | Subject | Sparkplug B (Sparkplug spec 3.0.0, `spBv1.0` namespace) decode + OPC UA PubSub (OPC UA Part 14) desk research |

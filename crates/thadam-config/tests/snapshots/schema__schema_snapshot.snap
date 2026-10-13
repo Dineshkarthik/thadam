@@ -145,6 +145,11 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
           "const": "ros2",
           "description": "A ROS 2 CDR payload from an MCAP source. The message references its\nschema by hash (`mcap.schema_hash`); the schema text resolves from\nthe pipeline's schema store, and the decoded record's flattened\ndotted field names (`header.stamp`, `pose.position.x`, …) become the\npayload keys.",
           "type": "string"
+        },
+        {
+          "const": "sparkplug_b",
+          "description": "A Sparkplug B (`spBv1.0`) protobuf from an MQTT source. One decoder\nper chain tracks BIRTH metric tables, aliases, `seq` and `bdSeq`\nacross messages, so the dataset's `match.topic` must cover the BIRTH\nand DEATH topics as well as DATA (`spBv1.0/#`). Each message becomes\none JSON document: `group`, `node`, `device`, `kind`, `seq`, `bd_seq`,\n`timestamp` (ms), and `metrics` (metric name to value); an `explode`\nover `/samples` yields one row per metric instead.",
+          "type": "string"
         }
       ]
     },

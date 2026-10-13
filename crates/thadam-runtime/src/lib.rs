@@ -160,9 +160,9 @@ mod status;
 
 pub use admin::{AdminConfig, router, serve, validate_admin_config};
 pub use datadir::{
-    CATALOG_FORMAT_VERSION, CURSOR_LAYOUT_VERSION, THADAM_JSON, THADAM_JSON_KIND,
-    RUNTIME_FORMAT_VERSION, ThadamJson, WAL_DIR, WalBinding, lock as lock_data_dir, read_thadam_json,
-    schemas_dir,
+    BIRTHS_DIR, CATALOG_FORMAT_VERSION, CURSOR_LAYOUT_VERSION, THADAM_JSON, THADAM_JSON_KIND,
+    RUNTIME_FORMAT_VERSION, ThadamJson, WAL_DIR, WalBinding, births_dir, lock as lock_data_dir,
+    read_thadam_json, schemas_dir,
 };
 pub use exit::ExitStatus;
 pub use failpoints::Failpoints;

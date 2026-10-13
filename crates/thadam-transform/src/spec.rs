@@ -35,6 +35,14 @@ pub struct ChainSpec {
     /// it to `<data_dir>/schemas` (see [`thadam_core::SchemaStore`]).
     #[serde(skip)]
     pub schema_dir: Option<PathBuf>,
+    /// The Sparkplug birth-store directory for dataset `decode: sparkplug_b`
+    /// ([`thadam_core::BirthStore`]). Not part of the config text; the runtime
+    /// sets it to `<data_dir>/sparkplug/births/<sink>`.
+    #[serde(skip)]
+    pub births_dir: Option<PathBuf>,
+    /// Seed from the birth store but never write it (replay).
+    #[serde(skip)]
+    pub births_read_only: bool,
 }
 
 impl ChainSpec {
@@ -57,6 +65,23 @@ impl ChainSpec {
     #[must_use]
     pub fn with_schema_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.schema_dir = Some(dir.into());
+        self
+    }
+
+    /// Sets the birth-store directory `decode: sparkplug_b` datasets seed
+    /// from and write BIRTH/DEATH state to.
+    #[must_use]
+    pub fn with_births_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.births_dir = Some(dir.into());
+        self
+    }
+
+    /// Makes the birth store seed-only: the chain reads it at build and
+    /// never writes it. For replay, which must not overwrite production
+    /// seeds with old BIRTHs.
+    #[must_use]
+    pub fn with_births_read_only(mut self) -> Self {
+        self.births_read_only = true;
         self
     }
 }
@@ -91,6 +116,12 @@ pub enum DecodeSpec {
     /// the decoded record's flattened dotted field names
     /// (`header.stamp`, `pose.position.x`, …) become the payload keys.
     Ros2,
+    /// A Sparkplug B protobuf. The chain keeps one stateful decoder seeded
+    /// from the birth store ([`ChainSpec::births_dir`]); each message is read
+    /// as the JSON document `crate::sparkplug` builds (`group`, `node`,
+    /// `device`, `kind`, `seq`, `bd_seq`, `timestamp`, `metrics`, and
+    /// `samples` for an `explode` dataset).
+    SparkplugB,
 }
 
 /// Identity levels in hierarchy order, each a template such as `{topic.2}`.

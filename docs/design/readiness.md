@@ -58,6 +58,8 @@ The overall verdict is a conjunction. The practical question is which work can s
 | ROS 2 chain decode and data-directory schema store (`decode: ros2`) | M2-A and M2-B | **Done**, `ae87272`. |
 | Dotted dataset field names and `pose` checks at validate time | M2 | **Done**, `f2d7af5`. |
 | `examples/ros2-mcap-to-parquet` and `thadam run --exit-when-sources-finish` | ADR-0007 stage 2 (M2-B) | **Done**, `e9e94f7`. |
+| Sparkplug B decoder crate and birth store (`thadam-sparkplug`, `BirthStore`; step 1a) | Sparkplug spike follow-up (O-1, O-2) | **Done**, `9b2f1a4`. |
+| `decode: sparkplug_b` in the transform chain: one event per message, BIRTH/DEATH events, `SEQUENCE_GAP`/`STALE`/`DECODE_ERROR` mapping, per-sink birth store seeded at chain build and fsynced before a message's events are returned, read-only seeding for `thadam replay`, `decoder_handle` fuzz target in `fuzz-smoke`, ignored Docker test against Mosquitto 2 (step 1b) | Sparkplug spike follow-up | **Done**, on top of `9b2f1a4`. Not covered: Template and DataSet metrics, a `seq` gap that spans a restart, tests against real edge devices, throughput benchmarks. |
 | ClickHouse sink | Earlier PRs | **Done**, `b5f9b83`. |
 | Modbus TCP source | Earlier PRs | **Done**, `7847caa`. |
 | NATS JetStream sink | Earlier PRs | **Done**, `c810236`. |

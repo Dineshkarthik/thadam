@@ -1,0 +1,24 @@
+[package]
+name = "thadam-sparkplug-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+thadam-core = { path = "../../thadam-core" }
+thadam-sparkplug = { path = ".." }
+
+# Own workspace root: this crate is not a member of the thadam workspace and is
+# built only by the `fuzz-smoke` CI job.
+[workspace]
+
+[[bin]]
+name = "decoder_handle"
+path = "fuzz_targets/decoder_handle.rs"
+test = false
+doc = false
+bench = false

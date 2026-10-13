@@ -397,7 +397,7 @@ impl Pipeline {
                     opts.config_dir.as_deref(),
                     Some(layout.schemas().as_path()),
                 ) {
-                    Ok(cs) => cs,
+                    Ok(cs) => plan::with_births(cs, &layout.births(), &s.id, false),
                     Err(e) => {
                         errs.push(e.with_context("component", at.clone()));
                         continue;

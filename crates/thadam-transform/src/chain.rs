@@ -15,6 +15,8 @@ use crate::decode::parse_json;
 use crate::input::{FrameInput, RejectedRaw};
 use crate::limits::ChainLimits;
 use crate::ros2::{Ros2Decode, record_to_json};
+use crate::sparkplug::SparkplugDecode;
+use crate::sparkplug::SparkplugMsg;
 use crate::spec::{ChainSpec, DecodeSpec};
 use crate::steps::{self, EnrichmentInfo, StepCtx, config_error};
 
@@ -94,6 +96,11 @@ pub struct Chain {
     limits: ChainLimits,
     /// The ROS 2 payload decoder, built when any dataset is `decode: ros2`.
     ros2: Option<Ros2Decode>,
+    /// The Sparkplug B decoder, built when any dataset is
+    /// `decode: sparkplug_b`.
+    sparkplug: Option<SparkplugDecode>,
+    /// Whether a Sparkplug dataset explodes, so messages carry `/samples`.
+    sparkplug_samples: bool,
     unmatched: u64,
     _not_sync: PhantomData<Cell<()>>,
 }
@@ -169,6 +176,40 @@ impl Chain {
             None
         };
 
+        // A `decode: sparkplug_b` dataset needs the birth store: its decoder
+        // is seeded from it here, and a damaged store fails the build rather
+        // than silently dropping alias tables.
+        let sparkplug_idx: Vec<usize> = spec
+            .datasets
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| d.decode == DecodeSpec::SparkplugB)
+            .map(|(i, _)| i)
+            .collect();
+        let sparkplug = match (sparkplug_idx.first(), &spec.births_dir) {
+            (None, _) => None,
+            (Some(&i), Some(dir)) => match SparkplugDecode::new(dir, spec.births_read_only) {
+                Ok(d) => Some(d),
+                Err(e) => {
+                    errs.push(e.with_context("path", format!("datasets[{i}].decode")));
+                    None
+                }
+            },
+            (Some(_), None) => {
+                for i in &sparkplug_idx {
+                    errs.push(
+                        ThadamError::permanent(
+                            ErrorDomain::Config,
+                            codes::CONFIG_MISSING,
+                            "`decode: sparkplug_b` needs the pipeline's birth store directory, which the runtime provides from the data directory",
+                        )
+                        .with_context("path", format!("datasets[{i}].decode")),
+                    );
+                }
+                None
+            }
+        };
+
         for (t, transform) in spec.transforms.iter().enumerate() {
             let path = format!("transforms[{t}]");
             let targets: Vec<usize> = match &transform.selector().0 {
@@ -219,6 +260,9 @@ impl Chain {
             return Err(errs);
         }
         let datasets: Vec<Dataset> = slots.into_iter().flatten().collect();
+        let sparkplug_samples = datasets
+            .iter()
+            .any(|d| d.decode == DecodeSpec::SparkplugB && d.explodes());
         let infos = datasets
             .iter()
             .map(|d| DatasetInfo {
@@ -236,6 +280,8 @@ impl Chain {
             registry,
             limits,
             ros2,
+            sparkplug,
+            sparkplug_samples,
             unmatched: 0,
             _not_sync: PhantomData,
         })
@@ -277,13 +323,31 @@ impl Chain {
         out: &mut ChainOutput,
         rejects: &mut Vec<RejectedRaw>,
     ) {
+        self.process_records(input, out, rejects, true);
+    }
+
+    /// `persist: false` is warm-up: Sparkplug state moves in memory but the
+    /// birth store is not written (the messages were persisted when first
+    /// processed, and rewriting would put old BIRTHs over newer ones).
+    fn process_records(
+        &mut self,
+        input: &FrameInput<'_>,
+        out: &mut ChainOutput,
+        rejects: &mut Vec<RejectedRaw>,
+        persist: bool,
+    ) {
         let ros2 = &mut self.ros2;
+        let sparkplug = &mut self.sparkplug;
+        let sparkplug_samples = self.sparkplug_samples;
         let limits = &self.limits;
         for view in input.records {
             // Decode failures are cached per record so every matching
             // dataset rejects the message with the same error.
             let mut json_root: Option<Result<Json, ThadamError>> = None;
             let mut ros2_root: Option<Result<Record, ThadamError>> = None;
+            // Decoded once per record: the decoder is stateful, so a second
+            // matching dataset must not feed the message to it again.
+            let mut sparkplug_root: Option<Result<Option<SparkplugMsg>, ThadamError>> = None;
             // The JSON spelling of the ROS 2 record, materialized only when
             // a matching dataset is not served by direct record reads.
             let mut ros2_bridge: Option<Json> = None;
@@ -300,6 +364,31 @@ impl Chain {
                     DecodeSpec::Json => {
                         match json_root.get_or_insert_with(|| parse_json(view.payload, limits)) {
                             Ok(root) => ds.process(view, root, &mut slot.batch.events, rejects),
+                            Err(e) => {
+                                ds.stats.messages += 1;
+                                ds.stats.rejected += 1;
+                                rejects.push(RejectedRaw::new(view, Some(&ds.id), None, e.clone()));
+                            }
+                        }
+                    }
+                    DecodeSpec::SparkplugB => {
+                        let root = sparkplug_root.get_or_insert_with(|| match sparkplug.as_mut() {
+                            Some(decode) => decode.decode(view, persist, sparkplug_samples),
+                            None => Err(ThadamError::fatal(
+                                ErrorDomain::Config,
+                                codes::CONFIG_MISSING,
+                                "`decode: sparkplug_b` has no birth store (compile-time check missed it)",
+                            )),
+                        });
+                        match root {
+                            Ok(Some(msg)) => ds.process_sparkplug(
+                                view,
+                                &msg.root,
+                                &msg.quality,
+                                &mut slot.batch.events,
+                                rejects,
+                            ),
+                            Ok(None) => ds.skip_message(),
                             Err(e) => {
                                 ds.stats.messages += 1;
                                 ds.stats.rejected += 1;
@@ -377,7 +466,7 @@ impl Chain {
                 .collect(),
         };
         let mut rejects = Vec::new();
-        self.process(input, &mut scratch, &mut rejects);
+        self.process_records(input, &mut scratch, &mut rejects, false);
 
         self.unmatched = saved_unmatched;
         for ((ds, stats), before) in self.datasets.iter_mut().zip(saved_stats).zip(before) {

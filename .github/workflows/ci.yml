@@ -147,6 +147,8 @@ jobs:
             target: msg_parse
           - crate: thadam-ros2-msg
             target: cdr_decode
+          - crate: thadam-sparkplug
+            target: decoder_handle
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
