@@ -175,6 +175,7 @@ pub use spec::{
     LogFormat, LogLevel, LogsSpec, MatchSpec, MaxLagSpec, ObservabilitySpec, OnFull, OnMissSpec,
     PipelineMeta, PipelineSpec, QuarantineFormat, QuarantineSpec, RuleStatus, RuntimeSpec,
     SinkSpec, StartFromSpec, TimeSpec, TimeUnit, TransformSpec, ValidateRule, WalSpec, WatchField,
+    WindowTime,
 };
 
 use crate::ctx::Ctx;

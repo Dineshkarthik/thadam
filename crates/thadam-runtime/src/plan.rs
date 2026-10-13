@@ -321,9 +321,15 @@ fn transform_value(t: &TransformSpec, path: &str) -> Result<Value, ThadamError> 
                 obj.insert("min_interval".into(), json!(duration_text(d.get())));
             }
             TransformSpec::Window {
-                size, idle_close, ..
+                size,
+                allowed_lateness,
+                idle_close,
+                ..
             } => {
                 obj.insert("size".into(), json!(duration_text(size.get())));
+                if let Some(d) = allowed_lateness {
+                    obj.insert("allowed_lateness".into(), json!(duration_text(d.get())));
+                }
                 if let Some(d) = idle_close {
                     obj.insert("idle_close".into(), json!(duration_text(d.get())));
                 }
@@ -674,5 +680,25 @@ datasets:
             "transforms:\n  - { kind: filter, dataset: d, where: { field: n, gt: 0 } }\n",
         );
         assert!(!chain_has_state(&filtered, "a", None));
+    }
+
+    #[test]
+    fn window_event_time_and_allowed_lateness_reach_the_engine() {
+        let spec = spec_with_parts(
+            "  - { id: a, kind: recseg }",
+            "",
+            "transforms:\n  - { kind: window, dataset: d, size: 1m, time: event, allowed_lateness: 5s, idle_close: 30s, aggregates: [{ field: temp, fn: mean, as: avg }] }\n",
+        );
+        let chain = chain_spec(&spec, "a", None, None, None).unwrap();
+        let rt::TransformSpec::Window(w) = &chain.transforms[0] else {
+            panic!("{:?}", chain.transforms)
+        };
+        assert_eq!(w.time, rt::WindowTime::Event);
+        assert_eq!(w.size.0, Duration::from_secs(60));
+        assert_eq!(
+            w.allowed_lateness.map(|d| d.0),
+            Some(Duration::from_secs(5))
+        );
+        assert_eq!(w.idle_close.map(|d| d.0), Some(Duration::from_secs(30)));
     }
 }

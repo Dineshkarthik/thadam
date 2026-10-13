@@ -313,6 +313,9 @@ pub async fn replay(
         )
         .await?;
     }
+    if from > 1 {
+        chain.mark_range_start();
+    }
     let mut report = ReplayReport {
         replay_id: req.replay_id.clone(),
         sink: req.sink.clone(),
@@ -343,6 +346,7 @@ pub async fn replay(
             None => break,
             Some(ReadItem::Gap(g)) => {
                 report.gaps += 1;
+                chain.on_gap();
                 tracing::warn!(gap = ?g, "gap in the replayed range");
                 if g.range().last().get() >= to {
                     break;

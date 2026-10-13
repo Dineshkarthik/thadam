@@ -1529,6 +1529,18 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
               },
               "type": "array"
             },
+            "allowed_lateness": {
+              "description": "How far behind the asset's maximum event time a window stays open\n(`time: event` only; `0s` when absent).",
+              "examples": [
+                "50ms",
+                "5s",
+                "1h"
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "dataset": {
               "description": "The dataset the step applies to.",
               "type": "string"
@@ -1567,6 +1579,10 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
                 "1h"
               ],
               "type": "string"
+            },
+            "time": {
+              "$ref": "#/$defs/WindowTime",
+              "description": "Which timestamp assigns an event to a window and advances the\nwatermark; `ingest` when absent."
             }
           },
           "required": [
@@ -1715,6 +1731,21 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
             "field"
           ],
           "type": "object"
+        }
+      ]
+    },
+    "WindowTime": {
+      "description": "Which timestamp a `window` step assigns events to windows and advances the\nwatermark by.",
+      "oneOf": [
+        {
+          "const": "ingest",
+          "description": "WAL ingest time.",
+          "type": "string"
+        },
+        {
+          "const": "event",
+          "description": "UTC event time (`Times::event_time()`); events without one are dropped\nand counted as `filtered`.",
+          "type": "string"
         }
       ]
     }

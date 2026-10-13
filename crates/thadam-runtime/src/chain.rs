@@ -175,6 +175,9 @@ pub(crate) async fn warm(
         match item {
             None => break,
             Some(ReadItem::Gap(g)) => {
+                if hold.is_some() {
+                    chain.on_gap();
+                }
                 if g.range().last().get() >= upto {
                     break;
                 }
@@ -384,6 +387,7 @@ impl ChainTask {
             let deltas = [
                 ("written", ds.written.saturating_sub(prev.written)),
                 ("filtered", ds.filtered.saturating_sub(prev.filtered)),
+                ("late", ds.late.saturating_sub(prev.late)),
                 ("deduped", ds.deduped.saturating_sub(prev.deduped)),
                 ("rejected", ds.rejected.saturating_sub(prev.rejected)),
                 ("exploded", ds.exploded.saturating_sub(prev.exploded)),
@@ -489,6 +493,7 @@ impl ChainTask {
                         frames: range.len(),
                     });
                     tracing::warn!(sink = %self.cfg.sink_id, gap = ?g, "wal gap");
+                    self.chain.on_gap();
                     let out = self.chain.new_output(range, true);
                     let batch = ChainBatch {
                         origin: range,

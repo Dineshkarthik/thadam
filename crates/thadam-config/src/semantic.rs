@@ -21,7 +21,7 @@ use crate::spans::Anchor;
 use crate::spec::{
     AggregateFn, AggregateSpec, ConnectorSpec, DECLARED_FIELD_ID_RANGE, DatasetSpec,
     EnrichFieldSpec, EnrichFormat, EnrichKeySpec, FieldSpec, IDENTITY_LEVEL_ID_RANGE, MaxLagSpec,
-    SinkSpec, TimeUnit, TransformSpec, WalSpec, WatchField,
+    SinkSpec, TimeUnit, TransformSpec, WalSpec, WatchField, WindowTime,
 };
 
 /// What the connector checks read from a source or a sink.
@@ -1142,21 +1142,35 @@ impl<'p> Checker<'p, '_, '_> {
             }
             TransformSpec::Window {
                 size,
+                time,
+                allowed_lateness,
                 idle_close,
                 aggregates,
                 ..
-            } => self.window(base, *size, *idle_close, aggregates, names),
+            } => self.window(
+                base,
+                *size,
+                *time,
+                *allowed_lateness,
+                *idle_close,
+                aggregates,
+                names,
+            ),
         }
     }
 
     /// The `window` step's checks, mirroring the engine's compile: a positive
-    /// `size` (and optional `idle_close`) that fits in nanoseconds, at least
-    /// one aggregate, unique output columns, and input fields the aggregate
-    /// can read.
+    /// `size` (and optional `idle_close`) that fits in nanoseconds,
+    /// `allowed_lateness` only on `time: event` and fitting in nanoseconds, at
+    /// least one aggregate, unique output columns, and input fields the
+    /// aggregate can read.
+    #[allow(clippy::too_many_arguments)]
     fn window(
         &mut self,
         base: &PathVec,
         size: DurationSpec,
+        time: WindowTime,
+        allowed_lateness: Option<DurationSpec>,
         idle_close: Option<DurationSpec>,
         aggregates: &[AggregateSpec],
         names: &Names,
@@ -1167,6 +1181,22 @@ impl<'p> Checker<'p, '_, '_> {
                 Anchor::Value,
                 "`size` must be greater than zero and fit in 63 bits of nanoseconds",
             );
+        }
+        if let Some(lateness) = allowed_lateness {
+            if time != WindowTime::Event {
+                self.ctx.invalid_hint(
+                    &base.key("allowed_lateness"),
+                    Anchor::Key,
+                    "`allowed_lateness` applies only to `time: event` windows",
+                    "set `time: event` or remove `allowed_lateness`",
+                );
+            } else if i64::try_from(lateness.get().as_nanos()).is_err() {
+                self.ctx.invalid(
+                    &base.key("allowed_lateness"),
+                    Anchor::Value,
+                    "`allowed_lateness` must fit in 63 bits of nanoseconds",
+                );
+            }
         }
         if let Some(idle) = idle_close
             && (idle.get().is_zero() || i64::try_from(idle.get().as_nanos()).is_err())

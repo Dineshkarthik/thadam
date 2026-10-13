@@ -27,6 +27,8 @@ pub(crate) use enrich::lineage_hash;
 pub(crate) enum StepResult {
     Keep(Event),
     Filtered,
+    /// Dropped because its event time belongs to a window that already closed.
+    Late,
     Reject(ThadamError),
     /// Zero or more events in place of the input; each continues through the
     /// later steps. An empty list means the step absorbed the input.
@@ -54,6 +56,13 @@ pub(crate) trait Step: Send + fmt::Debug {
     fn windowed(&self) -> bool {
         false
     }
+
+    /// Marks any open window as having spanned a WAL gap.
+    fn on_gap(&mut self) {}
+
+    /// Marks the chain as starting mid-WAL (a range replay from `from > 1`),
+    /// so the first window opened per asset is flagged `uncertain`.
+    fn mark_range_start(&mut self) {}
 }
 
 /// What a step may use while compiling.

@@ -20,7 +20,7 @@ These are registered by the runtime today (`thadam-runtime`'s Prometheus sink). 
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `thadam_chain_events_total` | counter | `sink`, `dataset`, `outcome` | Events produced by chains, per chain batch from the chain's own stats. `outcome` is one of `written`, `filtered`, `deduped`, `rejected`, `exploded`. The same rejects also appear in `thadam_rejects_total{domain}`, sliced by error domain instead of dataset; poison-frame rejects (whole frames rejected after panic retries) bypass the chain stats and appear only in `thadam_rejects_total`, not in the `rejected` outcome. |
+| `thadam_chain_events_total` | counter | `sink`, `dataset`, `outcome` | Events produced by chains, per chain batch from the chain's own stats. `outcome` is one of `written`, `filtered`, `late`, `deduped`, `rejected`, `exploded` (`late` counts events dropped because their `time: event` window already closed). The same rejects also appear in `thadam_rejects_total{domain}`, sliced by error domain instead of dataset; poison-frame rejects (whole frames rejected after panic retries) bypass the chain stats and appear only in `thadam_rejects_total`, not in the `rejected` outcome. |
 | `thadam_rejects_total` | counter | `sink`, `domain` | Records/events rejected, by error domain (`decode`, `schema`, `transform`, `quality`, …). |
 | `thadam_wal_gap_total` | counter | `sink`, `kind` | WAL gap items delivered to readers; `kind` is `corrupt`, `evicted`, or `missing`. |
 | `thadam_chain_panic_total` | counter | `sink` | Chain panics caught at the task boundary (each is followed by a rebuild). |
