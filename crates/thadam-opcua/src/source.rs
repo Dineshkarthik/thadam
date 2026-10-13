@@ -96,6 +96,18 @@ impl Source for OpcUaSource {
         if self.phase == Phase::Open {
             return Err(Self::state_error("the OPC UA source is already open"));
         }
+        if self.config.sends_credentials_unsecured() {
+            tracing::warn!(
+                endpoint = %self.config.endpoint,
+                "OPC UA username/password authentication is configured with security_policy: none; the password is not encrypted"
+            );
+        }
+        if self.config.accepts_unknown_server_cert() {
+            tracing::warn!(
+                endpoint = %self.config.endpoint,
+                "accept_unknown_server_cert: true disables OPC UA server authentication"
+            );
+        }
         let (tx, rx) = mpsc::channel(CHANNEL_CAPACITY);
         let stop = ctx.shutdown.child();
         let task = tokio::spawn(session::run(

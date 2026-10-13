@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::net::IpAddr;
 use std::time::Duration;
 
 use thadam_core::{ErrorDomain, ThadamError, codes};
@@ -61,6 +62,26 @@ impl ChConfig {
     pub(crate) fn is_plain_http(&self) -> bool {
         self.url.starts_with("http://")
     }
+}
+
+/// Whether `url` is plain `http://` to a loopback host (`localhost`,
+/// `127.0.0.0/8`, `::1`), where a password never leaves the machine.
+pub(crate) fn is_loopback_http(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("http://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host_port = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host_port)| host_port);
+    let host = match host_port.strip_prefix('[') {
+        Some(bracketed) => bracketed.split(']').next().unwrap_or_default(),
+        None => host_port
+            .rsplit_once(':')
+            .map_or(host_port, |(host, _)| host),
+    };
+    host.eq_ignore_ascii_case("localhost")
+        || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
 }
 
 /// A secret that never prints its content.
@@ -411,6 +432,33 @@ mod tests {
         let cfg = parse_config(&v).expect("plain http is allowed");
         assert!(cfg.is_plain_http());
         assert_eq!(cfg.url, "http://localhost:8123", "trailing slash trimmed");
+    }
+
+    #[test]
+    fn loopback_http_is_recognised_by_host_only() {
+        for url in [
+            "http://localhost:8123",
+            "http://LOCALHOST/",
+            "http://127.0.0.1:8123",
+            "http://127.8.9.1",
+            "http://[::1]:8123",
+            "http://user:pw@localhost:8123/?x=1",
+        ] {
+            assert!(is_loopback_http(url), "{url}");
+        }
+        for url in [
+            "http://ch.internal:8123",
+            "http://10.0.0.5:8123",
+            "http://0.0.0.0:8123",
+            "http://localhost.evil.test:8123",
+            "http://127.0.0.1.nip.io",
+            "http://localhost@evil.test:8123",
+            "http://evil.test@localhost.evil:8123",
+            "https://localhost:8443",
+            "localhost:8123",
+        ] {
+            assert!(!is_loopback_http(url), "{url}");
+        }
     }
 
     #[test]
