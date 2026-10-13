@@ -488,3 +488,49 @@ fn a_window_on_a_batch_sink_is_refused_at_build() {
         "{text:?}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn idle_close_emits_the_silent_asset_and_releases_the_cursor() {
+    let dir = TempDataDir::new().unwrap();
+    let kit = Kit::default();
+    let y = config(dir.path()).replace("size: 10s,", "size: 10s, idle_close: 30s,");
+    let run_idle = |msgs: &[Msg]| {
+        feed(&kit, msgs);
+        run_to_end(&kit, spec(&y), per_frame())
+    };
+
+    // Frames 1..=9 reach 24s: robot `b` (at 0s, frame 1) is not yet 30s idle,
+    // so its open window still pins the cursor at 0.
+    let before = run_idle(&PINNED[..9]).await;
+    assert_eq!(before.exit, ExitStatus::Ok, "{:#?}", before.status);
+    assert_eq!(cursor(&before.status, "out"), 0);
+    assert_eq!(
+        summary(&kit),
+        [
+            (6, "U64(4) F64(10.0)".to_owned()),
+            (8, "U64(2) F64(11.0)".to_owned()),
+        ]
+    );
+
+    // Frame 10 arrives at 33s (>= 0s + 30s): both `a`'s [20, 30) window and
+    // `b`'s idle [0, 10) window close at frame 10, and the cursor advances to
+    // 9 (one frame short of `a`'s new [30, 40) window opened at frame 10).
+    let after = run_idle(&PINNED[9..]).await;
+    assert_eq!(after.exit, ExitStatus::Ok, "{:#?}", after.status);
+    assert_eq!(cursor(&after.status, "out"), 9);
+    assert_eq!(
+        summary(&kit),
+        [
+            (6, "U64(4) F64(10.0)".to_owned()),
+            (8, "U64(2) F64(11.0)".to_owned()),
+            (10, "U64(1) F64(100.0)".to_owned()),
+            (10, "U64(2) F64(15.0)".to_owned()),
+        ]
+    );
+    assert_no_duplicates(&rows(&kit));
+
+    let again = run_idle(&[]).await;
+    assert_eq!(again.exit, ExitStatus::Ok, "{:#?}", again.status);
+    assert_eq!(summary(&kit).len(), 4);
+    assert_eq!(cursor(&again.status, "out"), 9);
+}

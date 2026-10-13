@@ -1373,6 +1373,9 @@ pub enum TransformSpec {
         sinks: Option<Vec<String>>,
         /// The window length; greater than zero.
         size: DurationSpec,
+        /// Closes a silent asset's open window once another asset advances ingest time by this much; greater than zero.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        idle_close: Option<DurationSpec>,
         /// The output columns.
         aggregates: Vec<AggregateSpec>,
     },

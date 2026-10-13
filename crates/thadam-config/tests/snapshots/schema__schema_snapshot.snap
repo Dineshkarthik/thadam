@@ -1533,6 +1533,18 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
               "description": "The dataset the step applies to.",
               "type": "string"
             },
+            "idle_close": {
+              "description": "Closes a silent asset's open window once another asset advances ingest time by this much; greater than zero.",
+              "examples": [
+                "50ms",
+                "5s",
+                "1h"
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "kind": {
               "const": "window",
               "type": "string"
