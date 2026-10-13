@@ -1218,6 +1218,16 @@ mod window {
         let spec = check(&with_steps(&[OK])).spec.unwrap();
         assert_eq!(spec.transforms[0].kind(), "window");
         assert_eq!(spec.transforms[0].dataset(), "readings");
+
+        let with_idle = "{ kind: window, dataset: readings, size: 1m, idle_close: 30s, aggregates: [{ field: temp, fn: mean, as: temp_mean }] }";
+        assert_ok(&[with_idle]);
+        assert_eq!(
+            steps_json(&[with_idle]),
+            [json!({
+                "kind": "window", "dataset": "readings", "size": "1m", "idle_close": "30s",
+                "aggregates": [{ "field": "temp", "fn": "mean", "as": "temp_mean" }],
+            })]
+        );
     }
 
     #[test]
@@ -1227,6 +1237,13 @@ mod window {
                 "{ kind: window, dataset: readings, size: 0s, aggregates: [{ field: temp, fn: sum, as: s }] }",
             ],
             "transforms[0].size",
+            "greater than zero",
+        );
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 1m, idle_close: 0s, aggregates: [{ field: temp, fn: sum, as: s }] }",
+            ],
+            "transforms[0].idle_close",
             "greater than zero",
         );
         assert_one_error(

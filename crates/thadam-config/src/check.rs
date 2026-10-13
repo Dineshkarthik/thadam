@@ -667,6 +667,8 @@ struct WindowRaw {
     #[serde(default)]
     sinks: Option<Vec<String>>,
     size: DurationSpec,
+    #[serde(default)]
+    idle_close: Option<DurationSpec>,
     aggregates: Vec<AggregateSpec>,
 }
 
@@ -836,6 +838,7 @@ fn parse_transform(item: &Value, base: &PathVec, ctx: &mut Ctx<'_>) -> Option<Tr
                 dataset: raw.dataset,
                 sinks: raw.sinks,
                 size: raw.size,
+                idle_close: raw.idle_close,
                 aggregates: raw.aggregates,
             })
         }

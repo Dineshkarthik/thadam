@@ -1141,18 +1141,23 @@ impl<'p> Checker<'p, '_, '_> {
                 }
             }
             TransformSpec::Window {
-                size, aggregates, ..
-            } => self.window(base, *size, aggregates, names),
+                size,
+                idle_close,
+                aggregates,
+                ..
+            } => self.window(base, *size, *idle_close, aggregates, names),
         }
     }
 
     /// The `window` step's checks, mirroring the engine's compile: a positive
-    /// `size` that fits in nanoseconds, at least one aggregate, unique output
-    /// columns, and input fields the aggregate can read.
+    /// `size` (and optional `idle_close`) that fits in nanoseconds, at least
+    /// one aggregate, unique output columns, and input fields the aggregate
+    /// can read.
     fn window(
         &mut self,
         base: &PathVec,
         size: DurationSpec,
+        idle_close: Option<DurationSpec>,
         aggregates: &[AggregateSpec],
         names: &Names,
     ) {
@@ -1161,6 +1166,15 @@ impl<'p> Checker<'p, '_, '_> {
                 &base.key("size"),
                 Anchor::Value,
                 "`size` must be greater than zero and fit in 63 bits of nanoseconds",
+            );
+        }
+        if let Some(idle) = idle_close
+            && (idle.get().is_zero() || i64::try_from(idle.get().as_nanos()).is_err())
+        {
+            self.ctx.invalid(
+                &base.key("idle_close"),
+                Anchor::Value,
+                "`idle_close` must be greater than zero and fit in 63 bits of nanoseconds",
             );
         }
         if aggregates.is_empty() {

@@ -341,6 +341,7 @@ transforms:
 | Key | Type | Required | Description |
 |---|---|---|---|
 | `size` | duration > 0 | yes | The window length. Windows are aligned to the epoch: `[k·size, (k+1)·size)` of the event's ingest time. |
+| `idle_close` | duration > 0 | no | Closes a silent asset's open window once another asset in the dataset sends an event at least `idle_close` in ingest time after that window's last event, releasing the cursor hold-back. |
 | `aggregates` | list (≥ 1) of `{ field, fn, as }` | yes | The output columns; see below. |
 
 Each aggregate:
@@ -359,9 +360,9 @@ Each aggregate:
 
 **Open windows and the cursor.**
 
-- There are no timers. An asset's last window stays open until that asset sends another event; nothing is flushed on shutdown.
+- There are no wall-clock timers. Without `idle_close`, an asset's last window stays open until that asset sends another event; nothing is flushed on shutdown. With `idle_close`, another asset's event whose ingest time is at least `idle_close` past the silent asset's last event closes that window (ordered by `(first_pos, asset)` when several close on the same trigger) and releases its hold on the cursor.
 - Open windows are kept in memory only. To survive a restart without a new state file, the sink's WAL cursor is **held back**: it never moves to or past the first frame of a window whose aggregate the sink does not hold yet, and a restart re-reads from the cursor to rebuild the windows. Aggregates the sink already holds are skipped, so a restart neither drops an aggregate nor writes one twice.
-- The WAL therefore keeps data for at least the window length, plus the time any asset stays silent. **A silent asset's open window holds the cursor for every dataset in that sink's chain until the asset speaks again**, so the WAL grows (or, with `on_full: block`, blocks) in the meantime. State is bounded by the chain's per-step state limit (`max_state_keys`, 100,000 assets by default); beyond it, events of further assets are rejected to quarantine with a `transform.failed` reason rather than dropped.
+- The WAL therefore keeps data for at least the window length, plus the time any asset stays silent (bounded by `idle_close` when other assets in the dataset keep speaking). **Without `idle_close`, a silent asset's open window holds the cursor for every dataset in that sink's chain until the asset speaks again**, so the WAL grows (or, with `on_full: block`, blocks) in the meantime. State is bounded by the chain's per-step state limit (`max_state_keys`, 100,000 assets by default); beyond it, events of further assets are rejected to quarantine with a `transform.failed` reason rather than dropped.
 - If ingest time steps backwards, the event joins its asset's open window.
 - Restarts are exact for the `window` step itself. A step before it that depends on history (`sample every_n`, `on_change`, dedup) is rebuilt from `warm_start_frames` of history, so a window behind such a step can differ from an uninterrupted run when the history is longer than that. Steps after a `window` start empty after a restart.
 

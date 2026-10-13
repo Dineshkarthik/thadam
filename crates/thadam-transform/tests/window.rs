@@ -307,3 +307,57 @@ fn hold_back_does_not_fix_the_sample_phase_gap() {
     assert_eq!(restart(1), keys(&all), "warm-up covering the history");
     assert_ne!(restart(cursor - 1), keys(&all), "warm-up shorter than it");
 }
+
+#[test]
+fn idle_close_releases_a_silent_asset_and_restarts_match_the_continuous_run() {
+    let build = || {
+        let mut s = spec();
+        let thadam_transform::TransformSpec::Window(w) = &mut s.transforms[0] else {
+            unreachable!()
+        };
+        w.idle_close = Some(serde_json::from_value(json!("20s")).unwrap());
+        Chain::compile(&s, ChainLimits::default()).unwrap()
+    };
+    let mut frames = script();
+    // Robot `silent` speaks only in the first two frames; `idle_close: 20s`
+    // closes its window once the fleet moves 20s past frame 2 and releases the
+    // hold past frame 1.
+    for pos in [1usize, 2] {
+        frames.records[pos - 1].2 = message(
+            &topic("silent", "x"),
+            r#"{"v":100.0}"#,
+            pos as i64 * 1_000_000,
+        );
+    }
+    let all = process_by_frame(&mut build(), &frames, 1, FRAMES);
+    assert!(
+        all.iter().any(|e| e.asset().get("robot") == Some("silent")),
+        "the silent asset's window closed on another asset's event"
+    );
+
+    let mut c = build();
+    let mut holds = vec![None];
+    for pos in 1..=FRAMES {
+        run(&mut c, &range(&frames, pos, pos));
+        holds.push(c.hold().map(WalPos::get));
+    }
+    assert!(
+        holds.last().unwrap().unwrap() > 2,
+        "hold advanced past the silent asset's frames: {holds:?}"
+    );
+
+    for m in 0..=FRAMES {
+        let allowed = holds[m as usize].map_or(m, |h| h - 1);
+        for cursor in [allowed, allowed / 2, 0] {
+            let mut second = build();
+            warm(&mut second, &range(&frames, 1, cursor));
+            let rerun = process_by_frame(&mut second, &frames, cursor + 1, FRAMES);
+            let delivered = all.iter().filter(|e| e.wal_pos().get() <= m);
+            let got: Vec<_> = delivered
+                .chain(rerun.iter().filter(|e| e.wal_pos().get() > m))
+                .map(key)
+                .collect();
+            assert_eq!(got, keys(&all), "m={m} cursor={cursor}");
+        }
+    }
+}

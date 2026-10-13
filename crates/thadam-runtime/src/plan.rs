@@ -308,19 +308,27 @@ fn transform_value(t: &TransformSpec, path: &str) -> Result<Value, ThadamError> 
     // durations: they humantime-serialize compositely (`1m 30s`), which its
     // `HumanDuration` refuses, so they travel as nanoseconds.
     if let Some(obj) = v.as_object_mut() {
-        let duration = match t {
+        match t {
             TransformSpec::OnChange {
                 heartbeat: Some(d), ..
-            } => Some(("heartbeat", d.get())),
+            } => {
+                obj.insert("heartbeat".into(), json!(duration_text(d.get())));
+            }
             TransformSpec::Sample {
                 min_interval: Some(d),
                 ..
-            } => Some(("min_interval", d.get())),
-            TransformSpec::Window { size, .. } => Some(("size", size.get())),
-            _ => None,
-        };
-        if let Some((key, d)) = duration {
-            obj.insert(key.into(), json!(duration_text(d)));
+            } => {
+                obj.insert("min_interval".into(), json!(duration_text(d.get())));
+            }
+            TransformSpec::Window {
+                size, idle_close, ..
+            } => {
+                obj.insert("size".into(), json!(duration_text(size.get())));
+                if let Some(d) = idle_close {
+                    obj.insert("idle_close".into(), json!(duration_text(d.get())));
+                }
+            }
+            _ => {}
         }
     }
     Ok(v)

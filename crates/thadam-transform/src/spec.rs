@@ -862,6 +862,10 @@ pub struct WindowSpec {
     pub sinks: Option<Vec<String>>,
     /// The window length.
     pub size: HumanDuration,
+    /// Closes a silent asset's open window once another asset advances ingest
+    /// time by this much.
+    #[serde(default)]
+    pub idle_close: Option<HumanDuration>,
     /// The output columns.
     pub aggregates: Vec<AggregateSpec>,
 }
