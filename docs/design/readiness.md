@@ -67,7 +67,12 @@ The overall verdict is a conjunction. The practical question is which work can s
 | Connector registration and CI | Earlier PRs | **Done**, `f2d10ce`. |
 | MQTT publish sink | Earlier PRs | **Done**, `d0570b1`. |
 | Iceberg registrar (`kind: iceberg`, P2, experimental): `fast_append` of shipped segments into one table per dataset, behind the default-off `iceberg` feature | Earlier PRs | **Done** (experimental), `bf7596b`. |
-| Iceberg step 2: schema evolution by field ID (add optional, rename, promote; narrowing and ID reuse fatal), concurrent-writer conflict test, HTTPS catalog test with a private CA | Iceberg registrar | **Done** (experimental), on top of `9ae1e17`. Not yet covered: catalog authentication, mutual TLS to the catalog, compaction, partitioning. |
+| Iceberg step 2: schema evolution by field ID (add optional, rename, promote; narrowing and ID reuse fatal), concurrent-writer conflict test, HTTPS catalog test with a private CA | Iceberg registrar | **Done** (experimental), `2057102`. |
+| Iceberg step 3: catalog authentication (`catalog_token`, `catalog_credential` OAuth2 client credentials) and mutual TLS (`catalog_client_cert` + `catalog_client_key`), including on direct schema-evolution commits | Iceberg step 2 | **Done** (experimental), `934bd60`. Not yet covered: token refresh, compaction, partitioning. |
+| Object-key collision check in `thadam validate` (`object_store` shippers sharing pipeline, normalized URL, Parquet sink `node_id`, and a dataset) | `ba23ab3` follow-up | **Done**, `d99e4aa`. |
+| Phase 5: pipeline versioning (`thadam_build_info`, `/status` fields, Parquet footer hashes), `Pipeline::check` + `thadam validate --against-data-dir`, `deploy/apply-config.sh` with rollback and restart-gap docs, and `thadam_chain_unmatched_total` | `docs/design/fleet-config-and-versioning.md` | **Done**, `04ba7f7`, `ba23ab3`, `8092927`, `6022711`, `30593ef`. |
+| Phase 6 (steps S1, S2, S3, S5): `window` transform step (ingest and event time, `allowed_lateness`, per-asset watermark, `late` outcome, `idle_close`, `window_gap` and `window_range_start` quality flags, `count`/`sum`/`min`/`max`/`mean`/`first`/`last`/`stddev`/`range`/`delta`/`rms`, cursor hold-back, memory estimate) | `docs/design/advanced-processing.md` | **Done** (experimental), `83db147`, `3916fc0`, `4bd8c4c`, `bb4c6e8`. S4 (sliding) and S6/S7 (WASM/inference) deferred per owner decision until a concrete user need appears. |
+| Consolidated Prometheus metrics set (`ARCHITECTURE.md` section 14) | PR11 follow-up | **Done**, `a398b15`. |
 
 ### Implementation status (waves 2 and 3)
 
