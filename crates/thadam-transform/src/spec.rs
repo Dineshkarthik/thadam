@@ -887,6 +887,9 @@ pub struct WindowSpec {
     pub sinks: Option<Vec<String>>,
     /// The window length.
     pub size: HumanDuration,
+    /// How often a sliding window starts (`size` when absent).
+    #[serde(default)]
+    pub slide: Option<HumanDuration>,
     /// Which timestamp assigns an event to a window and advances the watermark.
     #[serde(default)]
     pub time: WindowTime,

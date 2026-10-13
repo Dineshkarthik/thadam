@@ -1610,6 +1610,18 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
               ],
               "type": "string"
             },
+            "slide": {
+              "description": "How often a sliding window starts; divides `size` evenly (`size`\nwhen absent, for tumbling windows).",
+              "examples": [
+                "50ms",
+                "5s",
+                "1h"
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "time": {
               "$ref": "#/$defs/WindowTime",
               "description": "Which timestamp assigns an event to a window and advances the\nwatermark; `ingest` when absent."

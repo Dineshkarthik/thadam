@@ -495,3 +495,236 @@ fn event_time_excludes_non_utc_and_flags_gap_and_range_start() {
             .any(|e| e.quality().reason.as_deref() == Some("window_gap"))
     );
 }
+
+#[derive(Clone, Copy, Debug)]
+struct RawSample {
+    pos: u64,
+    robot: &'static str,
+    t_ns: i64,
+    v: f64,
+}
+
+fn sliding_chain(event_time: bool) -> Chain {
+    let mut ds = json!({
+        "id": "d",
+        "match": { "source": SOURCE },
+        "decode": "json",
+        "identity": [{ "robot": "{topic.3}" }],
+        "fields": [{ "name": "v", "type": "f64" }],
+    });
+    let mut win = json!({
+        "kind": "window",
+        "dataset": "d",
+        "size": "30s",
+        "slide": "10s",
+        "aggregates": [
+            { "field": "v", "fn": "count", "as": "count" },
+            { "field": "v", "fn": "sum", "as": "sum" },
+            { "field": "v", "fn": "min", "as": "min" },
+            { "field": "v", "fn": "max", "as": "max" },
+            { "field": "v", "fn": "mean", "as": "mean" },
+            { "field": "v", "fn": "first", "as": "first" },
+            { "field": "v", "fn": "last", "as": "last" },
+            { "field": "v", "fn": "stddev", "as": "stddev" },
+            { "field": "v", "fn": "range", "as": "range" },
+            { "field": "v", "fn": "delta", "as": "delta" },
+            { "field": "v", "fn": "rms", "as": "rms" },
+        ],
+    });
+    if event_time {
+        ds["time"] = json!({ "field": "/ts_s", "unit": "s", "domain": "utc" });
+        win["time"] = json!("event");
+        win["allowed_lateness"] = json!("15s");
+    }
+    Chain::compile(
+        &ChainSpec::from_value(json!({
+            "datasets": [ds],
+            "transforms": [win],
+        }))
+        .unwrap(),
+        ChainLimits::default(),
+    )
+    .unwrap()
+}
+
+fn sliding_script(event_time: bool) -> (Frames, Vec<RawSample>) {
+    let mut frames = Frames::new();
+    let mut samples = Vec::new();
+    let mut ingest_s = 0i64;
+    let mut robot_base_s = [20i64, 20, 20];
+    let mut seed = 43u64;
+    for i in 0..FRAMES {
+        seed = seed
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        let r_idx = (seed >> 33) as usize % 3;
+        let robot = ["a", "b", "c"][r_idx];
+        ingest_s += ((seed >> 40) % 4) as i64 + 1;
+        robot_base_s[r_idx] += ((seed >> 44) % 5) as i64 + 2;
+        // Jitter in [-7, +7] keeps max_event_s - ts_s <= 14s <= 15s allowed_lateness
+        // while reordering events across 10s pane boundaries.
+        let jitter = ((seed >> 48) % 15) as i64 - 7;
+        let ts_s = if event_time {
+            robot_base_s[r_idx] + jitter
+        } else {
+            ingest_s
+        };
+        let v = ((i as i64 % 17) - 5) as f64 * 1.25 + (r_idx as f64) * 0.5;
+        let payload = json!({ "ts_s": ts_s, "v": v }).to_string();
+        let msg = message(&topic(robot, "x"), payload, ingest_s * 1_000_000);
+        let pos = i + 1;
+        frames.records.push((pos, 0, msg));
+        samples.push(RawSample {
+            pos,
+            robot,
+            t_ns: ts_s * 1_000_000_000,
+            v,
+        });
+    }
+    (frames, samples)
+}
+
+#[test]
+fn sliding_window_pane_merge_equals_brute_force_and_restarts_match() {
+    const SLIDE_NS: i64 = 10_000_000_000;
+    const SIZE_NS: i64 = 30_000_000_000;
+    const LATENESS_NS: i64 = 15_000_000_000;
+
+    for event_time in [false, true] {
+        let (frames, samples) = sliding_script(event_time);
+        let mut whole = sliding_chain(event_time);
+        let all = process_by_frame(&mut whole, &frames, 1, FRAMES);
+        assert!(
+            all.len() >= 15,
+            "event_time={event_time}: {} rows",
+            all.len()
+        );
+        assert_eq!(whole.stats().datasets[0].1.late, 0);
+
+        for robot in ["a", "b", "c"] {
+            let r_samples: Vec<RawSample> = samples
+                .iter()
+                .copied()
+                .filter(|s| s.robot == robot)
+                .collect();
+            let cutoff_end_ns = if event_time {
+                let max_t = r_samples.iter().map(|s| s.t_ns).max().unwrap();
+                max_t - LATENESS_NS
+            } else {
+                let last_t = r_samples.last().unwrap().t_ns;
+                last_t.div_euclid(SLIDE_NS) * SLIDE_NS
+            };
+            let min_t = r_samples.iter().map(|s| s.t_ns).min().unwrap();
+            let first_w = min_t.div_euclid(SLIDE_NS) - 2;
+            let last_w = (cutoff_end_ns - SIZE_NS).div_euclid(SLIDE_NS);
+
+            let mut expected_windows = Vec::new();
+            for w in first_w..=last_w {
+                let start_ns = w * SLIDE_NS;
+                let end_ns = start_ns + SIZE_NS;
+                if end_ns > cutoff_end_ns {
+                    continue;
+                }
+                let win_samples: Vec<RawSample> = r_samples
+                    .iter()
+                    .copied()
+                    .filter(|s| s.t_ns >= start_ns && s.t_ns < end_ns)
+                    .collect();
+                if !win_samples.is_empty() {
+                    expected_windows.push((start_ns, end_ns, win_samples));
+                }
+            }
+
+            let actual: Vec<&Event> = all
+                .iter()
+                .filter(|e| e.asset().get("robot") == Some(robot))
+                .collect();
+            assert_eq!(
+                actual.len(),
+                expected_windows.len(),
+                "event_time={event_time} robot={robot}"
+            );
+
+            for (ev, (start_ns, end_ns, win_samples)) in actual.into_iter().zip(expected_windows) {
+                let rec = ev.payload().as_record().unwrap();
+                let ts = |col: &str| rec.get(col).unwrap().as_ts().unwrap().as_nanos();
+                let f = |col: &str| rec.get(col).unwrap().as_f64().unwrap();
+
+                assert_eq!(ts("window_start"), start_ns);
+                assert_eq!(ts("window_end"), end_ns);
+
+                let n = win_samples.len() as u64;
+                let sum: f64 = win_samples.iter().map(|s| s.v).sum();
+                let min = win_samples
+                    .iter()
+                    .map(|s| s.v)
+                    .fold(f64::INFINITY, f64::min);
+                let max = win_samples
+                    .iter()
+                    .map(|s| s.v)
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let mean = sum / n as f64;
+                let first = win_samples
+                    .iter()
+                    .min_by_key(|s| (s.t_ns, s.pos))
+                    .unwrap()
+                    .v;
+                let last = win_samples
+                    .iter()
+                    .max_by_key(|s| (s.t_ns, s.pos))
+                    .unwrap()
+                    .v;
+                let stddev = (win_samples
+                    .iter()
+                    .map(|s| (s.v - mean).powi(2))
+                    .sum::<f64>()
+                    / n as f64)
+                    .sqrt();
+                let range_v = max - min;
+                let delta = last - first;
+                let rms = (win_samples.iter().map(|s| s.v * s.v).sum::<f64>() / n as f64).sqrt();
+
+                assert_eq!(rec.get("count").unwrap().as_u64().unwrap(), n);
+                assert!((f("sum") - sum).abs() < 1e-9, "{} vs {sum}", f("sum"));
+                assert_eq!(f("min"), min);
+                assert_eq!(f("max"), max);
+                assert!((f("mean") - mean).abs() < 1e-9, "{} vs {mean}", f("mean"));
+                assert_eq!(f("first"), first);
+                assert_eq!(f("last"), last);
+                assert!(
+                    (f("stddev") - stddev).abs() < 1e-9,
+                    "{} vs {stddev}",
+                    f("stddev")
+                );
+                assert_eq!(f("range"), range_v);
+                assert_eq!(f("delta"), delta);
+                assert!((f("rms") - rms).abs() < 1e-9, "{} vs {rms}", f("rms"));
+            }
+        }
+
+        let mut c = sliding_chain(event_time);
+        let mut holds = vec![None];
+        for pos in 1..=FRAMES {
+            run(&mut c, &range(&frames, pos, pos));
+            holds.push(c.hold().map(WalPos::get));
+        }
+        for m in 0..=FRAMES {
+            let allowed = holds[m as usize].map_or(m, |h| h - 1);
+            for cursor in [allowed, allowed / 2, 0] {
+                let mut second = sliding_chain(event_time);
+                warm(&mut second, &range(&frames, 1, cursor));
+                let rerun = process_by_frame(&mut second, &frames, cursor + 1, FRAMES);
+                let delivered = all.iter().filter(|e| e.wal_pos().get() <= m);
+                let got: Vec<_> = delivered
+                    .chain(rerun.iter().filter(|e| e.wal_pos().get() > m))
+                    .map(key)
+                    .collect();
+                assert_eq!(
+                    got,
+                    keys(&all),
+                    "event_time={event_time} m={m} cursor={cursor}"
+                );
+            }
+        }
+    }
+}

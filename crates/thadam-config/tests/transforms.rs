@@ -1260,6 +1260,24 @@ mod window {
             "{ kind: filter, dataset: readings, where: { field: sd, gt: 0.5 } }",
             "{ kind: validate, dataset: readings, rules: [{ field: r, min: 0.01, flag: OUT_OF_RANGE, status: uncertain }] }",
         ]);
+
+        let sliding = "{ kind: window, dataset: readings, size: 1m, slide: 15s, aggregates: [{ field: temp, fn: mean, as: temp_mean }] }";
+        assert_ok(&[sliding]);
+        assert_eq!(
+            steps_json(&[sliding]),
+            [json!({
+                "kind": "window", "dataset": "readings", "size": "1m", "slide": "15s",
+                "aggregates": [{ "field": "temp", "fn": "mean", "as": "temp_mean" }],
+            })]
+        );
+        let sliding_spec = check(&with_steps(&[sliding])).spec.unwrap();
+        let win_est = sliding_spec
+            .memory_estimate()
+            .components
+            .into_iter()
+            .find(|c| c.label == "window state")
+            .unwrap();
+        assert_eq!(win_est.bytes, 100_000 * 4 * (128 + 64));
     }
 
     #[test]
@@ -1348,6 +1366,34 @@ mod window {
             ],
             "transforms[0].time",
             "unknown variant `wall`",
+        );
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 1m, slide: 0s, aggregates: [{ field: temp, fn: sum, as: s }] }",
+            ],
+            "transforms[0].slide",
+            "greater than zero",
+        );
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 10s, slide: 20s, aggregates: [{ field: temp, fn: sum, as: s }] }",
+            ],
+            "transforms[0].slide",
+            "at most `size`",
+        );
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 10s, slide: 3s, aggregates: [{ field: temp, fn: sum, as: s }] }",
+            ],
+            "transforms[0].slide",
+            "multiple of `slide`",
+        );
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 24h, slide: 1ms, aggregates: [{ field: temp, fn: sum, as: s }] }",
+            ],
+            "transforms[0].slide",
+            "exceeds the maximum of 1024",
         );
     }
 
