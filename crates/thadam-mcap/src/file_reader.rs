@@ -27,9 +27,10 @@ use thadam_core::ThadamError;
 
 use crate::error::McapError;
 
-/// The largest record body materialized at once. Chunks are typically a few
-/// megabytes; this catches a corrupt length prefix before it allocates.
-const MAX_RECORD_LEN: u64 = 1 << 30;
+/// The largest record body or decompressed chunk materialized at once. Chunks
+/// are typically a few megabytes; this catches a corrupt length prefix or
+/// compression bomb before it exhausts memory.
+const MAX_RECORD_LEN: u64 = 64 << 20;
 
 /// A schema as recorded in the file.
 #[derive(Debug)]
@@ -212,18 +213,14 @@ impl FileReader {
             )
             .into());
         }
-        let mut body = Vec::new();
-        body.try_reserve_exact(len as usize).map_err(|_| {
-            McapError::parse(&self.path, mcap::McapError::RecordTooLarge { opcode, len })
-        })?;
-        body.resize(len as usize, 0);
-        read_to_end(&mut self.inner, &mut body).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                McapError::parse(&self.path, mcap::McapError::UnexpectedEof)
-            } else {
-                McapError::open(&self.path, e)
-            }
-        })?;
+        let mut body = Vec::with_capacity((len as usize).min(64 * 1024));
+        (&mut self.inner)
+            .take(len)
+            .read_to_end(&mut body)
+            .map_err(|e| McapError::open(&self.path, e))?;
+        if body.len() as u64 != len {
+            return Err(McapError::parse(&self.path, mcap::McapError::UnexpectedEof).into());
+        }
         Ok(Some((opcode, body)))
     }
 
@@ -234,13 +231,43 @@ impl FileReader {
             Ok(records::Record::Chunk { header, data }) => (header, data.into_owned()),
             _ => return Err(self.corrupt("malformed chunk record")),
         };
+        if header.uncompressed_size > MAX_RECORD_LEN {
+            return Err(McapError::parse(
+                &self.path,
+                mcap::McapError::RecordTooLarge {
+                    opcode: op::CHUNK,
+                    len: header.uncompressed_size,
+                },
+            )
+            .into());
+        }
         let reader =
             ChunkReader::new(header, &data).map_err(|e| McapError::parse(&self.path, e))?;
+        let mut decompressed_bytes = 0u64;
         for record in reader {
-            let record = record
-                .map_err(|e| McapError::parse(&self.path, e))?
-                .into_owned();
-            match record {
+            let record = record.map_err(|e| McapError::parse(&self.path, e))?;
+            let record_bytes = match &record {
+                records::Record::Schema { header, data } => {
+                    (header.name.len() + header.encoding.len() + data.len()) as u64
+                }
+                records::Record::Channel(channel) => {
+                    (channel.topic.len() + channel.message_encoding.len()) as u64
+                }
+                records::Record::Message { data, .. } => data.len() as u64,
+                _ => 0,
+            };
+            decompressed_bytes = decompressed_bytes.saturating_add(record_bytes);
+            if decompressed_bytes > MAX_RECORD_LEN {
+                return Err(McapError::parse(
+                    &self.path,
+                    mcap::McapError::RecordTooLarge {
+                        opcode: op::CHUNK,
+                        len: decompressed_bytes,
+                    },
+                )
+                .into());
+            }
+            match record.into_owned() {
                 records::Record::Schema { header, data } => {
                     self.add_schema(header, Bytes::from(data.into_owned()))?
                 }
