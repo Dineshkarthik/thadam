@@ -59,7 +59,7 @@ pub fn run(
     };
 
     let data_dir_notes = if against_data_dir {
-        match check_against_data_dir(&spec, &registry) {
+        match check_against_data_dir(&spec, &registry, path) {
             Ok(notes) => Some(notes),
             Err(errs) => {
                 for e in &errs {
@@ -108,8 +108,14 @@ pub fn run(
 fn check_against_data_dir(
     spec: &PipelineSpec,
     registry: &Registry,
+    path: &Path,
 ) -> Result<Vec<String>, Vec<ThadamError>> {
-    let mut errs = Pipeline::check(spec, registry, &RuntimeOptions::default())
+    let mut opts = RuntimeOptions::default();
+    opts.config_dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf);
+    let mut errs = Pipeline::check(spec, registry, &opts)
         .err()
         .unwrap_or_default();
     let notes = match check_data_dir(&spec.pipeline.data_dir, spec, registry) {

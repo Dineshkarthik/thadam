@@ -74,12 +74,13 @@ pub fn run(args: &ReplayArgs, out: &mut dyn Write, err: &mut dyn Write) -> Exit 
     if let Some(dir) = &args.output {
         req = req.output(ReplayOutput::SeparateDirAt(dir.clone()));
     }
-    let result = runtime.block_on(thadam_runtime::replay(
-        &spec,
-        &registry,
-        RuntimeOptions::default(),
-        req,
-    ));
+    let mut opts = RuntimeOptions::default();
+    opts.config_dir = args
+        .path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf);
+    let result = runtime.block_on(thadam_runtime::replay(&spec, &registry, opts, req));
     match result {
         Ok(report) => {
             print_report(out, &report);

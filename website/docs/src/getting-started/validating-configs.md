@@ -73,7 +73,7 @@ data directory: /var/lib/thadam/edge-demo
 
 The extra checks only read. They never create a directory, take the data directory's `LOCK`, or write to the WAL:
 
-- **Connector and chain checks.** Every source and sink validates its own `config:`, and every sink's chain compiles. A chain's enrichment file is read at this point. A relative path resolves against the working directory, as it does under `thadam run`, so run the check from the directory `thadam run` will use. No connector is built, so no source or sink is opened.
+- **Connector and chain checks.** Every source and sink validates its own `config:`, and every sink's chain compiles. A chain's enrichment file is read at this point. A relative path resolves against the directory that holds the configuration file, as it does under `thadam run`, so the result does not depend on the working directory. No connector is built, so no source or sink is opened.
 - **Refusals (exit `3`).** The directory would be refused at start: `thadam.json` names another pipeline, the WAL is bound to another `node_id`, the WAL is missing or has another epoch than the one the recorded sink state was written against, or a format version is one this binary does not read.
 - **Notes.** Printed on success, describing what a restart would do: the config hash change (`current -> candidate (changed)`), each sink that has no cursor yet (it starts from its `start_from`), and each directory under `sinks/` or `sources/` the file no longer lists (its state stays on disk).
 
