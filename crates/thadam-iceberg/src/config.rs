@@ -7,6 +7,7 @@
 //! them (ADR-0020).
 
 use std::fmt;
+use std::path::Path;
 use std::time::Duration;
 
 use thadam_core::{ErrorDomain, ThadamError, codes};
@@ -32,6 +33,14 @@ pub struct IcebergConfig {
     /// the platform trust roots for the catalog connection (and nothing
     /// else: the S3 store keeps its own trust).
     pub catalog_ca_file: Option<String>,
+    /// How the registrar authenticates to the catalog, on catalog requests
+    /// and on the direct schema commits alike.
+    pub catalog_auth: CatalogAuth,
+    /// PEM file of the client certificate for mutual TLS to the catalog;
+    /// requires `catalog_client_key`.
+    pub catalog_client_cert: Option<String>,
+    /// PEM file of the private key for `catalog_client_cert`.
+    pub catalog_client_key: Option<String>,
     /// The `s3://bucket/prefix` URL, as parsed (same semantics as the
     /// shipper's `url`).
     pub url: String,
@@ -95,6 +104,54 @@ impl fmt::Debug for Credentials {
     }
 }
 
+/// How the registrar authenticates to the REST catalog.
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
+pub enum CatalogAuth {
+    /// No `Authorization` header.
+    #[default]
+    None,
+    /// A static bearer token, sent on every catalog request.
+    Token(Secret),
+    /// OAuth2 client credentials, exchanged at the token endpoint.
+    Credential(CatalogCredential),
+}
+
+/// OAuth2 client credentials (`grant_type=client_credentials`).
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct CatalogCredential {
+    /// The OAuth2 client id (no `:`, which the catalog client splits on).
+    pub client_id: String,
+    /// The OAuth2 client secret.
+    pub client_secret: Secret,
+    /// The requested scope; the catalog's default (`catalog`) when absent.
+    pub scope: Option<String>,
+    /// The token endpoint: `oauth2_server_uri`, else
+    /// `{catalog_uri}/v1/oauth/tokens`.
+    pub token_url: String,
+}
+
+/// A secret string; `Debug` is redacted.
+#[derive(Clone)]
+pub struct Secret(String);
+
+impl Secret {
+    fn new(value: impl Into<String>) -> Self {
+        Secret(value.into())
+    }
+
+    pub(crate) fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for Secret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Secret(<redacted>)")
+    }
+}
+
 /// The retry schedule: unbounded attempts, capped jittered backoff (mirrors
 /// `thadam-object-store`'s `RetryConfig`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,6 +183,14 @@ struct RawIcebergConfig {
     catalog_uri: String,
     #[serde(default)]
     catalog_ca_file: Option<String>,
+    #[serde(default)]
+    catalog_token: Option<String>,
+    #[serde(default)]
+    catalog_credential: Option<RawCredential>,
+    #[serde(default)]
+    catalog_client_cert: Option<String>,
+    #[serde(default)]
+    catalog_client_key: Option<String>,
     url: String,
     namespace: String,
     #[serde(default)]
@@ -134,6 +199,17 @@ struct RawIcebergConfig {
     store: RawStore,
     #[serde(default)]
     retry: RawRetry,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCredential {
+    client_id: String,
+    client_secret: String,
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    oauth2_server_uri: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -214,6 +290,115 @@ pub(crate) fn parse_s3_url(url: &str) -> Result<(String, String), String> {
     Ok((bucket.to_owned(), prefix.trim_matches('/').to_owned()))
 }
 
+fn catalog_auth_of(
+    token: Option<String>,
+    credential: Option<RawCredential>,
+    catalog_root: &str,
+    errors: &mut Vec<ThadamError>,
+) -> CatalogAuth {
+    match (token, credential) {
+        (None, None) => CatalogAuth::None,
+        (Some(_), Some(_)) => {
+            errors.push(config_error(
+                "catalog_credential",
+                "`catalog_token` and `catalog_credential` are mutually exclusive; set one",
+            ));
+            CatalogAuth::None
+        }
+        (Some(token), None) if token.is_empty() => {
+            errors.push(config_error(
+                "catalog_token",
+                "`catalog_token` must not be empty (use ${file:} or ${env:})",
+            ));
+            CatalogAuth::None
+        }
+        (Some(token), None) => CatalogAuth::Token(Secret::new(token)),
+        (None, Some(raw)) => credential_of(raw, catalog_root, errors)
+            .map_or(CatalogAuth::None, CatalogAuth::Credential),
+    }
+}
+
+fn credential_of(
+    raw: RawCredential,
+    catalog_root: &str,
+    errors: &mut Vec<ThadamError>,
+) -> Option<CatalogCredential> {
+    let before = errors.len();
+    if raw.client_id.is_empty() || raw.client_id.contains(':') {
+        errors.push(config_error(
+            "catalog_credential.client_id",
+            "`client_id` must be non-empty and must not contain ':'",
+        ));
+    }
+    if raw.client_secret.is_empty() {
+        errors.push(config_error(
+            "catalog_credential.client_secret",
+            "`client_secret` must not be empty (use ${file:} or ${env:})",
+        ));
+    }
+    if raw.scope.as_deref().is_some_and(str::is_empty) {
+        errors.push(config_error(
+            "catalog_credential.scope",
+            "`scope` must not be empty",
+        ));
+    }
+    if let Some(uri) = &raw.oauth2_server_uri
+        && !(uri.starts_with("http://") || uri.starts_with("https://"))
+    {
+        errors.push(config_error(
+            "catalog_credential.oauth2_server_uri",
+            "`oauth2_server_uri` must be an `http://` or `https://` URI",
+        ));
+    }
+    if errors.len() > before {
+        return None;
+    }
+    let token_url = raw
+        .oauth2_server_uri
+        .unwrap_or_else(|| format!("{catalog_root}/v1/oauth/tokens"));
+    Some(CatalogCredential {
+        client_id: raw.client_id,
+        client_secret: Secret::new(raw.client_secret),
+        scope: raw.scope,
+        token_url,
+    })
+}
+
+fn client_identity_errors(
+    cert: Option<&str>,
+    key: Option<&str>,
+    catalog_uri: &str,
+    errors: &mut Vec<ThadamError>,
+) {
+    match (cert, key) {
+        (None, None) => {}
+        (Some(cert), Some(key)) => {
+            for (path, file) in [("catalog_client_cert", cert), ("catalog_client_key", key)] {
+                if !Path::new(file).is_file() {
+                    errors.push(config_error(
+                        path,
+                        format!("`{path}` `{file}` is not an existing PEM file"),
+                    ));
+                }
+            }
+            if catalog_uri.starts_with("http://") {
+                errors.push(config_error(
+                    "catalog_client_cert",
+                    "`catalog_client_cert` needs an `https://` `catalog_uri`",
+                ));
+            }
+        }
+        (Some(_), None) => errors.push(config_error(
+            "catalog_client_key",
+            "`catalog_client_cert` and `catalog_client_key` must be set together",
+        )),
+        (None, Some(_)) => errors.push(config_error(
+            "catalog_client_cert",
+            "`catalog_client_cert` and `catalog_client_key` must be set together",
+        )),
+    }
+}
+
 fn parse_duration(text: &str) -> Result<Duration, String> {
     let text = text.trim();
     let split = text
@@ -289,6 +474,19 @@ pub fn parse_iceberg_config(value: &serde_json::Value) -> Result<IcebergConfig, 
             "`catalog_ca_file` needs an `https://` `catalog_uri`",
         ));
     }
+    let catalog_root = raw.catalog_uri.trim_end_matches('/');
+    let catalog_auth = catalog_auth_of(
+        raw.catalog_token,
+        raw.catalog_credential,
+        catalog_root,
+        &mut errors,
+    );
+    client_identity_errors(
+        raw.catalog_client_cert.as_deref(),
+        raw.catalog_client_key.as_deref(),
+        &raw.catalog_uri,
+        &mut errors,
+    );
     let (bucket, prefix) = match parse_s3_url(&raw.url) {
         Ok(parts) => parts,
         Err(message) => {
@@ -367,8 +565,11 @@ pub fn parse_iceberg_config(value: &serde_json::Value) -> Result<IcebergConfig, 
     Ok(IcebergConfig {
         from: raw.from,
         pipeline: raw.pipeline,
-        catalog_uri: raw.catalog_uri.trim_end_matches('/').to_owned(),
+        catalog_uri: catalog_root.to_owned(),
         catalog_ca_file: raw.catalog_ca_file,
+        catalog_auth,
+        catalog_client_cert: raw.catalog_client_cert,
+        catalog_client_key: raw.catalog_client_key,
         url: raw.url,
         bucket,
         prefix,
@@ -407,6 +608,27 @@ pub fn iceberg_config_schema() -> serde_json::Value {
                 "description": "The Iceberg REST catalog URI."},
             "catalog_ca_file": {"type": "string", "minLength": 1,
                 "description": "PEM file of the CA that signed the REST catalog's certificate; replaces the platform trust roots for the catalog connection. Needs an https:// catalog_uri."},
+            "catalog_token": {"type": "string", "minLength": 1,
+                "description": "Static bearer token sent on every catalog request. Supply through ${file:} or ${env:}; never printed. Exclusive with catalog_credential."},
+            "catalog_credential": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["client_id", "client_secret"],
+                "properties": {
+                    "client_id": {"type": "string", "minLength": 1, "pattern": "^[^:]+$"},
+                    "client_secret": {"type": "string", "minLength": 1,
+                        "description": "Supply through ${env:} or ${file:}; never printed."},
+                    "scope": {"type": "string", "minLength": 1,
+                        "description": "Requested OAuth2 scope; the catalog's default (catalog) when absent."},
+                    "oauth2_server_uri": {"type": "string", "pattern": "^https?://",
+                        "description": "Token endpoint; defaults to {catalog_uri}/v1/oauth/tokens."}
+                },
+                "description": "OAuth2 client credentials (grant_type client_credentials), exchanged at the token endpoint. Exclusive with catalog_token."
+            },
+            "catalog_client_cert": {"type": "string", "minLength": 1,
+                "description": "PEM client certificate for mutual TLS to the REST catalog. Needs catalog_client_key and an https:// catalog_uri."},
+            "catalog_client_key": {"type": "string", "minLength": 1,
+                "description": "PEM private key for catalog_client_cert."},
             "url": {"type": "string", "pattern": "^s3://",
                 "description": "s3://bucket/prefix; the bucket the shipper writes data files into. Tables are created at {url}/thadam/v1/{pipeline}/{dataset}."},
             "namespace": {"type": "string", "minLength": 1,
@@ -525,6 +747,126 @@ mod tests {
         let cfg = parse_iceberg_config(&v).expect("valid");
         assert_eq!(cfg.catalog_ca_file.as_deref(), Some("/etc/thadam/ca.pem"));
         assert_eq!(cfg.catalog_uri, "https://catalog.example:8181");
+    }
+
+    fn error_paths(errors: &[ThadamError]) -> Vec<&str> {
+        errors
+            .iter()
+            .filter_map(|e| e.context.get("path"))
+            .collect()
+    }
+
+    #[test]
+    fn catalog_token_and_credential_are_exclusive() {
+        let mut v = base();
+        v["catalog_token"] = serde_json::json!("tok");
+        v["catalog_credential"] = serde_json::json!({"client_id": "thadam", "client_secret": "s"});
+        let errors = parse_iceberg_config(&v).unwrap_err();
+        assert_eq!(error_paths(&errors), ["catalog_credential"], "{errors:?}");
+    }
+
+    #[test]
+    fn catalog_secrets_are_never_debug_printed() {
+        let mut v = base();
+        v["catalog_token"] = serde_json::json!("tok-very-secret");
+        let cfg = parse_iceberg_config(&v).expect("valid");
+        assert!(matches!(cfg.catalog_auth, CatalogAuth::Token(_)));
+        assert!(!format!("{cfg:?}").contains("tok-very-secret"));
+
+        v.as_object_mut().expect("object").remove("catalog_token");
+        v["catalog_credential"] =
+            serde_json::json!({"client_id": "thadam-catalog", "client_secret": "s3cret-value"});
+        let cfg = parse_iceberg_config(&v).expect("valid");
+        assert!(matches!(cfg.catalog_auth, CatalogAuth::Credential(_)));
+        assert!(!format!("{cfg:?}").contains("s3cret-value"));
+    }
+
+    #[test]
+    fn catalog_credential_defaults_the_token_endpoint_to_the_catalog() {
+        let mut v = base();
+        v["catalog_credential"] =
+            serde_json::json!({"client_id": "thadam-catalog", "client_secret": "s"});
+        let cfg = parse_iceberg_config(&v).expect("valid");
+        let CatalogAuth::Credential(cred) = &cfg.catalog_auth else {
+            panic!("credential auth: {:?}", cfg.catalog_auth);
+        };
+        assert_eq!(cred.token_url, "http://127.0.0.1:8181/v1/oauth/tokens");
+        assert_eq!(cred.client_id, "thadam-catalog");
+        assert_eq!(cred.scope, None);
+
+        v["catalog_credential"]["oauth2_server_uri"] = serde_json::json!("https://auth.example/t");
+        v["catalog_credential"]["scope"] = serde_json::json!("catalog:write");
+        let cfg = parse_iceberg_config(&v).expect("valid");
+        let CatalogAuth::Credential(cred) = &cfg.catalog_auth else {
+            panic!("credential auth: {:?}", cfg.catalog_auth);
+        };
+        assert_eq!(cred.token_url, "https://auth.example/t");
+        assert_eq!(cred.scope.as_deref(), Some("catalog:write"));
+    }
+
+    #[test]
+    fn catalog_auth_rejects_bad_client_ids_and_empty_secrets() {
+        let mut v = base();
+        v["catalog_credential"] = serde_json::json!({
+            "client_id": "a:b",
+            "client_secret": "",
+            "scope": "",
+            "oauth2_server_uri": "ftp://auth.example/t",
+        });
+        let errors = parse_iceberg_config(&v).unwrap_err();
+        let paths = error_paths(&errors);
+        assert!(paths.contains(&"catalog_credential.client_id"), "{paths:?}");
+        assert!(
+            paths.contains(&"catalog_credential.client_secret"),
+            "{paths:?}"
+        );
+        assert!(paths.contains(&"catalog_credential.scope"), "{paths:?}");
+        assert!(
+            paths.contains(&"catalog_credential.oauth2_server_uri"),
+            "{paths:?}"
+        );
+
+        let mut v = base();
+        v["catalog_token"] = serde_json::json!("");
+        let errors = parse_iceberg_config(&v).unwrap_err();
+        assert_eq!(error_paths(&errors), ["catalog_token"], "{errors:?}");
+    }
+
+    #[test]
+    fn client_cert_and_key_are_set_together_and_must_exist() {
+        let dir = tempfile::tempdir().expect("dir");
+        let cert = dir.path().join("client.pem");
+        let key = dir.path().join("client.key");
+        std::fs::write(&cert, "cert").expect("write");
+        let mut v = base();
+        v["catalog_uri"] = serde_json::json!("https://catalog.example:8181");
+
+        v["catalog_client_cert"] = serde_json::json!(cert.to_str().expect("utf-8"));
+        let errors = parse_iceberg_config(&v).unwrap_err();
+        assert_eq!(error_paths(&errors), ["catalog_client_key"], "{errors:?}");
+
+        v.as_object_mut()
+            .expect("object")
+            .remove("catalog_client_cert");
+        v["catalog_client_key"] = serde_json::json!(key.to_str().expect("utf-8"));
+        let errors = parse_iceberg_config(&v).unwrap_err();
+        assert_eq!(error_paths(&errors), ["catalog_client_cert"], "{errors:?}");
+
+        v["catalog_client_cert"] = serde_json::json!(cert.to_str().expect("utf-8"));
+        let errors = parse_iceberg_config(&v).unwrap_err();
+        assert_eq!(
+            error_paths(&errors),
+            ["catalog_client_key"],
+            "missing key file: {errors:?}"
+        );
+
+        std::fs::write(&key, "key").expect("write");
+        let cfg = parse_iceberg_config(&v).expect("valid");
+        assert_eq!(cfg.catalog_client_key.as_deref(), key.to_str());
+
+        v["catalog_uri"] = serde_json::json!("http://127.0.0.1:8181");
+        let errors = parse_iceberg_config(&v).unwrap_err();
+        assert_eq!(error_paths(&errors), ["catalog_client_cert"], "{errors:?}");
     }
 
     #[test]

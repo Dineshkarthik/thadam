@@ -15,7 +15,7 @@ use iceberg::Catalog;
 use thadam_core::{Classify, Retry, ThadamError, ServiceContext};
 use thadam_segments::SegmentCatalog;
 
-use crate::config::IcebergConfig;
+use crate::config::{CatalogAuth, IcebergConfig};
 use crate::error::IcebergError;
 use crate::rest::{RestCommitter, http_client};
 use crate::storage::{S3Io, S3IoFactory};
@@ -179,11 +179,16 @@ impl Registrar {
         use iceberg_catalog_rest::RestCatalogBuilder;
 
         let warehouse = format!("s3://{}", self.config.bucket);
-        let http = http_client(self.config.catalog_ca_file.as_deref())?;
+        let identity = self
+            .config
+            .catalog_client_cert
+            .as_deref()
+            .zip(self.config.catalog_client_key.as_deref());
+        let http = http_client(self.config.catalog_ca_file.as_deref(), identity)?;
         let mut backoff = Backoff::new(self.config.retry, seed_of(&self.id));
         let mut first_failed: Option<std::time::Instant> = None;
         loop {
-            let props = HashMap::from([
+            let mut props = HashMap::from([
                 (
                     iceberg_catalog_rest::REST_CATALOG_PROP_URI.to_owned(),
                     self.config.catalog_uri.clone(),
@@ -193,6 +198,11 @@ impl Registrar {
                     warehouse.clone(),
                 ),
             ]);
+            props.extend(
+                catalog_auth_props(&self.config.catalog_auth)
+                    .into_iter()
+                    .map(|(key, value)| (key.to_owned(), value)),
+            );
             let runtime = iceberg::Runtime::try_current().map_err(|e| {
                 IcebergError::Internal(format!("no tokio runtime for the iceberg client: {e}"))
             })?;
@@ -205,8 +215,12 @@ impl Registrar {
                     .load("thadam", props)
                     .await
                     .map_err(IcebergError::Catalog)?;
-                let committer =
-                    RestCommitter::connect(http.clone(), &self.config.catalog_uri).await?;
+                let committer = RestCommitter::connect(
+                    http.clone(),
+                    &self.config.catalog_uri,
+                    &self.config.catalog_auth,
+                )
+                .await?;
                 Ok::<_, IcebergError>((catalog, committer))
             }
             .await;
@@ -275,6 +289,34 @@ impl thadam_core::Service for Registrar {
         match self.run_inner(ctx).await {
             Ok(()) | Err(IcebergError::Cancelled) => Ok(()),
             Err(e) => Err(ThadamError::from(e)),
+        }
+    }
+}
+
+/// The `iceberg-catalog-rest` properties that carry the catalog's
+/// authentication. The crate runs the client-credentials exchange itself and
+/// refuses a `token` and a `credential` together, which config validation
+/// already prevents.
+fn catalog_auth_props(auth: &CatalogAuth) -> Vec<(&'static str, String)> {
+    match auth {
+        CatalogAuth::None => Vec::new(),
+        CatalogAuth::Token(token) => vec![("token", token.expose().to_owned())],
+        CatalogAuth::Credential(credential) => {
+            let mut props = vec![
+                (
+                    "credential",
+                    format!(
+                        "{}:{}",
+                        credential.client_id,
+                        credential.client_secret.expose()
+                    ),
+                ),
+                ("oauth2-server-uri", credential.token_url.clone()),
+            ];
+            if let Some(scope) = &credential.scope {
+                props.push(("scope", scope.clone()));
+            }
+            props
         }
     }
 }

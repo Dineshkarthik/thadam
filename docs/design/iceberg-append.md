@@ -46,6 +46,9 @@ the key was already in the `Uploaded` log record.
     pipeline: edge-capture      # written into the table location; must match the shipper's
     catalog_uri: http://iceberg-rest:8181
     catalog_ca_file: null       # PEM of the CA behind an https:// catalog (replaces platform roots)
+    catalog_token: null         # static bearer token, or catalog_credential (OAuth2 client_credentials)
+    catalog_client_cert: null   # PEM client certificate for mTLS (https:// only, with catalog_client_key)
+    catalog_client_key: null    # PEM private key for catalog_client_cert
     url: s3://warehouse/lake    # bucket + prefix; same semantics as the shipper's `url`
     namespace: robotics         # dotted names allowed (a.b -> two levels)
     create_table: false         # default: tables must exist and match
@@ -235,7 +238,17 @@ committer. An unreadable or certificate-less CA file is Fatal
 expired, wrong name: rustls `invalid peer certificate: ...`) is classified
 Fatal `config.invalid` rather than retried forever; reqwest's `Display` hides
 that cause, so the classifier and the error message walk the `source` chain.
-No client certificates (mTLS) to the catalog in this release.
+With `catalog_client_cert` and `catalog_client_key` (PEM files, set together,
+`https://` only), the same client loads the client identity
+(`reqwest::Identity::from_pem`) and presents it on every catalog and
+schema-commit connection; a server TLS alert refusing the client certificate
+(`CertificateRequired`, `BadCertificate`, `UnknownCA`) is classified Fatal
+`auth.failed`. Catalog authentication (`catalog_token` or `catalog_credential`
+with `client_id`, `client_secret`, optional `scope` and `oauth2_server_uri`,
+mutually exclusive) configures the REST catalog client's `token` or
+`credential`/`oauth2-server-uri`/`scope` properties and sends the same bearer
+token on `RestCommitter`'s `/v1/config` and schema-commit requests (exchanging
+client credentials once at connect).
 
 ## Dependency choice (audit summary)
 
@@ -272,7 +285,9 @@ No client certificates (mTLS) to the catalog in this release.
   named table missing with `create_table: false`, schema mismatch (every
   evolution rule violation above), unsupported footer type (e.g. `UInt64`
   under `unsigned: native`), a rejected catalog TLS certificate, configuration
-  errors (including an unusable `catalog_ca_file`).
+  errors (including an unusable `catalog_ca_file`, `catalog_client_cert` or
+  `catalog_client_key`), a rejected catalog token or OAuth2 credential, and a
+  catalog that refuses our client certificate (TLS alert).
 
 ## Test-harness discoveries (SeaweedFS + REST fixture)
 
@@ -316,6 +331,20 @@ not pay it again:
   works with the CA — including the schema commit over TLS — and fails fast
   and fatally with another CA and with no CA).
 
+## Tests (catalog authentication)
+
+- Config unit tests: `catalog_token` and `catalog_credential` are exclusive;
+  empty secrets and a `:` in `client_id` are refused; certificate and key come
+  together, must exist, and need `https://`; the classifier maps a 401/403 and
+  a client-certificate TLS alert to fatal `auth.failed` (and does not read a
+  port like `:40123` as a status).
+- Docker, one Caddy front per case, each with a schema-evolution commit so the
+  direct REST call is covered: `Authorization: Bearer` required (right token
+  works; wrong token fatal), OAuth2 client credentials (the fixture's own
+  `/v1/oauth/tokens` issues the token; a token endpoint answering 401 via
+  `oauth2_server_uri` is fatal), and `client_auth { mode require_and_verify }`
+  (client certificate works; none, or one from another CA, fatal).
+
 ## Deliberately out of scope (later)
 
 - Compaction / snapshot expiry / data deletion; replay isolation for Iceberg
@@ -335,9 +364,19 @@ not pay it again:
   above), because 0.10.1 offers no custom commit; revisit if a later iceberg
   release exposes `TableCommit` construction or custom transaction actions.
 - The schema commit bypasses the crate's REST client for the update POST and
-  discovers the catalog `prefix` itself from `/v1/config`; no authentication
-  header is sent (the registrar has no catalog credentials yet), so a catalog
-  that needs a token cannot be used until both paths gain one.
+  discovers the catalog `prefix` itself from `/v1/config`. It shares the
+  catalog client's reqwest client (CA, client certificate) and sends the same
+  bearer token; for `catalog_credential` it runs its own one-time
+  client-credentials exchange at connect, because the crate keeps its token
+  private.
+- Catalog tokens are never refreshed: `iceberg-catalog-rest` 0.10.1 has a
+  `TODO: Support automatic token refreshing` and caches the exchanged token for
+  the client's life, and the direct path mirrors that. An expired token is a
+  401, fatal `auth.failed`; upgrade by refreshing on 401 (re-exchange, retry
+  once) in both paths when tokens shorter than a process lifetime matter.
+- 401/403 and TLS client-certificate alerts are classified by message scan
+  (the crate folds the status into error text); upgrade when it exposes the
+  status structurally.
 - Fast-append duplicate-file validation reads every manifest of the current
   snapshot per commit; fine until manifests accumulate (no compaction yet).
 - The committed-key set is rebuilt by scanning snapshot summaries at load;
