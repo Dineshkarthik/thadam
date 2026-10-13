@@ -298,6 +298,29 @@ fn hex(digest: &[u8]) -> String {
     })
 }
 
+const LINEAGE_DOMAIN: &[u8] = b"thadam-enrichment-hash-v1\0";
+
+/// The lineage hash of the enrichment tables a chain loaded: lowercase hex
+/// SHA-256 over the sorted, distinct `dataset sha256` lines, or empty when
+/// there are none. Each file's own digest is [`EnrichmentInfo::sha256`]; this
+/// one covers the set a sink's footer names as `thadam.enrichment_hash`.
+pub(crate) fn lineage_hash<'a>(loaded: impl Iterator<Item = (&'a str, &'a str)>) -> String {
+    let mut lines: Vec<String> = loaded
+        .map(|(dataset, sha256)| format!("{dataset} {sha256}\n"))
+        .collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+    lines.sort_unstable();
+    lines.dedup();
+    let mut digest = Sha256::new();
+    digest.update(LINEAGE_DOMAIN);
+    for line in &lines {
+        digest.update(line.as_bytes());
+    }
+    hex(&digest.finalize())
+}
+
 type Cells = HashMap<String, Json>;
 
 fn cell_json(text: &str, ty: &FieldType) -> Result<Json, String> {

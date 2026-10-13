@@ -174,6 +174,8 @@ struct ChainPlan {
     /// The declared datasets the sink's chain processes, for its
     /// [`BuildContext`] (and its quarantine instance's).
     decl_datasets: Arc<[DatasetDecl]>,
+    /// The chain's enrichment hash, recorded in the sink's footers.
+    enrichment_hash: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -279,6 +281,7 @@ impl Pipeline {
         opts: RuntimeOptions,
     ) -> Result<Pipeline, Vec<ThadamError>> {
         let mut errs = Vec::new();
+        let config_hash = spec.config_hash_hex();
         let root = opts
             .data_dir
             .clone()
@@ -406,6 +409,7 @@ impl Pipeline {
                 match Chain::compile(&cs, limits.clone()) {
                     Ok(chain) => {
                         let primary = std::mem::replace(&mut first_chain, false);
+                        let enrichment_hash = chain.enrichment_hash();
                         Some(ChainPlan {
                             chain,
                             cfg: ChainConfig {
@@ -422,6 +426,7 @@ impl Pipeline {
                                 failpoints: opts.failpoints.clone(),
                             },
                             decl_datasets: plan::dataset_decls(&spec, only.as_deref()),
+                            enrichment_hash,
                         })
                     }
                     Err(es) => {
@@ -467,12 +472,15 @@ impl Pipeline {
         let mut sinks = Vec::new();
         let mut services = Vec::new();
         for (s, p) in planned {
-            let quarantine = |decls: &Arc<[DatasetDecl]>, errs: &mut Vec<ThadamError>| {
+            let quarantine = |decls: &Arc<[DatasetDecl]>,
+                              enrichment_hash: &str,
+                              errs: &mut Vec<ThadamError>| {
                 let q = registry.quarantine_factory()?;
                 let id = format!("quarantine.{}", s.id);
                 let qctx =
                     BuildContext::new(id.as_str(), Arc::clone(&clock), layout.quarantine(&s.id))
-                        .with_datasets(Arc::clone(decls));
+                        .with_datasets(Arc::clone(decls))
+                        .with_config_hashes(&config_hash, enrichment_hash);
                 match q.build(quarantine_cfg.clone(), &qctx) {
                     Ok(q) => Some(q),
                     Err(e) => {
@@ -485,14 +493,19 @@ impl Pipeline {
                 Planned::Segment(f, cp) => {
                     let ctx =
                         BuildContext::new(s.id.as_str(), Arc::clone(&clock), layout.sink(&s.id))
-                            .with_datasets(Arc::clone(&cp.decl_datasets));
+                            .with_datasets(Arc::clone(&cp.decl_datasets))
+                            .with_config_hashes(&config_hash, &cp.enrichment_hash);
                     match f.build(s.config.clone(), &ctx) {
                         Ok(sink) => sinks.push(SinkSlot {
                             id: s.id.clone(),
                             conn: SinkConn::Segment(sink),
                             chain: cp.chain,
                             chain_cfg: cp.cfg,
-                            quarantine: quarantine(&cp.decl_datasets, &mut errs),
+                            quarantine: quarantine(
+                                &cp.decl_datasets,
+                                &cp.enrichment_hash,
+                                &mut errs,
+                            ),
                         }),
                         Err(e) => errs.push(e.with_context("component", s.id.clone())),
                     }
@@ -500,14 +513,19 @@ impl Pipeline {
                 Planned::Batch(f, cp) => {
                     let ctx =
                         BuildContext::new(s.id.as_str(), Arc::clone(&clock), layout.sink(&s.id))
-                            .with_datasets(Arc::clone(&cp.decl_datasets));
+                            .with_datasets(Arc::clone(&cp.decl_datasets))
+                            .with_config_hashes(&config_hash, &cp.enrichment_hash);
                     match f.build(s.config.clone(), &ctx) {
                         Ok(sink) => sinks.push(SinkSlot {
                             id: s.id.clone(),
                             conn: SinkConn::Batch(sink),
                             chain: cp.chain,
                             chain_cfg: cp.cfg,
-                            quarantine: quarantine(&cp.decl_datasets, &mut errs),
+                            quarantine: quarantine(
+                                &cp.decl_datasets,
+                                &cp.enrichment_hash,
+                                &mut errs,
+                            ),
                         }),
                         Err(e) => errs.push(e.with_context("component", s.id.clone())),
                     }
@@ -528,9 +546,9 @@ impl Pipeline {
         if !errs.is_empty() {
             return Err(errs);
         }
-        let config_hash = spec.config_hash_hex();
         let handle = PipelineHandle::new(
             spec.pipeline.name.clone(),
+            spec.pipeline.node_id.clone(),
             config_hash.clone(),
             opts.sync_flag.clone(),
             policies,
@@ -562,6 +580,7 @@ impl Pipeline {
     /// [`RunReport::exit`].
     pub async fn run(self, shutdown: Shutdown) -> Result<RunReport, ThadamError> {
         let handle = self.handle.clone();
+        handle.set_started_at(self.opts.clock.now().as_millis());
         handle.set_phase(Phase::Starting);
         let result = self.run_inner(shutdown).await;
         let result = result.map(|mut report| {
@@ -633,13 +652,22 @@ impl Pipeline {
             wal.epoch(),
         );
         datadir::write_thadam_json(&layout.root, &meta)?;
-        if meta.previous_config_hash.is_some()
-            && existing
-                .as_ref()
-                .is_some_and(|e| e.config_hash != config_hash)
-        {
-            tracing::info!(previous = ?meta.previous_config_hash, current = %config_hash, "configuration changed since the last run");
-        }
+        handle.set_previous_config_hash(meta.previous_config_hash.clone());
+        tracing::info!(
+            pipeline = %spec.pipeline.name,
+            node_id = %spec.pipeline.node_id,
+            config_hash = %config_hash,
+            config_hash_version = thadam_config::CONFIG_HASH_VERSION,
+            previous_config_hash = meta.previous_config_hash.as_deref().unwrap_or(""),
+            thadam_version = env!("CARGO_PKG_VERSION"),
+            "pipeline starting"
+        );
+        opts.metrics.record(MetricEvent::BuildInfo {
+            version: env!("CARGO_PKG_VERSION"),
+            config_hash: &config_hash,
+            node_id: &spec.pipeline.node_id,
+            pipeline: &spec.pipeline.name,
+        });
         *lock(&handle.0.wal) = Some(wal.clone());
         tracing::info!(
             epoch = %wal.epoch(), created = recovery.created, clean = recovery.clean_shutdown,

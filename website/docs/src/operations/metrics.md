@@ -1,6 +1,6 @@
 # Metrics reference
 
-Thadam exports Prometheus metrics in OpenMetrics text format on [`GET /metrics`](admin-api.md). Naming conventions: `thadam_` prefix; counters end in `_total`; durations end in `_seconds`. Label cardinality is deliberately bounded: **labels are only source ids, sink ids, dataset ids, and bounded enums** — never topic, device, or payload values. (High-cardinality context such as connection state is available in [`/status`](admin-api.md) instead.)
+Thadam exports Prometheus metrics in OpenMetrics text format on [`GET /metrics`](admin-api.md). Naming conventions: `thadam_` prefix; counters end in `_total`; durations end in `_seconds`. Label cardinality is deliberately bounded: **labels are only source ids, sink ids, dataset ids, and bounded enums** — never topic, device, or payload values — with one deliberate exception, `thadam_build_info` below. (High-cardinality context such as connection state is available in [`/status`](admin-api.md) instead.)
 
 ## Implemented metrics
 
@@ -67,6 +67,14 @@ Reported by the `object_store` shipper service, labeled with its own sink id.
 | `thadam_wal_evicted_bytes_total` | counter | — | Bytes evicted under `on_full: drop_oldest`. |
 | `thadam_component_state` | gauge | `component`, `state` | 1 for the current state of each component (`starting`, `running`, `degraded`, `draining`, `stopped`, `failed`). |
 | `thadam_clock_synced` | gauge | — | 1 when the host clock is synchronized (from the clock-sync probe), else 0. Correlates with intended `unsynced/` partitioning and upload signature failures. |
+
+### Build and configuration identity
+
+`thadam_build_info` is recorded once, when `run` starts, and is the one metric whose labels identify the process. Its labels carry the config hash and node id, which no other metric may carry, so one series per process is the only cardinality it adds. Its value is always 1. To attach the hash to another series, join on the process (for example with `group_left`). The same values appear in [`/status`](admin-api.md#status) and in the startup log record.
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `thadam_build_info` | gauge | `version`, `config_hash`, `node_id`, `pipeline` | Always 1. `version` is the thadam version, `config_hash` the configuration's hash (the value `thadam validate` prints), `node_id` the pipeline's node id. |
 
 ## Additional connector detail
 

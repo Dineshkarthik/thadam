@@ -180,6 +180,14 @@ pub struct BuildContext {
     /// Declaring schemas locally duplicates this, so segment sinks must take
     /// their dataset schemas from here.
     pub datasets: Arc<[DatasetDecl]>,
+    /// The pipeline's config hash (lowercase hex), which Parquet segments
+    /// record as `thadam.config_hash`. Empty unless the runtime built the
+    /// component for a pipeline; see [`BuildContext::with_config_hashes`].
+    pub config_hash: String,
+    /// The enrichment hash of the transform chain the component's segments
+    /// come from (`thadam.enrichment_hash`); empty when the chain loaded no
+    /// enrichment table.
+    pub enrichment_hash: String,
 }
 
 impl BuildContext {
@@ -191,6 +199,8 @@ impl BuildContext {
             data_dir,
             schema_dir: None,
             datasets: Arc::from([]),
+            config_hash: String::new(),
+            enrichment_hash: String::new(),
         }
     }
 
@@ -205,6 +215,19 @@ impl BuildContext {
     #[must_use]
     pub fn with_datasets(mut self, datasets: Arc<[DatasetDecl]>) -> Self {
         self.datasets = datasets;
+        self
+    }
+
+    /// Sets the pipeline's config hash and the enrichment hash of the chain
+    /// feeding the component.
+    #[must_use]
+    pub fn with_config_hashes(
+        mut self,
+        config_hash: impl Into<String>,
+        enrichment_hash: impl Into<String>,
+    ) -> Self {
+        self.config_hash = config_hash.into();
+        self.enrichment_hash = enrichment_hash.into();
         self
     }
 }

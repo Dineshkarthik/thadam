@@ -422,8 +422,19 @@ pub struct BudgetStatus {
 pub struct StatusSnapshot {
     /// The pipeline name.
     pub pipeline: String,
+    /// The node identity (`pipeline.node_id`).
+    pub node_id: String,
+    /// The thadam version running the pipeline.
+    pub thadam_version: &'static str,
     /// The config hash, hexadecimal.
     pub config_hash: String,
+    /// The version of the config hash algorithm.
+    pub config_hash_version: u32,
+    /// The config hash of the run before, when the configuration changed
+    /// (`previous_config_hash` in `thadam.json`).
+    pub previous_config_hash: Option<String>,
+    /// When the run began, Unix milliseconds; `None` before `run` starts.
+    pub started_at: Option<i64>,
     /// The lifecycle phase.
     pub phase: Phase,
     /// Readiness: running, nothing starting, nothing failed.
@@ -442,7 +453,10 @@ pub struct StatusSnapshot {
 
 pub(crate) struct Shared {
     pub pipeline: String,
+    pub node_id: String,
     pub config_hash: String,
+    pub previous_config_hash: Mutex<Option<String>>,
+    pub started_at: Mutex<Option<i64>>,
     pub phase: watch::Sender<Phase>,
     pub components: Mutex<Vec<Arc<Component>>>,
     pub cursors: Mutex<BTreeMap<String, (String, CursorState)>>,
@@ -471,13 +485,17 @@ impl std::fmt::Debug for PipelineHandle {
 impl PipelineHandle {
     pub(crate) fn new(
         pipeline: String,
+        node_id: String,
         config_hash: String,
         sync_flag: SyncFlag,
         policies: BTreeMap<String, SinkPolicy>,
     ) -> Self {
         PipelineHandle(Arc::new(Shared {
             pipeline,
+            node_id,
             config_hash,
+            previous_config_hash: Mutex::new(None),
+            started_at: Mutex::new(None),
             phase: watch::Sender::new(Phase::Built),
             components: Mutex::new(Vec::new()),
             cursors: Mutex::new(BTreeMap::new()),
@@ -579,7 +597,12 @@ impl PipelineHandle {
             .collect();
         StatusSnapshot {
             pipeline: self.0.pipeline.clone(),
+            node_id: self.0.node_id.clone(),
+            thadam_version: env!("CARGO_PKG_VERSION"),
             config_hash: self.0.config_hash.clone(),
+            config_hash_version: thadam_config::CONFIG_HASH_VERSION,
+            previous_config_hash: lock(&self.0.previous_config_hash).clone(),
+            started_at: *lock(&self.0.started_at),
             phase: self.phase(),
             ready: self.is_ready(),
             components: lock(&self.0.components)
@@ -595,6 +618,14 @@ impl PipelineHandle {
 
     pub(crate) fn set_phase(&self, phase: Phase) {
         self.0.phase.send_replace(phase);
+    }
+
+    pub(crate) fn set_started_at(&self, unix_ms: i64) {
+        *lock(&self.0.started_at) = Some(unix_ms);
+    }
+
+    pub(crate) fn set_previous_config_hash(&self, previous: Option<String>) {
+        *lock(&self.0.previous_config_hash) = previous;
     }
 
     pub(crate) fn register(&self, c: Arc<Component>) {

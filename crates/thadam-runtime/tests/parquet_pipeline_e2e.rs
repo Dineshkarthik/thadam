@@ -177,6 +177,127 @@ async fn parquet_sink_builds_from_pipeline_datasets_and_writes_their_field_ids()
     );
 }
 
+/// The footer hashes of a real run equal what `thadam validate` prints: the
+/// config hash is `PipelineSpec::config_hash_hex`, the function validate uses,
+/// and a sink with no enrichment table records an empty enrichment hash.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn parquet_footer_carries_the_config_hash_that_validate_prints() {
+    let dir = TempDataDir::new().unwrap();
+    let kit = Kit::default();
+    kit.sources.scripted(
+        "src",
+        (1..=PAYLOADS).map(|n| Bytes::from(format!("{{\"n\":{n},\"temp\":{n}.5}}"))),
+    );
+    let y = yaml_with_sink(
+        dir.path(),
+        "      datasets: [d]\n      compression: none\n      rotation: { max_bytes: null, max_rows: 2, max_age: null }",
+    );
+    let registry = parquet_registry(kit.sources.clone());
+    let report = run_with(&registry, spec(&y), fast_opts()).await;
+    assert_eq!(report.exit, ExitStatus::Ok, "{:#?}", report.status);
+
+    let validate_hash = spec(&y).config_hash_hex();
+    assert_eq!(report.status.config_hash, validate_hash);
+    let files = parquet_files(&dir.path().join("sinks/pq/ready"));
+    assert!(!files.is_empty(), "no segments under ready/");
+    for f in &files {
+        assert_eq!(
+            footer_kv(f, "thadam.config_hash").as_deref(),
+            Some(validate_hash.as_str()),
+            "{}",
+            f.display()
+        );
+        assert_eq!(footer_kv(f, "thadam.enrichment_hash").as_deref(), Some(""));
+    }
+}
+
+/// A pipeline joining `d` with the CSV table at `table`, keyed by `robot`.
+fn yaml_enriched(data_dir: &Path, table: &Path) -> String {
+    format!(
+        r#"version: 1
+pipeline: {{ name: pqtest, node_id: node-1, data_dir: "{dir}" }}
+sources:
+  - {{ id: src, kind: memory }}
+wal: {{ max_disk: 64MiB, segment_bytes: 1MiB, fsync: {{ interval: 1ms }}, on_full: block, retain_for: 1h }}
+datasets:
+  - id: d
+    match: {{ source: src }}
+    decode: json
+    fields:
+      - {{ id: 1000, name: robot, type: str, from: /robot, required: true }}
+transforms:
+  - {{ kind: enrich, dataset: d, file: "{table}", key: {{ field: robot, column: robot_id }}, add: [{{ name: model, type: str }}] }}
+sinks:
+  - id: pq
+    kind: parquet
+    config:
+      datasets: [d]
+      compression: none
+"#,
+        dir = data_dir.display(),
+        table = table.display()
+    )
+}
+
+/// The enrichment hash footer of a run joined with `table_csv`.
+async fn footer_enrichment_hash(table_csv: &str) -> String {
+    let dir = TempDataDir::new().unwrap();
+    let table_dir = tempfile::tempdir().unwrap();
+    let table = table_dir.path().join("robots.csv");
+    std::fs::write(&table, table_csv).unwrap();
+    let kit = Kit::default();
+    kit.sources
+        .scripted("src", [Bytes::from_static(br#"{"robot":"r1"}"#)]);
+    let registry = parquet_registry(kit.sources.clone());
+    let report = run_with(
+        &registry,
+        spec(&yaml_enriched(dir.path(), &table)),
+        fast_opts(),
+    )
+    .await;
+    assert_eq!(report.exit, ExitStatus::Ok, "{:#?}", report.status);
+    let files = parquet_files(&dir.path().join("sinks/pq/ready"));
+    assert!(!files.is_empty(), "no segments under ready/");
+    footer_kv(&files[0], "thadam.enrichment_hash").expect("enrichment hash footer")
+}
+
+/// `thadam.enrichment_hash` is the lineage hash of the table the chain joined:
+/// set for a joined table, and different when the table's content changes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn parquet_footer_enrichment_hash_follows_the_table_it_joined() {
+    let first = footer_enrichment_hash("robot_id,model\nr1,A1\n").await;
+    let second = footer_enrichment_hash("robot_id,model\nr1,B2\n").await;
+    assert_eq!(first.len(), 64, "{first:?}");
+    assert!(first.bytes().all(|b| b.is_ascii_hexdigit()), "{first}");
+    assert_ne!(first, second, "a changed table is a changed lineage");
+}
+
+/// Rejects go to quarantine, whose files record the same config hash as the
+/// sink that produced them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn quarantine_footer_carries_the_config_hash() {
+    let dir = TempDataDir::new().unwrap();
+    let kit = Kit::default();
+    kit.sources.scripted(
+        "src",
+        [
+            Bytes::from_static(b"{\"n\":1}"),
+            Bytes::from_static(b"{\"temp\":2.0}"),
+        ],
+    );
+    let y = yaml_with_sink(dir.path(), "      datasets: [d]\n      compression: none");
+    let registry = parquet_registry(kit.sources.clone());
+    let report = run_with(&registry, spec(&y), fast_opts()).await;
+    assert_eq!(report.exit, ExitStatus::Ok, "{:#?}", report.status);
+
+    let quarantined = parquet_files(&dir.path().join("quarantine/pq"));
+    assert!(!quarantined.is_empty(), "the reject reached quarantine");
+    assert_eq!(
+        footer_kv(&quarantined[0], "thadam.config_hash"),
+        Some(spec(&y).config_hash_hex())
+    );
+}
+
 #[test]
 fn pipeline_build_refuses_a_sink_schemas_block() {
     let dir = TempDataDir::new().unwrap();

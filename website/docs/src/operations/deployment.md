@@ -2,6 +2,10 @@
 
 Thadam ships two deployment paths in `deploy/`: a Docker image and a systemd unit. Neither is published to a registry or package repository yet. The commands on this page are the ones run to check them, and each section says what was not exercised.
 
+## One configuration for many nodes
+
+Give every node the same `pipeline.yaml` and set its identity from the environment: `node_id: ${env:THADAM_NODE_ID}`. The variable is resolved by both `thadam validate` and `thadam run`, and an unset variable is an error rather than an empty node id. The config hash is taken with the placeholder as written, so the whole fleet shares one hash, while [`/status`](admin-api.md#status), the startup log record, and `thadam_build_info` report each node's own `node_id`.
+
 ## Docker
 
 **Status: Available as a local build from source.** The image is built from this repository and was run on one machine (linux/arm64 under Docker Desktop for macOS). It is not pushed anywhere.

@@ -4,7 +4,8 @@
 //! a metrics library; PR11 maps these onto the consolidated names in
 //! ARCHITECTURE.md section 14. Gauges (WAL disk bytes, budgets, lag, component
 //! states) are read from [`PipelineHandle::status`](crate::PipelineHandle::status)
-//! instead. Labels are only source, sink, dataset, and bounded enums.
+//! instead. Labels are only source, sink, dataset, and bounded enums, plus the
+//! one build-identity gauge, `thadam_build_info`, recorded once per start.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -141,6 +142,18 @@ pub enum MetricEvent<'a> {
     ClockSynced {
         /// Whether the clock is synchronized.
         synced: bool,
+    },
+    /// The run started: the build and configuration this process runs
+    /// (`thadam_build_info`, value 1).
+    BuildInfo {
+        /// The thadam version.
+        version: &'a str,
+        /// The config hash, hexadecimal.
+        config_hash: &'a str,
+        /// The node identity.
+        node_id: &'a str,
+        /// The pipeline name.
+        pipeline: &'a str,
     },
     /// A connector (sink or service) reported through the `thadam-core`
     /// metrics hook on its context. Carried verbatim: the core enum pins

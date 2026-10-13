@@ -65,10 +65,10 @@ pub struct ParquetSinkConfig {
     pub unsigned: UnsignedPolicy,
     /// Whether `finalize_all` writes pending segments at shutdown.
     pub finalize_on_shutdown: bool,
-    /// `thadam.config_hash` footer value.
+    /// `thadam.config_hash` footer value, from the build context.
     pub config_hash: String,
-    /// `thadam.enrichment_hash` footer value (empty when there is no
-    /// enrichment file).
+    /// `thadam.enrichment_hash` footer value, from the build context (empty
+    /// when the chain loaded no enrichment table).
     pub enrichment_hash: String,
 }
 
@@ -102,10 +102,6 @@ pub struct ParquetSinkOptions {
     pub unsigned: UnsignedPolicy,
     /// Whether `finalize_all` writes pending segments at shutdown.
     pub finalize_on_shutdown: bool,
-    /// `thadam.config_hash` footer value.
-    pub config_hash: String,
-    /// `thadam.enrichment_hash` footer value.
-    pub enrichment_hash: String,
 }
 
 impl ParquetSinkOptions {
@@ -115,10 +111,13 @@ impl ParquetSinkOptions {
     /// come from the sink config, so there is nothing to build from),
     /// selector entries that name no declared dataset, duplicate ids, ids
     /// unsafe for paths, and schema build failures such as a missing field
-    /// ID.
+    /// ID. The footer hashes come from the runtime's build context, never
+    /// from the sink's own configuration.
     pub fn with_datasets(
         self,
         datasets: &[DatasetDecl],
+        config_hash: &str,
+        enrichment_hash: &str,
     ) -> Result<ParquetSinkConfig, Vec<ThadamError>> {
         let mut errors = Vec::new();
         if datasets.is_empty() {
@@ -196,8 +195,8 @@ impl ParquetSinkOptions {
             timestamp_unit: self.timestamp_unit,
             unsigned: self.unsigned,
             finalize_on_shutdown: self.finalize_on_shutdown,
-            config_hash: self.config_hash,
-            enrichment_hash: self.enrichment_hash,
+            config_hash: config_hash.to_owned(),
+            enrichment_hash: enrichment_hash.to_owned(),
         })
     }
 }
@@ -286,10 +285,6 @@ struct RawSinkConfig {
     finalize_on_shutdown: bool,
     #[serde(default)]
     node_id: Option<String>,
-    #[serde(default)]
-    config_hash: String,
-    #[serde(default)]
-    enrichment_hash: String,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -473,8 +468,6 @@ fn parse_sink_raw(
             RawUnsigned::Signed => UnsignedPolicy::Signed,
         },
         finalize_on_shutdown: raw.finalize_on_shutdown,
-        config_hash: raw.config_hash,
-        enrichment_hash: raw.enrichment_hash,
     })
 }
 
@@ -514,9 +507,7 @@ pub fn sink_config_schema() -> serde_json::Value {
             "timestamp_unit": {"type": "string", "enum": ["micros", "nanos"], "default": "micros"},
             "unsigned": {"type": "string", "enum": ["native", "signed"], "default": "native"},
             "finalize_on_shutdown": {"type": "boolean", "default": true},
-            "node_id": {"type": "string", "description": "File-name node id; defaults to the sink id."},
-            "config_hash": {"type": "string", "default": ""},
-            "enrichment_hash": {"type": "string", "default": ""}
+            "node_id": {"type": "string", "description": "File-name node id; defaults to the sink id."}
         }
     })
 }
@@ -640,8 +631,7 @@ mod tests {
     fn base_json() -> serde_json::Value {
         serde_json::json!({
             "rotation": {"max_rows": 100, "max_age": null},
-            "node_id": "edge01",
-            "config_hash": "abc123"
+            "node_id": "edge01"
         })
     }
 
@@ -671,7 +661,7 @@ mod tests {
         decls: &[DatasetDecl],
     ) -> Result<ParquetSinkConfig, Vec<ThadamError>> {
         parse_sink_config(value, PathBuf::from("/data"), "sink")
-            .and_then(|options| options.with_datasets(decls))
+            .and_then(|options| options.with_datasets(decls, "", ""))
     }
 
     #[test]
@@ -684,7 +674,6 @@ mod tests {
         assert_eq!(cfg.rotation.max_rows, Some(100));
         assert_eq!(cfg.rotation.max_age, None);
         assert!(cfg.finalize_on_shutdown);
-        assert_eq!(cfg.config_hash, "abc123");
         let schema = &cfg.datasets["telemetry"];
         assert_eq!(schema.name(), "telemetry");
         assert_eq!(&*schema.levels()[0].name, "robot");
@@ -772,10 +761,31 @@ mod tests {
     }
 
     #[test]
+    fn footer_hashes_come_from_the_build_context_not_the_config() {
+        let options = parse_sink_config(&base_json(), PathBuf::from("/data"), "sink")
+            .unwrap_or_else(|es| panic!("{es:?}"));
+        let cfg = options
+            .with_datasets(&[telemetry_decl()], "abc123", "def456")
+            .unwrap_or_else(|es| panic!("{es:?}"));
+        assert_eq!(cfg.config_hash, "abc123");
+        assert_eq!(cfg.enrichment_hash, "def456");
+
+        for key in ["config_hash", "enrichment_hash"] {
+            let mut v = base_json();
+            v[key] = serde_json::json!("forged");
+            let errs = parse_sink_config(&v, PathBuf::from("/data"), "sink").unwrap_err();
+            assert!(
+                errs.iter().any(|e| e.message.contains(key)),
+                "`{key}` in the sink config must be refused: {errs:?}"
+            );
+        }
+    }
+
+    #[test]
     fn requires_datasets_in_the_build_context() {
         let options = parse_sink_config(&base_json(), PathBuf::from("/data"), "sink")
             .unwrap_or_else(|es| panic!("{es:?}"));
-        let errs = options.with_datasets(&[]).unwrap_err();
+        let errs = options.with_datasets(&[], "", "").unwrap_err();
         assert!(
             errs.iter()
                 .any(|e| e.message.contains("pipeline-level `datasets:`")),
@@ -785,7 +795,7 @@ mod tests {
         let dupes = [telemetry_decl(), telemetry_decl()];
         let options = parse_sink_config(&base_json(), PathBuf::from("/data"), "sink")
             .unwrap_or_else(|es| panic!("{es:?}"));
-        let errs = options.with_datasets(&dupes).unwrap_err();
+        let errs = options.with_datasets(&dupes, "", "").unwrap_err();
         assert!(
             errs.iter()
                 .any(|e| e.message.contains("declared more than once")),

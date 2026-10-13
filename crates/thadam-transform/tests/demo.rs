@@ -710,6 +710,39 @@ fn enrichment_hash_is_exposed_for_lineage() {
     );
 }
 
+/// A chain's enrichment hash covers the tables it loaded: empty without any,
+/// stable for the same content, and different when a table's content changes.
+#[test]
+fn chain_enrichment_hash_covers_the_tables_it_loaded() {
+    let hash_of = |csv: &str| {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("robots.csv"), csv).unwrap();
+        let spec = ChainSpec::from_value(json!({
+            "datasets": [telemetry_dataset()],
+            "transforms": [{ "kind": "enrich", "dataset": "telemetry", "file": "robots.csv",
+                             "key": { "field": "robot", "column": "robot_id" },
+                             "add": [{ "name": "model", "type": "str" }] }]
+        }))
+        .unwrap()
+        .with_base_dir(dir.path());
+        Chain::compile(&spec, ChainLimits::default())
+            .unwrap()
+            .enrichment_hash()
+    };
+    let a = hash_of("robot_id,model\nrobot-01,A1\n");
+    assert_eq!(a.len(), 64);
+    assert_eq!(a, hash_of("robot_id,model\nrobot-01,A1\n"));
+    assert_ne!(a, hash_of("robot_id,model\nrobot-01,B2\n"));
+
+    let plain = ChainSpec::from_value(json!({ "datasets": [telemetry_dataset()] })).unwrap();
+    assert_eq!(
+        Chain::compile(&plain, ChainLimits::default())
+            .unwrap()
+            .enrichment_hash(),
+        ""
+    );
+}
+
 #[test]
 fn chain_output_carries_the_origin_for_every_dataset() {
     let mut chain = demo_chain();

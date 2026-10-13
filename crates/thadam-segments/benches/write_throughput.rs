@@ -85,7 +85,7 @@ fn test_config(dir: &std::path::Path, codec: &str) -> ParquetSinkConfig {
         false,
     )];
     match thadam_segments::parse_sink_config(&json, dir.to_path_buf(), "bench")
-        .and_then(|options| options.with_datasets(&decls))
+        .and_then(|options| options.with_datasets(&decls, "", ""))
     {
         Ok(cfg) => cfg,
         Err(es) => panic!("bench config parses: {es:?}"),

@@ -20,6 +20,7 @@ mod state;
 mod validate;
 
 pub use enrich::EnrichmentInfo;
+pub(crate) use enrich::lineage_hash;
 
 /// What a step did with one event.
 pub(crate) enum StepResult {
