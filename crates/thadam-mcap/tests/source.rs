@@ -681,3 +681,71 @@ async fn cancel_safety_no_loss_no_duplication_under_dropped_futures() {
         "messages lost or duplicated after {dropped} drops"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn truncated_huge_record_header_and_oversized_chunks_are_rejected() {
+    use mcap::records::{MessageHeader, op};
+    use mcap::{Compression, WriteOptions, Writer};
+    use std::collections::BTreeMap;
+    use std::io::BufWriter;
+
+    let dir = tempfile::tempdir().expect("tmpdir");
+
+    // 1a. A 20-byte truncated file claiming a 50 MiB record body (within
+    // MAX_RECORD_LEN) fails cleanly with UnexpectedEof after reading only the
+    // 3 trailing bytes, without pre-allocating 50 MiB.
+    for claimed_len in [50u64 << 20, (64u64 << 20) + 1] {
+        let p = dir.path().join(format!("trunc-{claimed_len}.mcap"));
+        let mut bytes = Vec::with_capacity(20);
+        bytes.extend_from_slice(mcap::MAGIC);
+        bytes.push(op::MESSAGE);
+        bytes.extend_from_slice(&claimed_len.to_le_bytes());
+        bytes.extend_from_slice(&[0xAA, 0xBB, 0xCC]);
+        std::fs::write(&p, &bytes).expect("write");
+
+        let (mut source, shutdown) =
+            source_for(serde_json::json!({ "paths": [p.to_str().unwrap()] }));
+        let ctx = SourceContext::new(SourceId::new("t"), shutdown, Arc::new(SystemClock::new()));
+        let err = source.open(&ctx).await.expect_err("must reject");
+        assert_eq!(err.domain, ErrorDomain::Connector, "{err}");
+        assert_eq!(err.retry, Retry::Permanent, "{err}");
+    }
+
+    // 2a. A compressed chunk whose declared `uncompressed_size` exceeds
+    // MAX_RECORD_LEN (64 MiB) is rejected before decompression.
+    let bomb_declared = dir.path().join("bomb-declared.mcap");
+    {
+        let file = std::fs::File::create(&bomb_declared).expect("create");
+        let options = WriteOptions::default()
+            .compression(Some(Compression::Zstd))
+            .chunk_size(Some(128 << 20));
+        let mut writer = Writer::with_options(BufWriter::new(file), options).expect("writer");
+        let ch = writer
+            .add_channel(0, "/raw", "cdr", &BTreeMap::new())
+            .expect("channel");
+        let payload = vec![0u8; 33 << 20];
+        for seq in 0..2u32 {
+            writer
+                .write_to_known_channel(
+                    &MessageHeader {
+                        channel_id: ch,
+                        sequence: seq,
+                        log_time: u64::from(seq) + 1,
+                        publish_time: u64::from(seq) + 1,
+                    },
+                    &payload,
+                )
+                .expect("write msg");
+        }
+        writer.finish().expect("finish");
+    }
+    let (mut source, shutdown) =
+        source_for(serde_json::json!({ "paths": [bomb_declared.to_str().unwrap()] }));
+    let ctx = SourceContext::new(SourceId::new("t"), shutdown, Arc::new(SystemClock::new()));
+    let err = source
+        .open(&ctx)
+        .await
+        .expect_err("must reject oversized uncompressed_size");
+    assert_eq!(err.domain, ErrorDomain::Connector, "{err}");
+    assert_eq!(err.retry, Retry::Permanent, "{err}");
+}
