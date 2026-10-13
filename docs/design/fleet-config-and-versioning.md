@@ -98,7 +98,7 @@ There is no hot path; every change is a restart. The useful distinction is what 
 | `pipeline.name`, `node_id` | A name change is refused (exit 3) unless `--repair`. A `node_id` change makes the WAL refuse to open (`wal.rs:155`); whether `--repair` covers it was not checked. Not a remote-apply case. |
 | `pipeline.data_dir` | Not refused; starts a fresh WAL. A migration, not an apply. |
 
-Every apply has a capture gap: intake stops first, then drain (up to 10 s for chains, 30 s overall), then recovery and start (`ARCHITECTURE.md:555-560`). Sources with broker-side queues (MQTT QoS 1, persistent session) are covered by the broker's queue limits; QoS 0 and best-effort sources drop. The gap length is not measured.
+Every apply has a capture gap: intake stops first, then drain (up to 10 s for chains, 30 s overall), then recovery and start (`ARCHITECTURE.md:555-560`). Sources with broker-side queues (MQTT QoS 1, persistent session) are covered by the broker's queue limits; QoS 0 and best-effort sources drop. Measured locally: a median of about 100 ms from the restart command to a ready node on the new hash, idle node, stand-in restart (`website/docs/src/operations/deployment.md`). Under systemd it is not measured.
 
 ### Audit trail
 
@@ -131,7 +131,7 @@ Left to existing tools:
 |---|---|---|---|
 | 1 | **Stamp the version.** `BuildContext` carries the config hash to the Parquet footer; `/status` fields; `thadam_build_info`; startup log record. Test: a real `Pipeline` run writes a Parquet file whose footer equals `/status.config_hash`; also that `node_id: ${env:…}` validates. Fix docs or confirm they are now true. | `thadam-core`, `thadam-segments` factory, `thadam-runtime` (`status.rs`, `observability.rs`, `pipeline.rs`), `metrics.md`, `admin-api.md` | |
 | 2 | **Stronger pre-apply check.** `Pipeline::check` (the pre-connector half of `build`) and `thadam validate --against-data-dir`, with exit codes 2 and 3 as `run` gives them. **Done.** | `pipeline.rs`, `datadir.rs`, `apps/thadam-cli/src/validate.rs`, `validating-configs.md` | |
-| 3 | **Apply script and docs.** `deploy/` shell script implementing the four apply steps and rollback; an operations page with the change table; a Prometheus rule example for hash drift. Test the script against the Docker image on one machine (the deployment page's honesty standard: say what was not run, for example under systemd). | `deploy/`, `website/docs/src/operations/` (site rules in `AGENTS.md` apply) | |
+| 3 | **Apply script and docs.** `deploy/` shell script implementing the four apply steps and rollback; an operations page with the change table; a Prometheus rule example for hash drift. Test the script against the Docker image on one machine (the deployment page's honesty standard: say what was not run, for example under systemd). **Done** for a local binary with a stand-in restart command, tested by `apps/thadam-cli/tests/apply_config.rs`. The restart took about 100 ms on an idle node (seven runs, 92 to 103 ms, median 100 ms; debug build, macOS arm64). The Docker image and systemd were not run. | `deploy/`, `website/docs/src/operations/` (site rules in `AGENTS.md` apply) | |
 | 4 | **Meter `unmatched`.** Export the chain's `unmatched` count (`thadam_chain_events_total{outcome="unmatched"}` or a separate counter) so the remove-source row can be checked. Recommended before step 3 documents that procedure. **Done:** a separate counter, `thadam_chain_unmatched_total{sink}`, and `/status` `counters.unmatched`. The `outcome` label was not used because `thadam_chain_events_total` requires a `dataset` label, and an unmatched record has no dataset. | `thadam-runtime` observability, pinned metric list | |
 
 ### Deliberately left out
@@ -156,6 +156,6 @@ Thadam-side watcher or SIGHUP; any apply or write endpoint; HTTP(S) config pull;
 - That a removed sink's cursor and directory are never cleaned up (absence of code found by search, not by a test).
 - Which `wal.*` keys are immutable once a WAL exists (only `node_id`/`machine_id` binding was checked).
 - Whether `Pipeline::build`'s front half is free of side effects as the split assumes; the connector `validate()` implementations were not read.
-- Restart gap length. The apply script does not exist, so its behaviour under systemd or Docker is untested.
+- Restart gap length under systemd or Docker. The apply script was run only with a local binary and a stand-in restart command (about 100 ms on an idle node; `deployment.md`).
 - Connector crates for outbound calls other than their configured endpoints; `ARCHITECTURE.md` sections 14 to 16 were read for observability and security but not every connector's TLS or auth path.
 - ADR-0011 claim wording was not re-checked against this note (no delivery claims are made).
