@@ -148,6 +148,7 @@ pub struct PrometheusMetrics {
     rejects_total: Family<SinkDomainLabels, Counter>,
     wal_gap_total: Family<SinkKindLabels, Counter>,
     chain_panic_total: Family<SinkLabels, Counter>,
+    chain_unmatched_total: Family<SinkLabels, Counter>,
     cursor_committed_total: Family<SinkLabels, Counter>,
     batch_written_total: Family<SinkLabels, Counter>,
     batch_written_events_total: Family<SinkLabels, Counter>,
@@ -235,6 +236,13 @@ impl PrometheusMetrics {
             "thadam_chain_panic",
             "Total chain panics",
             chain_panic_total.clone(),
+        );
+
+        let chain_unmatched_total = Family::default();
+        registry.register(
+            "thadam_chain_unmatched",
+            "Total records no dataset matched (not rejects)",
+            chain_unmatched_total.clone(),
         );
 
         let cursor_committed_total = Family::default();
@@ -407,6 +415,7 @@ impl PrometheusMetrics {
             rejects_total,
             wal_gap_total,
             chain_panic_total,
+            chain_unmatched_total,
             cursor_committed_total,
             batch_written_total,
             batch_written_events_total,
@@ -453,6 +462,7 @@ impl PrometheusMetrics {
             "thadam_rejects_total",
             "thadam_wal_gap_total",
             "thadam_chain_panic_total",
+            "thadam_chain_unmatched_total",
             "thadam_cursor_committed_total",
             "thadam_batch_written_total",
             "thadam_batch_written_events_total",
@@ -571,6 +581,14 @@ impl MetricsSink for PrometheusMetrics {
                     sink: sink.to_string(),
                 };
                 self.chain_panic_total.get_or_create(&labels).inc();
+            }
+            MetricEvent::ChainUnmatched { sink, messages } => {
+                let labels = SinkLabels {
+                    sink: sink.to_string(),
+                };
+                self.chain_unmatched_total
+                    .get_or_create(&labels)
+                    .inc_by(messages as u64);
             }
             MetricEvent::CursorCommitted { sink, .. } => {
                 let labels = SinkLabels {

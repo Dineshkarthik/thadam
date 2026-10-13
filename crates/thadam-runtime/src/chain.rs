@@ -399,6 +399,20 @@ impl ChainTask {
                 }
             }
         }
+        let prev_unmatched = self.last_stats.as_ref().map_or(0, |s| s.unmatched);
+        let unmatched = stats.unmatched.saturating_sub(prev_unmatched);
+        if unmatched > 0 {
+            // shortcut: a panic that rebuilds the chain mid-group drops the unmatched
+            // count of the frames before it in that group, as the outcome counts do;
+            // upgrade by counting per frame in `process_group`.
+            add(&c.unmatched, unmatched);
+            self.component
+                .metrics()
+                .record(MetricEvent::ChainUnmatched {
+                    sink: &self.cfg.sink_id,
+                    messages: unmatched as usize,
+                });
+        }
         self.last_stats = Some(stats);
         if !rejects.is_empty() {
             add(&c.rejects, rejects.len() as u64);

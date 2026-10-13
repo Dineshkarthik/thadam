@@ -41,7 +41,7 @@ The snapshot (`thadam status` pretty-prints exactly this):
       // failed:     { "state": "failed", "error": {domain, code, message} }
       "counters": {
         "messages": 0, "bytes": 0, "batches": 0, "events": 0, "rejects": 0,
-        "quarantined": 0, "retries": 0, "restarts": 0, "gaps": 0, "panics": 0,
+        "unmatched": 0, "quarantined": 0, "retries": 0, "restarts": 0, "gaps": 0, "panics": 0,
         "bisects": 0, "queued_bytes": 0, "uncommitted_batches": 0
       },
       "delivery": null,            // batch sinks: the probed delivery class, when known

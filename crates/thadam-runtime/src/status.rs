@@ -131,6 +131,8 @@ pub struct ComponentCounters {
     pub events: u64,
     /// Records or events rejected.
     pub rejects: u64,
+    /// Records no dataset matched (chains). They are not rejects.
+    pub unmatched: u64,
     /// Rejects written to quarantine.
     pub quarantined: u64,
     /// Retried operations.
@@ -156,6 +158,7 @@ pub(crate) struct Counters {
     pub batches: AtomicU64,
     pub events: AtomicU64,
     pub rejects: AtomicU64,
+    pub unmatched: AtomicU64,
     pub quarantined: AtomicU64,
     pub retries: AtomicU64,
     pub restarts: AtomicU64,
@@ -175,6 +178,7 @@ impl Counters {
             batches: g(&self.batches),
             events: g(&self.events),
             rejects: g(&self.rejects),
+            unmatched: g(&self.unmatched),
             quarantined: g(&self.quarantined),
             retries: g(&self.retries),
             restarts: g(&self.restarts),

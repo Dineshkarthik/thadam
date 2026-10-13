@@ -83,6 +83,14 @@ pub enum MetricEvent<'a> {
         /// The sink whose chain it is.
         sink: &'a str,
     },
+    /// Records no dataset of a chain matched. Chain-scoped, so no dataset
+    /// label. They are not rejects.
+    ChainUnmatched {
+        /// The sink whose chain it is.
+        sink: &'a str,
+        /// How many records.
+        messages: usize,
+    },
     /// A sink's cursor was durably committed.
     CursorCommitted {
         /// The sink id.
