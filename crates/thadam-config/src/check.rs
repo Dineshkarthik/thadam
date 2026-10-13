@@ -15,9 +15,9 @@ use crate::predicate::{Condition, Literal, Predicate, Test};
 use crate::scalars::{CountSpec, DurationSpec, FieldTypeSpec};
 use crate::spans::Anchor;
 use crate::spec::{
-    CONFIG_VERSION, ConnectorSpec, DatasetSpec, EnrichFieldSpec, EnrichFormat, EnrichKeySpec,
-    IdentityLevel, ObservabilitySpec, OnMissSpec, PipelineMeta, QuarantineSpec, RuntimeSpec,
-    SinkSpec, TransformSpec, ValidateRule, WalSpec, WatchField,
+    AggregateSpec, CONFIG_VERSION, ConnectorSpec, DatasetSpec, EnrichFieldSpec, EnrichFormat,
+    EnrichKeySpec, IdentityLevel, ObservabilitySpec, OnMissSpec, PipelineMeta, QuarantineSpec,
+    RuntimeSpec, SinkSpec, TransformSpec, ValidateRule, WalSpec, WatchField,
 };
 
 /// The top-level keys, in document order.
@@ -34,7 +34,7 @@ pub(crate) const SECTIONS: [&str; 10] = [
     "observability",
 ];
 
-const TRANSFORM_KINDS: [&str; 10] = [
+const TRANSFORM_KINDS: [&str; 11] = [
     "validate",
     "on_change",
     "filter",
@@ -45,6 +45,7 @@ const TRANSFORM_KINDS: [&str; 10] = [
     "cast",
     "pose",
     "joint_state",
+    "window",
 ];
 const PREDICATE_KEYS: [&str; 14] = [
     "all", "any", "not", "field", "eq", "ne", "lt", "le", "gt", "ge", "in", "min", "max", "null",
@@ -659,6 +660,16 @@ struct JointStateRaw {
     effort_field: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WindowRaw {
+    dataset: String,
+    #[serde(default)]
+    sinks: Option<Vec<String>>,
+    size: DurationSpec,
+    aggregates: Vec<AggregateSpec>,
+}
+
 fn parse_transforms(items: &[Value], ctx: &mut Ctx<'_>) -> Section<TransformSpec> {
     let base = Vec::new().key("transforms");
     let mut out = Vec::with_capacity(items.len());
@@ -817,6 +828,15 @@ fn parse_transform(item: &Value, base: &PathVec, ctx: &mut Ctx<'_>) -> Option<Tr
                 effort_field: raw
                     .effort_field
                     .unwrap_or_else(crate::spec::default_joint_effort_field),
+            })
+        }
+        "window" => {
+            let raw = typed::<WindowRaw>(&rest, base, ctx)?;
+            Some(TransformSpec::Window {
+                dataset: raw.dataset,
+                sinks: raw.sinks,
+                size: raw.size,
+                aggregates: raw.aggregates,
             })
         }
         other => {

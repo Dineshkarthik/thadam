@@ -316,6 +316,7 @@ fn transform_value(t: &TransformSpec, path: &str) -> Result<Value, ThadamError> 
                 min_interval: Some(d),
                 ..
             } => Some(("min_interval", d.get())),
+            TransformSpec::Window { size, .. } => Some(("size", size.get())),
             _ => None,
         };
         if let Some((key, d)) = duration {

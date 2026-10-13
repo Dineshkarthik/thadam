@@ -3,7 +3,7 @@
 
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -12,9 +12,11 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use thadam_config::{MapEnv, PipelineSpec};
 use thadam_core::{
-    BatchSink, BatchSinkFactory, BuildContext, ErrorDomain, Event, Reject, ThadamError,
-    SegmentBatch, SegmentSink, SegmentSinkFactory, Service, ServiceContext, ServiceFactory,
-    SinkContext, Source, SourceFactory, Value, WalPos, WalRange, codes,
+    AckHandle, AckMode, Attributes, BatchLimits, BatchSink, BatchSinkFactory, BuildContext,
+    ErrorDomain, Event, RawBatch, RawMessage, Reject, ThadamError, SegmentBatch, SegmentSink,
+    SegmentSinkFactory, Service, ServiceContext, ServiceFactory, SinkContext, Source, SourceBatch,
+    SourceCapabilities, SourceContext, SourceFactory, SourceId, Timestamp, Value, WalPos, WalRange,
+    codes,
 };
 use thadam_runtime::{BackoffPolicy, Pipeline, Registry, RunReport, RuntimeOptions};
 use thadam_testkit::{
@@ -118,6 +120,60 @@ impl SourceFactory for SlotSourceFactory {
                 )
             })
     }
+}
+
+// ------------------------------------------------------- timed source
+
+/// A message from `robot` at ingest time `secs`, carrying `v`.
+pub type Msg = (&'static str, i64, u64);
+
+/// Replays messages with fixed ingest times, one per batch, then ends.
+pub struct TimedSource {
+    pub queue: VecDeque<Msg>,
+    pub id: Option<SourceId>,
+}
+
+#[async_trait]
+impl Source for TimedSource {
+    async fn open(&mut self, ctx: &SourceContext) -> Result<(), ThadamError> {
+        self.id = Some(ctx.source_id.clone());
+        Ok(())
+    }
+
+    async fn next_batch(&mut self, _: BatchLimits) -> Result<Option<SourceBatch>, ThadamError> {
+        let (Some((robot, secs, v)), Some(id)) = (self.queue.pop_front(), &self.id) else {
+            return Ok(None);
+        };
+        let mut attrs = Attributes::new();
+        attrs.insert("topic", format!("t/{robot}"));
+        let message = RawMessage {
+            ingest_time: Timestamp::from_secs(secs).unwrap(),
+            attrs,
+            payload: Bytes::from(format!("{{\"v\":{v}.0}}")),
+        };
+        Ok(Some(SourceBatch {
+            batch: RawBatch::new(id.clone(), vec![message], true),
+            ack: AckHandle::noop(),
+        }))
+    }
+
+    async fn close(&mut self) -> Result<(), ThadamError> {
+        Ok(())
+    }
+
+    fn capabilities(&self) -> SourceCapabilities {
+        SourceCapabilities::new(AckMode::None)
+    }
+}
+
+pub fn feed(kit: &Kit, msgs: &[Msg]) {
+    kit.sources.put(
+        "src",
+        TimedSource {
+            queue: msgs.iter().copied().collect(),
+            id: None,
+        },
+    );
 }
 
 // ------------------------------------------------- testkit segment sink

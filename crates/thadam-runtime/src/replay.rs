@@ -308,6 +308,7 @@ pub async fn replay(
             &format!("replay.warm.{}", req.replay_id),
             from - 1,
             opts.warm_start_frames,
+            None,
             opts.read_batch_bytes,
         )
         .await?;
@@ -376,6 +377,7 @@ pub async fn replay(
                         clock_synced: synced,
                         datasets: output.batches,
                         rejects: Vec::new(),
+                        hold: None,
                         generation: 0,
                     };
                     let (datasets, meta) = split(&mut cb);

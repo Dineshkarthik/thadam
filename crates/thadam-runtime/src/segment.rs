@@ -1,5 +1,6 @@
 //! The segment-sink driver.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -79,6 +80,48 @@ fn trim_through(datasets: &mut [DatasetEvents], meta: &mut Vec<EventMeta>, skip:
     meta.retain(|m| m.pos.get() > skip);
 }
 
+/// The chain's hold after each batch the driver received since the last
+/// rewind, and not yet passed by the sink's watermark: `(last frame, hold)`.
+#[derive(Default)]
+struct HoldBack {
+    batches: VecDeque<(u64, Option<u64>)>,
+}
+
+impl HoldBack {
+    fn push(&mut self, last: u64, hold: Option<u64>) {
+        self.batches.push_back((last, hold));
+    }
+
+    fn clear(&mut self) {
+        self.batches.clear();
+    }
+
+    /// The highest cursor the open windows allow once the sink holds
+    /// everything through `watermark`.
+    ///
+    /// A restart re-reads from the cursor to rebuild every window whose
+    /// aggregate the sink does not hold yet: the open ones, and those closed
+    /// after the watermark. Let `p` be the last batch the watermark covers.
+    /// Those windows were open after `p`, so the earliest frame they need is
+    /// the chain's hold after `p`, or they opened later still, so after `p`'s
+    /// last frame. The cursor stops one short of the first and never passes
+    /// the second. With no such batch on record the cursor stays at
+    /// `committed`.
+    fn cap(&mut self, watermark: u64, committed: u64) -> u64 {
+        while self
+            .batches
+            .get(1)
+            .is_some_and(|(last, _)| *last <= watermark)
+        {
+            self.batches.pop_front();
+        }
+        match self.batches.front() {
+            Some((last, hold)) if *last <= watermark => hold.map_or(*last, |h| h.saturating_sub(1)),
+            _ => committed,
+        }
+    }
+}
+
 /// Sleeps for the next backoff delay; `false` if `stop` triggered first.
 pub(crate) async fn pause(backoff: &mut Backoff, stop: &Shutdown) -> bool {
     tokio::select! {
@@ -131,12 +174,17 @@ pub(crate) struct SegmentDriver {
     /// The sink is configured `start_from: latest`, so a cursor ahead of an
     /// empty sink is expected until its first data arrives.
     pub start_latest: bool,
+    /// The sink's chain has a `window` step: its cursor trails the open
+    /// windows (see [`HoldBack::cap`]) and a restart re-reads from
+    /// the cursor instead of committing up to what the sink recovered.
+    pub holds_back: bool,
     committed: u64,
     watermark: u64,
     seen_through: u64,
     skip_through: u64,
     generation: u64,
     last_commit: Instant,
+    holds: HoldBack,
 }
 
 impl SegmentDriver {
@@ -176,12 +224,14 @@ impl SegmentDriver {
             stopping,
             force,
             start_latest: false,
+            holds_back: false,
             committed: 0,
             watermark: 0,
             seen_through: 0,
             skip_through: 0,
             generation: 0,
             last_commit: Instant::now(),
+            holds: HoldBack::default(),
         }
     }
 
@@ -238,7 +288,10 @@ impl SegmentDriver {
         self.watermark = m.max(c0);
         self.seen_through = c0;
         if m > c0 {
-            if self.quarantine.is_none() || q >= m {
+            // With open windows the chain must re-read from the cursor to
+            // rebuild them, so the output the sink already holds is skipped
+            // rather than the cursor moved past it.
+            if !self.holds_back && (self.quarantine.is_none() || q >= m) {
                 self.commit_to(m).await?;
                 self.seen_through = m;
             } else {
@@ -309,7 +362,10 @@ impl SegmentDriver {
     }
 
     async fn maybe_commit(&mut self, force: bool) -> Result<(), ThadamError> {
-        let target = self.watermark.min(self.seen_through);
+        let mut target = self.watermark.min(self.seen_through);
+        if self.holds_back {
+            target = target.min(self.holds.cap(self.watermark, self.committed));
+        }
         if target <= self.committed {
             return Ok(());
         }
@@ -362,6 +418,7 @@ impl SegmentDriver {
         self.skip_through = self.skip_through.max(m);
         self.watermark = self.watermark.max(m);
         self.seen_through = self.committed;
+        self.holds.clear();
         self.generation += 1;
         let _ = self.rewind.send(Rewind {
             generation: self.generation,
@@ -412,6 +469,10 @@ impl SegmentDriver {
             }
         }
         self.seen_through = self.seen_through.max(origin.last().get());
+        if self.holds_back {
+            self.holds
+                .push(origin.last().get(), batch.hold.map(WalPos::get));
+        }
 
         let mut rejected: Vec<Rejected> = rejects
             .into_iter()
@@ -524,5 +585,59 @@ impl SegmentDriver {
         self.finish().await?;
         self.component.stopped();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn holds(batches: &[(u64, Option<u64>)]) -> HoldBack {
+        let mut h = HoldBack::default();
+        for (last, hold) in batches {
+            h.push(*last, *hold);
+        }
+        h
+    }
+
+    #[test]
+    fn the_cursor_stops_one_short_of_the_hold_at_the_watermark() {
+        let mut h = holds(&[(10, Some(4)), (20, Some(12)), (30, Some(25))]);
+        assert_eq!(h.cap(10, 0), 3);
+        assert_eq!(h.cap(20, 0), 11);
+        assert_eq!(h.cap(30, 0), 24);
+    }
+
+    #[test]
+    fn a_later_batch_does_not_raise_the_cap_before_the_sink_catches_up() {
+        // Batch 3's hold (25) is not known to be safe until the sink holds
+        // batch 3: a window closed in batch 3 may not be durable yet.
+        let mut h = holds(&[(10, Some(4)), (20, Some(12)), (30, Some(25))]);
+        assert_eq!(h.cap(25, 0), 11);
+    }
+
+    #[test]
+    fn a_watermark_inside_a_batch_never_lets_the_cursor_pass_the_last_whole_batch() {
+        // The sink recovered frame 25, which is mid-way through the batch
+        // ending at 30. Batch 2 left no window open, but one may have opened
+        // at frames 21..=25, so the cursor stays at 20.
+        let mut h = holds(&[(10, Some(4)), (20, None), (30, Some(22))]);
+        assert_eq!(h.cap(25, 0), 20);
+    }
+
+    #[test]
+    fn with_no_batch_covered_the_cursor_stays_put() {
+        let mut h = holds(&[(30, Some(22))]);
+        assert_eq!(h.cap(25, 7), 7);
+        assert_eq!(HoldBack::default().cap(25, 7), 7);
+    }
+
+    #[test]
+    fn covered_batches_are_forgotten_and_a_rewind_clears_them() {
+        let mut h = holds(&[(10, Some(4)), (20, Some(12)), (30, Some(25))]);
+        assert_eq!(h.cap(25, 0), 11);
+        assert_eq!(h.batches.len(), 2, "batch 1 is behind the watermark");
+        h.clear();
+        assert_eq!(h.cap(25, 3), 3);
     }
 }

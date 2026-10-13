@@ -1,4 +1,4 @@
-//! The ten transform kinds, the `null` test, `on_change` deadbands, and RFC 3339
+//! The eleven transform kinds, the `null` test, `on_change` deadbands, and RFC 3339
 //! time: how they parse, what they check, and the form they serialize to (which
 //! is what `thadam-transform` reads).
 
@@ -1197,8 +1197,118 @@ mod joint_state {
     }
 }
 
+mod window {
+    use super::*;
+
+    const OK: &str = "{ kind: window, dataset: readings, size: 1m, aggregates: [{ field: temp, fn: mean, as: temp_mean }, { field: level, fn: count, as: n }] }";
+
+    #[test]
+    fn a_valid_step_checks_and_serializes_in_the_engine_form() {
+        assert_ok(&[OK]);
+        assert_eq!(
+            steps_json(&[OK]),
+            [json!({
+                "kind": "window", "dataset": "readings", "size": "1m",
+                "aggregates": [
+                    { "field": "temp", "fn": "mean", "as": "temp_mean" },
+                    { "field": "level", "fn": "count", "as": "n" },
+                ],
+            })]
+        );
+        let spec = check(&with_steps(&[OK])).spec.unwrap();
+        assert_eq!(spec.transforms[0].kind(), "window");
+        assert_eq!(spec.transforms[0].dataset(), "readings");
+    }
+
+    #[test]
+    fn size_and_aggregates_are_checked() {
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 0s, aggregates: [{ field: temp, fn: sum, as: s }] }",
+            ],
+            "transforms[0].size",
+            "greater than zero",
+        );
+        assert_one_error(
+            &["{ kind: window, dataset: readings, size: 1m, aggregates: [] }"],
+            "transforms[0].aggregates",
+            "at least one",
+        );
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 1m, aggregates: [{ field: nope, fn: sum, as: s }] }",
+            ],
+            "transforms[0].aggregates[0].field",
+            "not a declared field",
+        );
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 1m, aggregates: [{ field: level, fn: max, as: s }] }",
+            ],
+            "transforms[0].aggregates[0].field",
+            "needs a numeric field",
+        );
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 1m, aggregates: [{ field: count, fn: sum, as: s }] }",
+            ],
+            "transforms[0].aggregates[0].field",
+            "other than i64 and u64",
+        );
+        assert_ok(&[
+            "{ kind: window, dataset: readings, size: 1m, aggregates: [{ field: count, fn: count, as: n }] }",
+        ]);
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 1m, aggregates: [{ field: temp, fn: sum, as: window_start }] }",
+            ],
+            "transforms[0].aggregates[0].as",
+            "repeated, or reserved",
+        );
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 1m, aggregates: [{ field: temp, fn: sum, as: s }, { field: temp, fn: max, as: s }] }",
+            ],
+            "transforms[0].aggregates[1].as",
+            "repeated, or reserved",
+        );
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 1m, aggregates: [{ field: temp, fn: median, as: s }] }",
+            ],
+            "transforms[0].aggregates[0].fn",
+            "median",
+        );
+        assert_one_error(
+            &[
+                "{ kind: window, dataset: readings, size: 1m, time: event, aggregates: [{ field: temp, fn: sum, as: s }] }",
+            ],
+            "transforms[0].time",
+            "unknown key `time`",
+        );
+    }
+
+    #[test]
+    fn later_steps_see_the_window_columns_only() {
+        assert_ok(&[
+            OK,
+            "{ kind: filter, dataset: readings, where: { field: temp_mean, gt: 90 } }",
+            "{ kind: filter, dataset: readings, where: { field: window_start, null: false } }",
+            "{ kind: rename, dataset: readings, fields: { n: samples } }",
+        ]);
+        assert_one_error(
+            &[
+                OK,
+                "{ kind: filter, dataset: readings, where: { field: temp, gt: 0 } }",
+            ],
+            "transforms[1].where.field",
+            "`temp` is not a field",
+        );
+    }
+}
+
 #[test]
-fn unknown_kinds_list_all_ten() {
+fn unknown_kinds_list_all_eleven() {
     let c = check(&with_steps(&["{ kind: sampel, dataset: readings }"]));
     let d = &c.report.errors[0];
     for kind in [
@@ -1212,6 +1322,7 @@ fn unknown_kinds_list_all_ten() {
         "cast",
         "pose",
         "joint_state",
+        "window",
     ] {
         assert!(d.message.contains(&format!("`{kind}`")), "{}", d.message);
     }

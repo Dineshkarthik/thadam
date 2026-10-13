@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 
 use thadam_core::{
     ErrorDomain, EventBatch, Record, ThadamError, SchemaStore, ShapeRef, ShapeRegistry, Sym,
-    TimeDomain, WalRange, codes,
+    TimeDomain, WalPos, WalRange, codes,
 };
 use serde_json::Value as Json;
 
@@ -446,14 +446,45 @@ impl Chain {
         }
     }
 
+    /// The oldest WAL position any open `window` still needs, if one is open.
+    ///
+    /// A sink cursor committed at or past it would let a restart miss records
+    /// of that window, so the runtime commits at most `hold - 1`.
+    pub fn hold(&self) -> Option<WalPos> {
+        self.datasets.iter().filter_map(Dataset::hold).min()
+    }
+
+    /// Whether the chain has a `window` step, so its cursor must be held back
+    /// and a restart must re-read from the cursor instead of skipping ahead.
+    pub fn holds_back(&self) -> bool {
+        self.datasets.iter().any(Dataset::holds_back)
+    }
+
     /// Rebuilds step state (dedup keys, last-kept values, sampling counters)
     /// from records already processed before the cursor, emitting nothing and
-    /// leaving the counters as they were.
+    /// leaving the counters as they were. `window` steps and the steps after
+    /// them are not fed: the cursor never passes an open window, so a restart
+    /// rebuilds those by reading on from the cursor.
     ///
     /// Warm-then-process equals a continuous run over the same records
     /// whenever the warm records cover each state's reach: the dedup window,
     /// the heartbeat, and the history `on_change` and `sample` depend on.
     pub fn warm(&mut self, input: &FrameInput<'_>) {
+        self.warm_with(input, false);
+    }
+
+    /// Like [`Chain::warm`], but `window` steps see the records too. For a
+    /// chain rebuilt mid-run: feed it every frame from [`Chain::hold`] (as it
+    /// was before the rebuild) to the frame before the next one to process.
+    /// Aggregates closed on the way were already delivered and are dropped.
+    pub fn warm_open_windows(&mut self, input: &FrameInput<'_>) {
+        self.warm_with(input, true);
+    }
+
+    fn warm_with(&mut self, input: &FrameInput<'_>, through_windows: bool) {
+        for ds in &mut self.datasets {
+            ds.stop_at_windows(!through_windows);
+        }
         let saved_stats: Vec<DatasetStats> =
             self.datasets.iter().map(|d| d.stats.clone()).collect();
         let saved_unmatched = self.unmatched;
@@ -484,6 +515,7 @@ impl Chain {
             ds.warm_evictions.0 += after.0 - before.0;
             ds.warm_evictions.1 += after.1 - before.1;
             ds.stats = stats;
+            ds.stop_at_windows(false);
         }
     }
 

@@ -45,6 +45,25 @@ pub(crate) fn event(shape: &ShapeRef, values: Vec<Value>, robot: &str, ingest_se
     event_with_quality(shape, values, robot, ingest_secs, Quality::good())
 }
 
+/// Like [`event`], at WAL position `pos`.
+pub(crate) fn event_at(
+    shape: &ShapeRef,
+    values: Vec<Value>,
+    robot: &str,
+    ingest_secs: i64,
+    pos: u64,
+) -> Event {
+    Event::builder(
+        EventId::from_u128(1),
+        WalPos::new(pos),
+        Times::new(Timestamp::from_secs(ingest_secs).unwrap(), TimeDomain::Utc),
+    )
+    .asset(AssetPath::new([("robot", robot)]).unwrap())
+    .payload(Record::new(shape.clone(), values).unwrap())
+    .build()
+    .unwrap()
+}
+
 pub(crate) fn with_ctx_full<R>(
     limits: &ChainLimits,
     base_dir: Option<&Path>,

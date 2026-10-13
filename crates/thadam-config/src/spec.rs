@@ -1135,6 +1135,52 @@ pub struct EnrichFieldSpec {
     pub unit: Option<String>,
 }
 
+/// How a `window` aggregate reduces a field's values in one window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AggregateFn {
+    /// The number of non-null values; any field type.
+    Count,
+    /// The sum, as `f64`; null when the window saw no value.
+    Sum,
+    /// The smallest value, as `f64`; null when the window saw no value.
+    Min,
+    /// The largest value, as `f64`; null when the window saw no value.
+    Max,
+    /// The mean, as `f64`; null when the window saw no value.
+    Mean,
+}
+
+impl AggregateFn {
+    /// The `fn` spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            AggregateFn::Count => "count",
+            AggregateFn::Sum => "sum",
+            AggregateFn::Min => "min",
+            AggregateFn::Max => "max",
+            AggregateFn::Mean => "mean",
+        }
+    }
+}
+
+/// One output column of a `window` step.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct AggregateSpec {
+    /// The input field. `sum`, `min`, `max` and `mean` need a numeric field
+    /// other than `i64` and `u64`, which `f64` cannot hold exactly.
+    pub field: String,
+    /// The reduction.
+    #[serde(rename = "fn")]
+    pub func: AggregateFn,
+    /// The output column name; unique, and not `window_start` or `window_end`.
+    #[serde(rename = "as")]
+    pub name: String,
+}
+
 fn is_default<T: Default + PartialEq>(v: &T) -> bool {
     *v == T::default()
 }
@@ -1314,6 +1360,22 @@ pub enum TransformSpec {
         )]
         effort_field: String,
     },
+    /// Experimental. Tumbling windows on ingest time: one aggregate event per
+    /// asset and window, emitted when the asset's next window begins. The
+    /// output replaces the dataset's fields with `window_start`, `window_end`
+    /// and the aggregates. Sink cursors are held back for open windows, so
+    /// the sink must be a segment sink.
+    Window {
+        /// The dataset the step applies to.
+        dataset: String,
+        /// Restricts the step to these sink ids.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sinks: Option<Vec<String>>,
+        /// The window length; greater than zero.
+        size: DurationSpec,
+        /// The output columns.
+        aggregates: Vec<AggregateSpec>,
+    },
 }
 
 pub(crate) fn default_pose_prefix() -> String {
@@ -1379,7 +1441,8 @@ impl TransformSpec {
             | TransformSpec::Project { dataset, .. }
             | TransformSpec::Cast { dataset, .. }
             | TransformSpec::Pose { dataset, .. }
-            | TransformSpec::JointState { dataset, .. } => dataset,
+            | TransformSpec::JointState { dataset, .. }
+            | TransformSpec::Window { dataset, .. } => dataset,
         }
     }
 
@@ -1395,7 +1458,8 @@ impl TransformSpec {
             | TransformSpec::Project { sinks, .. }
             | TransformSpec::Cast { sinks, .. }
             | TransformSpec::Pose { sinks, .. }
-            | TransformSpec::JointState { sinks, .. } => sinks.as_deref(),
+            | TransformSpec::JointState { sinks, .. }
+            | TransformSpec::Window { sinks, .. } => sinks.as_deref(),
         }
     }
 
@@ -1412,6 +1476,7 @@ impl TransformSpec {
             TransformSpec::Cast { .. } => "cast",
             TransformSpec::Pose { .. } => "pose",
             TransformSpec::JointState { .. } => "joint_state",
+            TransformSpec::Window { .. } => "window",
         }
     }
 }

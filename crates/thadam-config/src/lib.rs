@@ -169,12 +169,12 @@ pub use secret::{REDACTED, Secret};
 pub use semantic::KindPolicy;
 pub use source::{EnvSource, MAX_SECRET_FILE_BYTES, MapEnv, ProcessEnv};
 pub use spec::{
-    AdminSpec, CONFIG_VERSION, ConnectorSpec, DECLARED_FIELD_ID_RANGE, DatasetSpec, DecodeFormat,
-    DedupSpec, EnrichFieldSpec, EnrichFormat, EnrichKeySpec, EventIdSpec, ExplodeSpec, FieldSpec,
-    FsyncSpec, IDENTITY_LEVEL_ID_RANGE, IdentityLevel, LogFormat, LogLevel, LogsSpec, MatchSpec,
-    MaxLagSpec, ObservabilitySpec, OnFull, OnMissSpec, PipelineMeta, PipelineSpec,
-    QuarantineFormat, QuarantineSpec, RuleStatus, RuntimeSpec, SinkSpec, StartFromSpec, TimeSpec,
-    TimeUnit, TransformSpec, ValidateRule, WalSpec, WatchField,
+    AdminSpec, AggregateFn, AggregateSpec, CONFIG_VERSION, ConnectorSpec, DECLARED_FIELD_ID_RANGE,
+    DatasetSpec, DecodeFormat, DedupSpec, EnrichFieldSpec, EnrichFormat, EnrichKeySpec,
+    EventIdSpec, ExplodeSpec, FieldSpec, FsyncSpec, IDENTITY_LEVEL_ID_RANGE, IdentityLevel,
+    LogFormat, LogLevel, LogsSpec, MatchSpec, MaxLagSpec, ObservabilitySpec, OnFull, OnMissSpec,
+    PipelineMeta, PipelineSpec, QuarantineFormat, QuarantineSpec, RuleStatus, RuntimeSpec,
+    SinkSpec, StartFromSpec, TimeSpec, TimeUnit, TransformSpec, ValidateRule, WalSpec, WatchField,
 };
 
 use crate::ctx::Ctx;

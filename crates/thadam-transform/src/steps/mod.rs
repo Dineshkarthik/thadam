@@ -4,7 +4,7 @@
 use std::fmt;
 use std::path::Path;
 
-use thadam_core::{ErrorDomain, Event, ThadamError, ShapeRef, ShapeRegistry, Sym, codes};
+use thadam_core::{ErrorDomain, Event, ThadamError, ShapeRef, ShapeRegistry, Sym, WalPos, codes};
 
 use crate::limits::ChainLimits;
 use crate::spec::TransformSpec;
@@ -18,6 +18,7 @@ mod pose;
 mod sample;
 mod state;
 mod validate;
+mod window;
 
 pub use enrich::EnrichmentInfo;
 pub(crate) use enrich::lineage_hash;
@@ -27,6 +28,9 @@ pub(crate) enum StepResult {
     Keep(Event),
     Filtered,
     Reject(ThadamError),
+    /// Zero or more events in place of the input; each continues through the
+    /// later steps. An empty list means the step absorbed the input.
+    Emit(Vec<Event>),
 }
 
 /// One stage of a dataset's transform list. A step owns its state and runs on
@@ -37,6 +41,18 @@ pub(crate) trait Step: Send + fmt::Debug {
     /// Ids and counts the step forgot because a bound was hit.
     fn evicted(&self) -> u64 {
         0
+    }
+
+    /// The oldest WAL position this step still needs to see again to rebuild
+    /// its state after a restart (the first frame of an open window), if any.
+    fn hold(&self) -> Option<WalPos> {
+        None
+    }
+
+    /// Whether the step's state is rebuilt by re-reading from [`Step::hold`]
+    /// rather than by warm-up, which must then not feed it.
+    fn windowed(&self) -> bool {
+        false
     }
 }
 
@@ -88,6 +104,7 @@ pub(crate) fn compile(
         TransformSpec::Cast(s) => fieldops::compile_cast(s, ctx, input, path),
         TransformSpec::Pose(s) => pose::compile(s, ctx, input, path),
         TransformSpec::JointState(s) => joint_state::compile(s, ctx, input, path),
+        TransformSpec::Window(s) => window::compile(s, ctx, input, path),
     }
 }
 

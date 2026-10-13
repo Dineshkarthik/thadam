@@ -1,6 +1,6 @@
 # Transform reference
 
-Transforms are the synchronous, pure steps a [per-sink chain](../concepts/per-sink-chains.md) runs between decode and delivery. This page covers **every step kind implemented in `thadam-transform`**, with its options and examples. All ten kinds are accepted in the top-level `transforms:` list of config version 1.
+Transforms are the synchronous, pure steps a [per-sink chain](../concepts/per-sink-chains.md) runs between decode and delivery. This page covers **every step kind implemented in `thadam-transform`**, with its options and examples. All eleven kinds are accepted in the top-level `transforms:` list of config version 1.
 
 See also the [configuration reference](../configuration/transforms.md), which has the same information organized by config key.
 
@@ -129,6 +129,19 @@ Tests: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `min`, `max`, and `null` (`null
 ```yaml
 - kind: joint_state
   dataset: joints
+```
+
+## `window` — tumbling windows (experimental)
+
+**Config: accepted. Status: In progress (experimental).** Aggregates (`count`, `sum`, `min`, `max`, `mean`) per asset over tumbling windows of **ingest time**, emitting one event per asset and window when the asset's next window begins. It is the only step that keeps state across events that a restart cannot rebuild by warm-up, so the sink's WAL cursor is held back behind open windows and a restart re-reads from there. Segment sinks only. Full key table, limits, and the retention cost: [`kind: window`](../configuration/transforms.md#window).
+
+```yaml
+- kind: window
+  dataset: telemetry
+  size: 1m
+  aggregates:
+    - { field: motor_temp_c, fn: mean, as: temp_mean }
+    - { field: motor_temp_c, fn: max, as: temp_max }
 ```
 
 ## Fixed-position behaviors (not `transforms:` steps)
