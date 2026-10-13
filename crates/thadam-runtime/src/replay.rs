@@ -198,6 +198,7 @@ pub async fn replay(
         opts.config_dir.as_deref(),
         Some(layout.schemas().as_path()),
     )?;
+    let chain_spec = plan::with_births(chain_spec, &layout.births(), &req.sink, true);
     let mut chain = Chain::compile(&chain_spec, opts.chain_limits.clone()).map_err(|es| {
         es.into_iter()
             .next()

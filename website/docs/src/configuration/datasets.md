@@ -26,7 +26,7 @@ datasets:
 |---|---|---|---|
 | `id` | string | yes | Unique. Used in paths, object keys, and metric labels. Same character rules as connector ids. |
 | `match` | mapping | yes | Which messages feed the dataset. |
-| `decode` | `json` or `ros2` | yes | The payload decoder. `ros2` decodes ROS 2 CDR payloads from an [MCAP source](../sources/ros2.md) through the schema store; its flattened dotted field names become the payload keys. |
+| `decode` | `json`, `ros2`, or `sparkplug_b` | yes | The payload decoder. `ros2` decodes ROS 2 CDR payloads from an [MCAP source](../sources/ros2.md) through the schema store; its flattened dotted field names become the payload keys. `sparkplug_b` decodes Sparkplug B protobuf from an [MQTT source](../sources/mqtt.md), resolving aliases through BIRTH messages and the birth store; see [Sparkplug B decoding](../sources/sparkplug-b.md). |
 | `identity` | mapping | no | The asset-path levels, **in the order written**. Order matters: it is the hierarchy and part of the config hash. |
 | `event_id` | mapping | no | Content-derived event IDs; see [below](#event_id). |
 | `dedup` | mapping | no | Message-level deduplication; see [below](#dedup). |

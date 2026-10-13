@@ -18,6 +18,7 @@ data_dir/
 │   └── catalog.log      # append-only segment catalog (CRC-checked)     (planned)
 ├── quarantine/<sink>/   # each sink's quarantine instance (own budget); rejects.staging holds rejects until their segment is durable
 ├── schemas/             # the schema store: <sha-256 hash>.schema, content-addressed (see below)
+├── sparkplug/births/<sink>/  # Sparkplug birth store: latest BIRTH per node/device, one directory per sink chain (see below)
 ├── sources/<id>/        # source state (connectors decide)
 ├── services/<id>/       # service state (e.g. the shipper)
 └── replays/<id>/        # replay output — never the production directories (planned)
@@ -56,6 +57,10 @@ schemas/
 ```
 
 Each `.schema` file is a small self-describing record (`thadam/schema-store 1`, then length-prefixed `name`, `encoding`, and `text` fields). The hash in the file name is SHA-256 over the name, encoding, and text — the name is hashed in because a `ros2msg` document does not name its main type. Writes publish atomically (write `tmp`, fsync, rename, fsync the directory) and are idempotent; readers re-hash the stored content and refuse a file that does not match the requested hash, so a damaged store fails loudly instead of decoding against the wrong schema. Deleting files only degrades new decodes of affected hashes to classified rejects.
+
+## The Sparkplug birth store (`sparkplug/births/`)
+
+Present when a dataset uses `decode: sparkplug_b`. Each sink's chain keeps `<sha-256>.birth` records, one per Sparkplug edge node or device: the latest BIRTH bytes, the session `bdSeq`, the BIRTH's `seq`, and a dead flag. Writes publish atomically (temporary file, fsync, rename, fsync the directory) before the message's events reach the sink, and reads verify a content digest. A restarted chain seeds its decoder from the directory so alias-only DATA resolves without a new BIRTH; `thadam replay` reads it and never writes it. Details: [Sparkplug B decoding](../sources/sparkplug-b.md#birth-store-and-replay).
 
 ## Format-status caution
 

@@ -27,7 +27,7 @@ Starts only after the M1 gate: the B8 HTTP-vs-native benchmark, `thadam-clickhou
 | 0 — Foundations | Repository, conventions, event model, connector traits, CLI skeleton, observability, benchmark harness, docs, CI | done (PR1–PR2) |
 | 1 — MVP runtime | MQTT, disk buffer, basic transforms, metrics; object store; HTTP; replay | M1 (HTTP source moved out of MVP scope) |
 | 2 — Robotics | ROS 2, DDS/Zenoh evaluation, trajectory/pose conventions, frame metadata, timestamps | M2 |
-| 3 — Industrial | OPC UA, CAN, Modbus; Sparkplug B / OPC UA PubSub evaluation | after M2 |
+| 3 — Industrial | OPC UA, CAN, Modbus, Sparkplug B decode: available (OPC UA, live ROS 2 and Iceberg behind off-by-default features). OPC UA PubSub: evaluated, deferred until a user needs it | in progress |
 | 4 — Lakehouse | Iceberg, Parquet optimization, schema evolution, catalog integration | after M3 (field IDs in ADR-0013 keep the `fast_append` path cheap) |
 | 5 — Fleet / platform | Remote configuration, fleet management, pipeline versioning, deployment tooling, centralized observability | later |
 | 6 — Advanced processing | Stateful windows, WASM operators, anomaly detection, lightweight inference, feature extraction | later |

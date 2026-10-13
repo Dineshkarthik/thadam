@@ -62,6 +62,9 @@ ureq = { version = "3", default-features = false }
 [dev-dependencies]
 assert_cmd = "2.0"
 parquet = { workspace = true }
+prost = { workspace = true }
+thadam-sparkplug = { path = "../../crates/thadam-sparkplug" }
+rumqttc = { workspace = true }
 thadam-testkit = { path = "../../crates/thadam-testkit" }
 
 [lints]

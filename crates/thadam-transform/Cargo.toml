@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 thadam-core = { workspace = true }
 thadam-ros2-msg = { path = "../thadam-ros2-msg" }
+thadam-sparkplug = { path = "../thadam-sparkplug" }
 bytes = { workspace = true }
 csv = { workspace = true }
 serde = { workspace = true }
@@ -20,6 +21,7 @@ thiserror = { workspace = true }
 twox-hash = { workspace = true }
 
 [dev-dependencies]
+prost = { workspace = true }
 criterion = { workspace = true, features = ["cargo_bench_support"] }
 proptest = { workspace = true }
 tempfile = { workspace = true }

@@ -176,6 +176,10 @@ pub(crate) struct Dataset {
     /// flattened token, so records are read directly without the JSON
     /// bridge.
     pub(crate) ros2_direct: bool,
+    /// The quality the message being processed arrived with (a Sparkplug
+    /// decoder's flags, status and reason); merged into every event it
+    /// produces. `None` outside [`Dataset::process_sparkplug`].
+    msg_quality: Option<Quality>,
 }
 
 fn schema_error(path: &str, code: &'static str, message: impl Into<String>) -> ThadamError {
@@ -657,12 +661,25 @@ impl Dataset {
             warm_evictions: (0, 0),
             explode_limit: limits.max_explode_samples,
             ros2_direct,
+            msg_quality: None,
         })
     }
 
     pub(crate) fn push_step(&mut self, step: Box<dyn Step>, out_shape: ShapeRef) {
         self.steps.push(step);
         self.out_shape = out_shape;
+    }
+
+    /// Whether the dataset explodes an array into events.
+    pub(crate) fn explodes(&self) -> bool {
+        self.explode.is_some()
+    }
+
+    /// Counts a routed message that produces no event by design (a Sparkplug
+    /// STATE or CMD).
+    pub(crate) fn skip_message(&mut self) {
+        self.stats.messages += 1;
+        self.stats.filtered += 1;
     }
 
     pub(crate) fn index_field(&self) -> Option<&Sym> {
@@ -841,6 +858,22 @@ impl Dataset {
     ) {
         self.stats.messages += 1;
         self.process_json(view, root, out, rejects);
+    }
+
+    /// Like [`Dataset::process`], for a Sparkplug message: every event the
+    /// message yields carries `quality` (flags are merged with the dataset's
+    /// own, such as `CLOCK_SKEW`).
+    pub(crate) fn process_sparkplug(
+        &mut self,
+        view: &RawRecordView<'_>,
+        root: &Json,
+        quality: &Quality,
+        out: &mut Vec<Event>,
+        rejects: &mut Vec<RejectedRaw>,
+    ) {
+        self.msg_quality = Some(quality.clone());
+        self.process(view, root, out, rejects);
+        self.msg_quality = None;
     }
 
     fn process_json(
@@ -1123,12 +1156,18 @@ impl Dataset {
             (Some(m), None) => m,
             (None, s) => positional_id(view.epoch, view.pos, view.record_index, s),
         };
+        let mut quality = Quality {
+            flags,
+            ..Quality::good()
+        };
+        if let Some(msg) = &self.msg_quality {
+            quality.flags |= msg.flags;
+            quality.status = msg.status;
+            quality.reason = msg.reason.clone();
+        }
         let mut builder = Event::builder(id, view.pos, times)
             .asset(asset.clone())
-            .quality(Quality {
-                flags,
-                ..Quality::good()
-            })
+            .quality(quality)
             .payload(record);
         if let Some(i) = sample {
             builder = builder.sample_idx(i);

@@ -586,6 +586,14 @@ pub enum DecodeFormat {
     /// dotted field names (`header.stamp`, `pose.position.x`, …) become the
     /// payload keys.
     Ros2,
+    /// A Sparkplug B (`spBv1.0`) protobuf from an MQTT source. One decoder
+    /// per chain tracks BIRTH metric tables, aliases, `seq` and `bdSeq`
+    /// across messages, so the dataset's `match.topic` must cover the BIRTH
+    /// and DEATH topics as well as DATA (`spBv1.0/#`). Each message becomes
+    /// one JSON document: `group`, `node`, `device`, `kind`, `seq`, `bd_seq`,
+    /// `timestamp` (ms), and `metrics` (metric name to value); an `explode`
+    /// over `/samples` yields one row per metric instead.
+    SparkplugB,
 }
 
 /// Which messages belong to a dataset.

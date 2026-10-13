@@ -38,6 +38,7 @@
 - [OPC UA](sources/opcua.md)
 - [ROS 2](sources/ros2.md)
 - [ROS 2 live](sources/ros2-live.md)
+- [Sparkplug B decoding](sources/sparkplug-b.md)
 
 # Sinks
 

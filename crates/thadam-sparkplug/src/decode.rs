@@ -494,6 +494,15 @@ impl Decoder {
     }
 }
 
+/// The spec name of a Sparkplug datatype (`FLOAT`, `INT32`, ...), or
+/// `UNKNOWN` for a value outside the enum.
+pub fn datatype_name(datatype: u32) -> &'static str {
+    i32::try_from(datatype)
+        .ok()
+        .and_then(|v| pb::DataType::try_from(v).ok())
+        .map_or("UNKNOWN", |d| d.as_str_name())
+}
+
 fn node_id(key: &BirthKey) -> (Box<str>, Box<str>) {
     (key.group.clone(), key.node.clone())
 }
