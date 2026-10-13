@@ -391,7 +391,7 @@ impl SegmentSinkFactory for QuarantineSinkFactory {
         let sink = build_quarantine_sink(
             parsed,
             ctx.data_dir.clone(),
-            &ctx.component_id,
+            &ctx.node_id,
             &ctx.config_hash,
             &ctx.enrichment_hash,
         )?;

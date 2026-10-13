@@ -507,7 +507,7 @@ pub fn sink_config_schema() -> serde_json::Value {
             "timestamp_unit": {"type": "string", "enum": ["micros", "nanos"], "default": "micros"},
             "unsigned": {"type": "string", "enum": ["native", "signed"], "default": "native"},
             "finalize_on_shutdown": {"type": "boolean", "default": true},
-            "node_id": {"type": "string", "description": "File-name node id; defaults to the sink id."}
+            "node_id": {"type": "string", "description": "File-name node id; defaults to the pipeline's `node_id`."}
         }
     })
 }

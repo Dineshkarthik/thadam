@@ -255,7 +255,8 @@ pub async fn replay(
         }
         let ctx = BuildContext::new(out_id.as_str(), Arc::clone(&opts.clock), dir.clone())
             .with_datasets(plan::dataset_decls(spec, only.as_deref()))
-            .with_config_hashes(&config_hash, &enrichment_hash);
+            .with_config_hashes(&config_hash, &enrichment_hash)
+            .with_node_id(&spec.pipeline.node_id);
         let built = match &factory {
             Some(SinkFactory::Segment(f)) => f.build(sink_spec.config.clone(), &ctx)?,
             _ => {

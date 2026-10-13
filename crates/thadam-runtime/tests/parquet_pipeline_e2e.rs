@@ -298,6 +298,36 @@ async fn quarantine_footer_carries_the_config_hash() {
     );
 }
 
+/// Without a sink `node_id`, segment and quarantine files are named by the
+/// pipeline's `node_id`, so nodes that share one configuration never write
+/// the same file name.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn segment_and_quarantine_files_are_named_by_the_pipeline_node_id() {
+    let dir = TempDataDir::new().unwrap();
+    let kit = Kit::default();
+    kit.sources.scripted(
+        "src",
+        [
+            Bytes::from_static(b"{\"n\":1}"),
+            Bytes::from_static(b"{\"temp\":2.0}"),
+        ],
+    );
+    let y = yaml_with_sink(dir.path(), "      datasets: [d]\n      compression: none")
+        .replace("node_id: node-1", "node_id: edge-7");
+    let registry = parquet_registry(kit.sources.clone());
+    let report = run_with(&registry, spec(&y), fast_opts()).await;
+    assert_eq!(report.exit, ExitStatus::Ok, "{:#?}", report.status);
+
+    let segments = parquet_files(&dir.path().join("sinks/pq/ready"));
+    let quarantined = parquet_files(&dir.path().join("quarantine/pq"));
+    assert!(!segments.is_empty(), "no segments under ready/");
+    assert!(!quarantined.is_empty(), "the reject reached quarantine");
+    for f in segments.iter().chain(&quarantined) {
+        let name = f.file_name().unwrap().to_string_lossy();
+        assert!(name.starts_with("edge-7_"), "{name}");
+    }
+}
+
 #[test]
 fn pipeline_build_refuses_a_sink_schemas_block() {
     let dir = TempDataDir::new().unwrap();

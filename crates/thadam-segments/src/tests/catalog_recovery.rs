@@ -187,6 +187,62 @@ async fn catalog_rebuild_from_footers() {
     assert_eq!(restarted.recover(&ctx).await.unwrap(), Some(WalPos::new(9)));
 }
 
+fn sink_named(fixture: &ParquetFixture, node_id: &str) -> crate::sink::ParquetSegmentSink {
+    let mut cfg = fixture.batch_config();
+    cfg.node_id = node_id.to_owned();
+    crate::sink::ParquetSegmentSink::new(cfg).unwrap_or_else(|e| panic!("sink builds: {e}"))
+}
+
+/// Files named before the default node id changed (`pq_...` here) survive a
+/// restart under a new node id unchanged, recover at the same watermark, and
+/// new files take the new node id without duplicating any row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn segments_named_under_the_old_node_id_survive_a_restart() {
+    let fixture = ParquetFixture::new(&DATASETS, crate::config::RotationConfig::never(), 4);
+    let ctx = fixture.ctx();
+
+    let mut before = sink_named(&fixture, "pq");
+    before.recover(&ctx).await.unwrap();
+    for f in 1..=3u64 {
+        before
+            .append(test_segment_batch_across(1, f, f, &DATASETS))
+            .await
+            .unwrap();
+    }
+    assert_eq!(before.finalize_all().await.unwrap(), Some(WalPos::new(3)));
+    drop(before);
+    let legacy = fixture.ready_files();
+    assert!(!legacy.is_empty());
+    assert!(
+        legacy.iter().all(|(_, name, _)| name.starts_with("pq_")),
+        "{legacy:?}"
+    );
+
+    let mut restarted = sink_named(&fixture, "edge-7");
+    assert_eq!(restarted.recover(&ctx).await.unwrap(), Some(WalPos::new(3)));
+    assert_eq!(
+        fixture.ready_files(),
+        legacy,
+        "the restart keeps the old files"
+    );
+
+    restarted
+        .append(test_segment_batch_across(1, 4, 4, &DATASETS))
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted.finalize_all().await.unwrap(),
+        Some(WalPos::new(4))
+    );
+    let files = fixture.ready_files();
+    assert!(
+        files.iter().any(|(_, name, _)| name.starts_with("edge-7_")),
+        "{files:?}"
+    );
+    let rows: usize = fixture.dataset_rows().values().sum();
+    assert_eq!(rows, 4, "one row per WAL position: {files:?}");
+}
+
 /// A torn final frame of `catalog.log` is a crash artifact: it is truncated
 /// and replay resumes cleanly.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -200,6 +200,23 @@ mod tests {
     }
 
     #[test]
+    fn distinct_node_ids_yield_distinct_keys() {
+        let key = |node: &str| {
+            let r = record(
+                &format!(
+                    "ready/telemetry/date=2026-10-08/hour=13/{node}_00000000000000ab_00000000000000000003_00000000000000000009.parquet"
+                ),
+                "telemetry",
+            );
+            object_key("edge-capture", &r).unwrap()
+        };
+        assert_ne!(key("edge-7"), key("edge-8"));
+        assert!(key("edge-7").ends_with(
+            "/edge-7_00000000000000ab_00000000000000000003_00000000000000000009.parquet"
+        ));
+    }
+
+    #[test]
     fn foreign_shapes_have_no_key() {
         let mut r = record(
             "ready/telemetry/date=2026-10-08/hour=13/a_00000000000000ab_00000000000000000003_00000000000000000009.parquet",
