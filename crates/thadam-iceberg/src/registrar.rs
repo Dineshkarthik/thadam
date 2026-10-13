@@ -16,7 +16,7 @@ use thadam_core::{Classify, Retry, ThadamError, ServiceContext};
 use thadam_segments::SegmentCatalog;
 
 use crate::config::{CatalogAuth, IcebergConfig};
-use crate::error::IcebergError;
+use crate::error::{IcebergError, is_expired_oauth_token};
 use crate::rest::{RestCommitter, http_client};
 use crate::storage::{S3Io, S3IoFactory};
 use crate::table::TableHandle;
@@ -44,7 +44,7 @@ impl Registrar {
     }
 
     async fn run_inner(&mut self, ctx: &ServiceContext) -> Result<(), IcebergError> {
-        let (catalog_client, committer) = self.connect(ctx).await?;
+        let (mut catalog_client, mut committer) = self.connect(ctx).await?;
         let catalog = self.await_catalog(ctx).await?;
         let mut watch_rx = catalog.subscribe();
         let mut handles: HashMap<String, TableHandle> = HashMap::new();
@@ -53,10 +53,24 @@ impl Registrar {
         let mut first_failed: Option<std::time::Instant> = None;
 
         loop {
-            match self
+            let mut outcome = self
                 .run_pass(&catalog_client, &committer, &io, &catalog, &mut handles)
-                .await
+                .await;
+            if let Err(ref e) = outcome
+                && matches!(self.config.catalog_auth, CatalogAuth::Credential(_))
+                && is_expired_oauth_token(e)
             {
+                tracing::info!(
+                    id = %self.id,
+                    "iceberg catalog answered 401; re-exchanging OAuth2 credential and retrying once"
+                );
+                (catalog_client, committer) = self.connect(ctx).await?;
+                handles.clear();
+                outcome = self
+                    .run_pass(&catalog_client, &committer, &io, &catalog, &mut handles)
+                    .await;
+            }
+            match outcome {
                 Ok(()) => {
                     backoff = Backoff::new(self.config.retry, seed_of(&self.id));
                     first_failed = None;
@@ -424,5 +438,217 @@ mod tests {
         assert_eq!(calm.next_delay(), Duration::from_millis(20));
         assert_eq!(calm.next_delay(), Duration::from_millis(40));
         assert_eq!(calm.next_delay(), Duration::from_millis(40));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn registrar_rebuilds_catalog_once_on_oauth2_401_and_fails_when_retry_still_401() {
+        use thadam_core::{
+            BudgetCategory, DiskBudget, Retry, Service, SharedObjects, Shutdown, SystemClock,
+            WalEpoch, WalPos, WalRange, codes,
+        };
+        use thadam_segments::{SegmentId, SegmentRecord};
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let seg_dir = tempfile::tempdir().expect("seg dir");
+        let root = seg_dir.path().to_owned();
+        let (catalog, _) = tokio::task::spawn_blocking(move || {
+            SegmentCatalog::open(
+                root,
+                "edge01",
+                None,
+                BudgetCategory::Segments,
+                &["telemetry".to_owned()],
+            )
+        })
+        .await
+        .expect("open task")
+        .expect("catalog open");
+        let rel = "ready/telemetry/seg1.parquet";
+        let abs = seg_dir.path().join(rel);
+        std::fs::create_dir_all(abs.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&abs, b"parquet").expect("write");
+        let record = SegmentRecord::new(
+            SegmentId(rel.to_owned()),
+            "telemetry",
+            Some(std::path::PathBuf::from(rel)),
+            WalRange::new(WalEpoch::new(1), WalPos::new(1), WalPos::new(2)).expect("range"),
+            2,
+            7,
+            None,
+            None,
+            [0u8; 32],
+            true,
+        );
+        catalog
+            .append_finalized(record.clone())
+            .await
+            .expect("finalized");
+        catalog
+            .mark_eligible(record.range.last())
+            .await
+            .expect("eligible");
+        catalog
+            .mark_uploaded(&record.id, "lake/seg1.parquet", Some("e1"))
+            .await
+            .expect("uploaded");
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mock");
+        let addr = listener.local_addr().expect("local addr");
+        let token_calls = Arc::new(AtomicUsize::new(0));
+        let load_calls = Arc::new(AtomicUsize::new(0));
+        let token_calls_srv = Arc::clone(&token_calls);
+        let load_calls_srv = Arc::clone(&load_calls);
+
+        let server = std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut stream = stream;
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 1024];
+                let header_end = loop {
+                    let Ok(n) = stream.read(&mut chunk) else {
+                        break 0;
+                    };
+                    if n == 0 {
+                        break 0;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                    if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break pos + 4;
+                    }
+                };
+                if header_end == 0 {
+                    continue;
+                }
+                let headers = String::from_utf8_lossy(&buf[..header_end]).into_owned();
+                let req_line = headers.lines().next().unwrap_or_default().to_owned();
+                let content_length: usize = headers
+                    .lines()
+                    .find_map(|l| {
+                        let (k, v) = l.split_once(':')?;
+                        k.eq_ignore_ascii_case("content-length")
+                            .then(|| v.trim().parse().ok())?
+                    })
+                    .unwrap_or(0);
+                while buf.len() < header_end + content_length {
+                    let Ok(n) = stream.read(&mut chunk) else {
+                        break;
+                    };
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                }
+                let respond = |stream: &mut std::net::TcpStream, status: u16, body: &str| {
+                    let reason = match status {
+                        200 => "OK",
+                        401 => "Unauthorized",
+                        404 => "Not Found",
+                        _ => "Error",
+                    };
+                    let msg = format!(
+                        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(msg.as_bytes());
+                    let _ = stream.flush();
+                };
+                if req_line.starts_with("POST /v1/oauth/tokens ") {
+                    let n = token_calls_srv.fetch_add(1, Ordering::SeqCst) + 1;
+                    respond(
+                        &mut stream,
+                        200,
+                        &format!(r#"{{"access_token":"tok-{n}","token_type":"bearer"}}"#),
+                    );
+                } else if req_line.starts_with("GET /v1/config") {
+                    respond(&mut stream, 200, r#"{"overrides":{},"defaults":{}}"#);
+                } else if req_line.starts_with("GET /v1/namespaces/robotics/tables/telemetry ") {
+                    let c = load_calls_srv.fetch_add(1, Ordering::SeqCst) + 1;
+                    match c {
+                        // Run 1: first load gets 401 -> Registrar refreshes once -> retry gets 404.
+                        1 => respond(
+                            &mut stream,
+                            401,
+                            r#"{"error":{"message":"expired token","type":"NotAuthorizedException","code":401}}"#,
+                        ),
+                        2 => respond(
+                            &mut stream,
+                            404,
+                            r#"{"error":{"message":"missing","type":"NoSuchTableException","code":404}}"#,
+                        ),
+                        // Run 2: both first load and immediate retry get 401 -> fatal auth.failed.
+                        _ => respond(
+                            &mut stream,
+                            401,
+                            r#"{"error":{"message":"still unauthorized","type":"NotAuthorizedException","code":401}}"#,
+                        ),
+                    }
+                }
+                if load_calls_srv.load(Ordering::SeqCst) >= 4 {
+                    break;
+                }
+            }
+        });
+
+        let config = crate::config::parse_iceberg_config(&serde_json::json!({
+            "from": "local",
+            "pipeline": "edge-capture",
+            "catalog_uri": format!("http://{addr}"),
+            "catalog_credential": {
+                "client_id": "thadam",
+                "client_secret": "s3cret",
+            },
+            "url": "s3://warehouse/lake",
+            "namespace": "robotics",
+            "create_table": false,
+            "store": {
+                "endpoint": "http://127.0.0.1:9000",
+                "allow_http": true,
+                "access_key_id": "k",
+                "secret_access_key": "s",
+            },
+        }))
+        .expect("config");
+        let io = Arc::new(S3Io::new(
+            Arc::new(object_store::memory::InMemory::new()),
+            "warehouse",
+        ));
+        let storage = S3IoFactory::new(io);
+        let shared = SharedObjects::default();
+        shared.publish("local", Arc::new(catalog));
+        let ctx = ServiceContext::new(
+            "iceberg",
+            Shutdown::new(),
+            Arc::new(SystemClock::new()),
+            seg_dir.path().to_path_buf(),
+            Arc::new(DiskBudget::new()),
+        )
+        .with_shared(shared);
+
+        // Run 1: 401 on load_table triggers one OAuth2 re-exchange + retry, reaching 404 TableMissing.
+        let mut registrar = Registrar::new("iceberg", config.clone(), storage.clone());
+        let err = registrar
+            .run(&ctx)
+            .await
+            .expect_err("table missing after token refresh");
+        assert_eq!(err.code, crate::error::CODE_TABLE_MISSING, "{err}");
+        assert_eq!(load_calls.load(Ordering::SeqCst), 2);
+
+        // Run 2: persistent 401 after the one OAuth2 re-exchange stops fatally with auth.failed.
+        let mut registrar2 = Registrar::new("iceberg", config, storage);
+        let err = registrar2
+            .run(&ctx)
+            .await
+            .expect_err("persistent 401 must fail with auth.failed");
+        assert_eq!(
+            (err.retry, err.code),
+            (Retry::Fatal, codes::AUTH_FAILED),
+            "{err}"
+        );
+        assert_eq!(load_calls.load(Ordering::SeqCst), 4);
+
+        server.join().expect("mock server thread");
     }
 }

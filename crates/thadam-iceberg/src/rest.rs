@@ -77,9 +77,12 @@ pub(crate) struct RestCommitter {
     /// serves under a prefix (discovered from `/v1/config`).
     base: String,
     /// The bearer token every direct call sends: the static `catalog_token`,
-    /// or one client-credentials exchange made at connect (the catalog client
-    /// holds its own token for its calls, with the same lifetime).
-    bearer: Option<String>,
+    /// or the latest client-credentials token (exchanged at connect and
+    /// re-exchanged once on 401 when `credential` is set).
+    bearer: std::sync::Mutex<Option<String>>,
+    /// OAuth2 client credentials used to re-exchange an expired bearer token
+    /// on HTTP 401.
+    credential: Option<CatalogCredential>,
 }
 
 /// The REST spec's `/v1/config` response: the catalog's `prefix`, if any.
@@ -100,10 +103,13 @@ impl RestCommitter {
         catalog_uri: &str,
         auth: &CatalogAuth,
     ) -> Result<RestCommitter, IcebergError> {
-        let bearer = match auth {
-            CatalogAuth::None => None,
-            CatalogAuth::Token(token) => Some(token.expose().to_owned()),
-            CatalogAuth::Credential(credential) => Some(exchange(&client, credential).await?),
+        let (bearer, credential) = match auth {
+            CatalogAuth::None => (None, None),
+            CatalogAuth::Token(token) => (Some(token.expose().to_owned()), None),
+            CatalogAuth::Credential(credential) => (
+                Some(exchange(&client, credential).await?),
+                Some(credential.clone()),
+            ),
         };
         let config_url = format!("{catalog_uri}/v1/config");
         let resp = authorized(client.get(&config_url), bearer.as_deref())
@@ -138,14 +144,17 @@ impl RestCommitter {
         Ok(RestCommitter {
             client,
             base,
-            bearer,
+            bearer: std::sync::Mutex::new(bearer),
+            credential,
         })
     }
 
     /// Commits `updates` against `table`, guarded by `requirements`
     /// (optimistic: a concurrent change makes the catalog answer 409, which
-    /// surfaces as a retryable `CatalogCommitConflicts`). Returns the table
-    /// state the catalog reports.
+    /// surfaces as a retryable `CatalogCommitConflicts`). When OAuth2 client
+    /// credentials are configured and the catalog answers 401, re-exchanges
+    /// the credential once and retries immediately. Returns the table state
+    /// the catalog reports.
     pub(crate) async fn commit(
         &self,
         table: &Table,
@@ -166,14 +175,25 @@ impl RestCommitter {
         })
         .map_err(|e| IcebergError::Internal(format!("commit request does not serialize: {e}")))?;
         let what = format!("schema commit to {}", ident.name());
-        let resp = authorized(self.client.post(&url), self.bearer.as_deref())
-            .header(reqwest012::header::CONTENT_TYPE, "application/json")
-            .body(body)
-            .send()
-            .await
-            .map_err(|e| request_error(&what, e))?;
-        let status = resp.status();
-        let text = resp.bytes().await.map_err(|e| request_error(&what, e))?;
+        let bearer = self
+            .bearer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let (mut status, mut text) = self
+            .send_commit(&url, &what, &body, bearer.as_deref())
+            .await?;
+        if status == reqwest012::StatusCode::UNAUTHORIZED
+            && let Some(credential) = &self.credential
+        {
+            tracing::info!(
+                table = %ident.name(),
+                "iceberg schema commit answered 401; re-exchanging OAuth2 credential and retrying once"
+            );
+            let fresh = exchange(&self.client, credential).await?;
+            *self.bearer.lock().unwrap_or_else(|e| e.into_inner()) = Some(fresh.clone());
+            (status, text) = self.send_commit(&url, &what, &body, Some(&fresh)).await?;
+        }
         if !status.is_success() {
             let detail: String = String::from_utf8_lossy(&text).chars().take(512).collect();
             return Err(IcebergError::Catalog(status_error(&what, status, &detail)));
@@ -195,6 +215,24 @@ impl RestCommitter {
             .runtime(runtime)
             .build()
             .map_err(IcebergError::Catalog)
+    }
+
+    async fn send_commit(
+        &self,
+        url: &str,
+        what: &str,
+        body: &[u8],
+        bearer: Option<&str>,
+    ) -> Result<(reqwest012::StatusCode, bytes::Bytes), IcebergError> {
+        let resp = authorized(self.client.post(url), bearer)
+            .header(reqwest012::header::CONTENT_TYPE, "application/json")
+            .body(body.to_vec())
+            .send()
+            .await
+            .map_err(|e| request_error(what, e))?;
+        let status = resp.status();
+        let text = resp.bytes().await.map_err(|e| request_error(what, e))?;
+        Ok((status, text))
     }
 }
 
@@ -318,5 +356,237 @@ mod tests {
         std::fs::write(&key, "not a key").expect("write");
         let e = http_client(None, Some((cert_path, key_path))).expect_err("no PEM identity");
         assert!(matches!(e, IcebergError::Config { .. }), "{e}");
+    }
+
+    fn read_http_request(stream: &mut std::net::TcpStream) -> Option<(String, Option<String>)> {
+        use std::io::Read;
+        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 1024];
+        let header_end = loop {
+            let n = stream.read(&mut chunk).ok()?;
+            if n == 0 {
+                return None;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                break pos + 4;
+            }
+        };
+        let headers = String::from_utf8_lossy(&buf[..header_end]).into_owned();
+        let mut lines = headers.lines();
+        let request_line = lines.next()?.to_owned();
+        let mut auth = None;
+        let mut content_length = 0usize;
+        for line in lines {
+            if let Some((k, v)) = line.split_once(':') {
+                if k.eq_ignore_ascii_case("authorization") {
+                    auth = Some(v.trim().to_owned());
+                } else if k.eq_ignore_ascii_case("content-length") {
+                    content_length = v.trim().parse().unwrap_or(0);
+                }
+            }
+        }
+        while buf.len() < header_end + content_length {
+            let n = stream.read(&mut chunk).ok()?;
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+        }
+        Some((request_line, auth))
+    }
+
+    fn write_http_response(stream: &mut std::net::TcpStream, status: u16, body: &str) {
+        use std::io::Write;
+        let reason = match status {
+            200 => "OK",
+            401 => "Unauthorized",
+            403 => "Forbidden",
+            _ => "Error",
+        };
+        let resp = format!(
+            "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let _ = stream.write_all(resp.as_bytes());
+        let _ = stream.flush();
+    }
+
+    async fn memory_table() -> (tempfile::TempDir, Table) {
+        use iceberg::memory::MemoryCatalogBuilder;
+        use iceberg::spec::{NestedField, PrimitiveType, Type};
+        use iceberg::{Catalog, CatalogBuilder};
+
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let catalog = MemoryCatalogBuilder::default()
+            .load(
+                "memory",
+                HashMap::from([(
+                    iceberg::memory::MEMORY_CATALOG_WAREHOUSE.to_owned(),
+                    dir.path().to_string_lossy().into_owned(),
+                )]),
+            )
+            .await
+            .expect("memory catalog");
+        let ns = iceberg::NamespaceIdent::from_vec(vec!["ns".to_owned()]).expect("ns");
+        catalog
+            .create_namespace(&ns, HashMap::new())
+            .await
+            .expect("namespace");
+        let schema = iceberg::spec::Schema::builder()
+            .with_fields([std::sync::Arc::new(NestedField::required(
+                1,
+                "n",
+                Type::Primitive(PrimitiveType::Long),
+            ))])
+            .build()
+            .expect("schema");
+        let creation = iceberg::TableCreation::builder()
+            .name("t".to_owned())
+            .schema(schema)
+            .build();
+        let table = catalog
+            .create_table(&ns, creation)
+            .await
+            .expect("create table");
+        (dir, table)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn oauth2_commit_refreshes_expired_token_once_and_fails_when_rejected() {
+        use thadam_core::{Classify, ErrorDomain, Retry, codes};
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let (_dir, table) = memory_table().await;
+        let commit_ok = serde_json::json!({
+            "metadata-location": table.metadata_location().expect("metadata location"),
+            "metadata": table.metadata(),
+        })
+        .to_string();
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mock");
+        let addr = listener.local_addr().expect("local addr");
+        let token_calls = Arc::new(AtomicUsize::new(0));
+        let commit_calls = Arc::new(AtomicUsize::new(0));
+        let token_calls_srv = Arc::clone(&token_calls);
+        let commit_calls_srv = Arc::clone(&commit_calls);
+
+        let server = std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut stream = stream;
+                let Some((req_line, auth)) = read_http_request(&mut stream) else {
+                    continue;
+                };
+                if req_line.starts_with("POST /v1/oauth/tokens ") {
+                    let n = token_calls_srv.fetch_add(1, Ordering::SeqCst) + 1;
+                    if n >= 4 {
+                        write_http_response(&mut stream, 401, r#"{"error":"invalid_client"}"#);
+                    } else {
+                        let body = format!(r#"{{"access_token":"tok-{n}","token_type":"bearer"}}"#);
+                        write_http_response(&mut stream, 200, &body);
+                    }
+                } else if req_line.starts_with("GET /v1/config ") {
+                    assert_eq!(auth.as_deref(), Some("Bearer tok-1"));
+                    write_http_response(&mut stream, 200, "{}");
+                } else if req_line.starts_with("POST /v1/namespaces/ns/tables/t ") {
+                    let c = commit_calls_srv.fetch_add(1, Ordering::SeqCst) + 1;
+                    match (c, auth.as_deref()) {
+                        // 1st commit attempt carries expired tok-1 -> 401 triggers refresh.
+                        (1, Some("Bearer tok-1")) => {
+                            write_http_response(&mut stream, 401, r#"{"error":"expired"}"#);
+                        }
+                        // Immediate retry carries freshly exchanged tok-2 -> 200 OK.
+                        (2, Some("Bearer tok-2")) => {
+                            write_http_response(&mut stream, 200, &commit_ok);
+                        }
+                        // Next commit sees tok-2 expire -> 401, then retry with tok-3 still 401.
+                        (3, Some("Bearer tok-2")) | (4, Some("Bearer tok-3")) => {
+                            write_http_response(
+                                &mut stream,
+                                401,
+                                r#"{"error":"still unauthorized"}"#,
+                            );
+                        }
+                        // Next commit sees tok-3 rejected with 401, and token endpoint (n=4) answers 401.
+                        (5, Some("Bearer tok-3")) => {
+                            write_http_response(&mut stream, 401, r#"{"error":"expired"}"#);
+                        }
+                        other => panic!("unexpected commit request: {other:?}"),
+                    }
+                } else {
+                    break;
+                }
+                if commit_calls_srv.load(Ordering::SeqCst) >= 5
+                    && token_calls_srv.load(Ordering::SeqCst) >= 4
+                {
+                    break;
+                }
+            }
+        });
+
+        let uri = format!("http://{addr}");
+        let cfg = crate::config::parse_iceberg_config(&serde_json::json!({
+            "from": "local",
+            "pipeline": "edge-capture",
+            "catalog_uri": uri,
+            "catalog_credential": {
+                "client_id": "thadam",
+                "client_secret": "s3cret",
+            },
+            "url": "s3://warehouse/lake",
+            "namespace": "ns",
+            "store": {
+                "endpoint": "http://127.0.0.1:9000",
+                "allow_http": true,
+                "access_key_id": "k",
+                "secret_access_key": "s",
+            },
+        }))
+        .expect("valid config");
+        let client = http_client(None, None).expect("http client");
+        let committer = RestCommitter::connect(client, &cfg.catalog_uri, &cfg.catalog_auth)
+            .await
+            .expect("connect");
+        assert_eq!(token_calls.load(Ordering::SeqCst), 1);
+
+        // 1. Expired tok-1 (401) -> re-exchanges for tok-2 and succeeds on immediate retry.
+        let updated = committer
+            .commit(&table, Vec::new(), Vec::new())
+            .await
+            .expect("commit succeeds after refreshing expired token");
+        assert_eq!(updated.identifier(), table.identifier());
+        assert_eq!(token_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(commit_calls.load(Ordering::SeqCst), 2);
+
+        // 2. Retry with freshly exchanged tok-3 still returns 401 -> fatal auth.failed (no loop).
+        let err = committer
+            .commit(&table, Vec::new(), Vec::new())
+            .await
+            .expect_err("persistent 401 after refresh must fail");
+        assert_eq!(
+            (err.retry(), err.domain(), err.code()),
+            (Retry::Fatal, ErrorDomain::Auth, codes::AUTH_FAILED)
+        );
+        assert!(!crate::error::is_expired_oauth_token(&err));
+        assert_eq!(token_calls.load(Ordering::SeqCst), 3);
+        assert_eq!(commit_calls.load(Ordering::SeqCst), 4);
+
+        // 3. Token exchange itself returns 401 -> fatal auth.failed.
+        let err = committer
+            .commit(&table, Vec::new(), Vec::new())
+            .await
+            .expect_err("rejected token exchange must fail");
+        assert_eq!(
+            (err.retry(), err.domain(), err.code()),
+            (Retry::Fatal, ErrorDomain::Auth, codes::AUTH_FAILED)
+        );
+        assert!(!crate::error::is_expired_oauth_token(&err));
+        assert_eq!(token_calls.load(Ordering::SeqCst), 4);
+        assert_eq!(commit_calls.load(Ordering::SeqCst), 5);
+
+        server.join().expect("mock server thread");
     }
 }
