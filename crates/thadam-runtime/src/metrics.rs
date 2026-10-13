@@ -167,6 +167,98 @@ pub enum MetricEvent<'a> {
     /// metrics hook on its context. Carried verbatim: the core enum pins
     /// the vocabulary and the label value sets.
     Connector(ConnectorMetric<'a>),
+    /// One WAL group-commit write completed (`thadam_wal_commit_seconds`).
+    WalCommit {
+        /// Duration of the group write and flush/ack.
+        duration: Duration,
+    },
+    /// One WAL segment `sync_file` completed (`thadam_wal_fsync_seconds`).
+    WalFsync {
+        /// Duration of the `sync_file` call.
+        duration: Duration,
+    },
+    /// Current WAL retained segment bytes (`thadam_wal_disk_bytes`).
+    WalDiskBytes {
+        /// Bytes held by retained WAL segments.
+        bytes: u64,
+    },
+    /// Configured WAL disk budget (`thadam_wal_budget_bytes`).
+    WalBudgetBytes {
+        /// Configured `wal.max_disk` in bytes.
+        bytes: u64,
+    },
+    /// Startup WAL recovery completed (`thadam_recovery_seconds`,
+    /// `thadam_recovery_truncated_bytes`).
+    WalRecovery {
+        /// Time spent in WAL recovery.
+        elapsed: Duration,
+        /// Bytes truncated from the last segment during recovery.
+        truncated_bytes: u64,
+    },
+    /// A source opened or closed its connection (`thadam_source_connected`).
+    SourceConnected {
+        /// The source id.
+        source: &'a str,
+        /// Whether the source is currently connected.
+        connected: bool,
+    },
+    /// Time a source spent unable to pull or waiting for WAL space
+    /// (`thadam_source_backpressure_seconds_total`).
+    SourceBackpressure {
+        /// The source id.
+        source: &'a str,
+        /// Backpressure wait duration.
+        duration: Duration,
+    },
+    /// Age of the oldest unacknowledged batch for a source
+    /// (`thadam_ack_oldest_age_seconds`).
+    AckOldestAge {
+        /// The source id.
+        source: &'a str,
+        /// Age of the oldest pending batch (`Duration::ZERO` when none).
+        age: Duration,
+    },
+    /// Observed unacknowledged batch count for a source, used to track the
+    /// high-water mark (`thadam_source_unacked_max`).
+    SourceUnackedMax {
+        /// The source id.
+        source: &'a str,
+        /// Current unacknowledged count.
+        unacked: usize,
+    },
+    /// Quality flags raised on emitted events
+    /// (`thadam_quality_flags_total{dataset,flag}`).
+    QualityFlags {
+        /// The dataset id.
+        dataset: &'a str,
+        /// The quality flag name.
+        flag: &'static str,
+        /// Events carrying this flag.
+        count: usize,
+    },
+    /// A sink's WAL cursor lag (`thadam_sink_lag_bytes`,
+    /// `thadam_sink_lag_seconds`).
+    SinkLag {
+        /// The sink id.
+        sink: &'a str,
+        /// Unconsumed WAL segment bytes after the sink's cursor.
+        bytes: u64,
+        /// Monotonic age in seconds of the oldest unconsumed WAL segment.
+        seconds: f64,
+    },
+    /// A sink's effective delivery class (`thadam_sink_delivery_class{class}`).
+    SinkDeliveryClass {
+        /// The sink id.
+        sink: &'a str,
+        /// `at_least_once`, `idempotent_batch`, or `at_most_once`.
+        class: &'static str,
+    },
+    /// Log lines dropped by the lossy logging writer
+    /// (`thadam_log_dropped_total`).
+    LogDropped {
+        /// Dropped log lines.
+        count: u64,
+    },
 }
 
 /// Receives [`MetricEvent`]s. Implementations must be cheap and must not

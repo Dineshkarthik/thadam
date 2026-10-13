@@ -690,7 +690,21 @@ impl Pipeline {
             .enumerate()
             .filter(|(_, s)| sinks.iter().any(|slot| slot.id == s.id))
             .collect();
-        let wal_opts = plan::wal_options(&spec, &chain_sinks, opts.machine_id.clone())?;
+        let mut wal_opts = plan::wal_options(&spec, &chain_sinks, opts.machine_id.clone())?;
+        {
+            let m = Arc::clone(&opts.metrics);
+            let b = Arc::clone(&budget);
+            wal_opts.on_commit = Some(Arc::new(move |duration| {
+                m.record(MetricEvent::WalCommit { duration });
+                m.record(MetricEvent::WalDiskBytes {
+                    bytes: b.used(thadam_core::BudgetCategory::Wal),
+                });
+            }));
+            let m = Arc::clone(&opts.metrics);
+            wal_opts.on_fsync = Some(Arc::new(move |duration| {
+                m.record(MetricEvent::WalFsync { duration });
+            }));
+        }
         let mut limits = opts.batch_limits;
         limits.max_bytes = limits.max_bytes.min(wal_opts.frame_max_bytes / 2).max(1);
         let (wal_dir, b, clock) = (layout.wal(), Arc::clone(&budget), Arc::clone(&opts.clock));
@@ -736,6 +750,16 @@ impl Pipeline {
             node_id: &spec.pipeline.node_id,
             pipeline: &spec.pipeline.name,
         });
+        opts.metrics.record(MetricEvent::WalBudgetBytes {
+            bytes: spec.wal.max_disk.get(),
+        });
+        opts.metrics.record(MetricEvent::WalDiskBytes {
+            bytes: wal.stats().disk_bytes,
+        });
+        opts.metrics.record(MetricEvent::WalRecovery {
+            elapsed: recovery.elapsed,
+            truncated_bytes: recovery.truncated_bytes,
+        });
         *lock(&handle.0.wal) = Some(wal.clone());
         tracing::info!(
             epoch = %wal.epoch(), created = recovery.created, clean = recovery.clean_shutdown,
@@ -765,6 +789,10 @@ impl Pipeline {
         let mut sup = Supervisor::new();
 
         // 3. Maintenance first.
+        let sink_cursors: Vec<(String, String)> = sinks
+            .iter()
+            .map(|s| (s.id.clone(), s.chain_cfg.cursor.clone()))
+            .collect();
         let maint = Component::new(
             "maintenance".into(),
             ComponentKind::Maintenance,
@@ -775,7 +803,13 @@ impl Pipeline {
         sup.spawn(
             Group::Maintenance,
             Arc::clone(&maint),
-            maintenance(maint, wal.clone(), maint_stop.clone(), opts.clone()),
+            maintenance(
+                maint,
+                wal.clone(),
+                maint_stop.clone(),
+                opts.clone(),
+                sink_cursors,
+            ),
         );
 
         // 4. Sinks and chains: each driver recovers its sink, then releases
@@ -1101,6 +1135,7 @@ async fn maintenance(
     wal: Wal,
     stop: Shutdown,
     opts: RuntimeOptions,
+    sink_cursors: Vec<(String, String)>,
 ) -> Result<(), ThadamError> {
     component.running();
     let mut tick = tokio::time::interval(opts.maintenance_interval);
@@ -1118,6 +1153,17 @@ async fn maintenance(
                             deleted_bytes: r.deleted_bytes,
                             evicted_bytes: r.evicted_bytes,
                         });
+                        component.metrics().record(MetricEvent::WalDiskBytes {
+                            bytes: r.retained_bytes,
+                        });
+                        for (sink, cursor) in &sink_cursors {
+                            let (bytes, seconds) = wal.cursor_lag(cursor);
+                            component.metrics().record(MetricEvent::SinkLag {
+                                sink,
+                                bytes,
+                                seconds,
+                            });
+                        }
                         if !r.lagging_consumers.is_empty() {
                             tracing::warn!(consumers = ?r.lagging_consumers, "wal consumers exceeded max_lag");
                         }

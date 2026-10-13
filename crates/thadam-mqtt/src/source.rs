@@ -199,6 +199,8 @@ impl MqttSource {
         let ack_rx = self.ack_rx.take().ok_or(MqttError::State(
             "this source was already opened; build a new one",
         ))?;
+        self.shared
+            .set_metrics(ctx.source_id.as_str().into(), ctx.metrics.clone());
         let (link, client) = link::open(params);
         let stop = CancellationToken::new();
         let closing = Arc::new(AtomicBool::new(false));

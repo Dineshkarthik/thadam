@@ -82,6 +82,14 @@ pub enum ConnectorMetric<'a> {
         /// Duration of the finalize sequence.
         latency: Duration,
     },
+    /// Acknowledgements dropped because they belonged to an older connection
+    /// epoch (`thadam_source_stale_acks_total`).
+    SourceStaleAcks {
+        /// The source id.
+        source: &'a str,
+        /// Acknowledgements dropped.
+        count: u64,
+    },
 }
 
 /// Receives [`ConnectorMetric`]s. Implementations must be cheap and must
