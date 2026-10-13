@@ -37,7 +37,8 @@ A chain always runs with the configuration from its last load. Restart Thadam wi
 
 - **Transient errors** (broker hiccup, sink timeout) retry with capped, jittered backoff and mark the component `Degraded`; the chain keeps its cursor.
 - **Poison records**: a frame whose processing panics is retried (`poison_retries`, default 2), then its records are quarantined; the cursor advances. Multi-frame batches that keep failing are bisected (`max_attempts_before_bisect`, default 5) to isolate the poison event, and the bisection is recorded in lineage.
-- **Panic isolation**: a chain panic is caught at the task boundary, counted (`thadam_chain_panic_total`), and the chain is rebuilt; the process keeps running.
+- **Panic isolation**: a chain panic is caught at the task boundary, counted (`thadam_chain_panic_total`), and the chain is rebuilt; the process keeps running. Open [`window`](../configuration/transforms.md#window) state is rebuilt by re-reading from the oldest frame an open window needs.
+- **Open windows hold the cursor back** (experimental `window` step): the sink cursor stops short of the first frame of any window whose aggregate the sink does not hold, so a restart re-reads those frames. See [`kind: window`](../configuration/transforms.md#window).
 - **Fatal errors** (authentication, configuration) mark the component `Failed` and flip readiness to false; capture continues within budget and policy.
 
 One chain is designated **primary** for reject and quarantine metrics, so several chains seeing the same raw message do not double-count rejects.

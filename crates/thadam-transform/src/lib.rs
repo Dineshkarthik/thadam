@@ -12,7 +12,8 @@
 //! - Units with UCUM codes, including element-wise conversion on typed arrays.
 //! - The steps: message-level dedup with warm start, `explode`, `validate`,
 //!   `on_change` with heartbeat, `sample`, structured `filter`, `enrich`,
-//!   `rename`, `project`, and widening-only `cast`.
+//!   `rename`, `project`, widening-only `cast`, and tumbling `window`
+//!   aggregates on ingest time.
 //! - Per-event errors become [`RejectedRaw`], with the raw bytes kept.
 //!
 //! # Shape of the API
@@ -23,6 +24,15 @@
 //! in a [`FrameInput`], and calls [`Chain::process`] into a [`ChainOutput`]
 //! made by [`Chain::new_output`]. [`Chain::warm`] rebuilds step state from
 //! earlier records without emitting.
+//!
+//! # Open windows and the cursor
+//!
+//! A `window` step keeps open windows in memory only. [`Chain::hold`] is the
+//! oldest WAL position any of them still needs: the runtime must not commit a
+//! sink cursor at or past it, so a restart that re-reads from the cursor
+//! rebuilds every open window (cursor hold-back). [`Chain::warm`] skips
+//! window steps for that reason; [`Chain::warm_open_windows`] feeds them, to
+//! rebuild a chain mid-run from `hold` onward.
 //!
 //! # Processing order within a dataset
 //!
@@ -68,7 +78,9 @@
 //! # Deliberately not exposed
 //!
 //! - A user-defined step trait for external crates (sealed until a plugin ADR).
-//! - Windowing and aggregation.
+//! - Windows other than tumbling ingest-time ones (event time, lateness,
+//!   sliding), and other aggregations than `count`, `sum`, `min`, `max`,
+//!   `mean`.
 //! - Arrow.
 //! - Async.
 //! - Any I/O beyond loading enrichment files at compile time and reading

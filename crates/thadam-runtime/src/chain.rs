@@ -139,18 +139,31 @@ pub(crate) fn reject_frame(epoch: WalEpoch, frame: &Frame, error: &ThadamError) 
 
 /// Rebuilds step state from frames `(upto - frames, upto]` without emitting.
 /// Returns the number of frames read.
+///
+/// With `hold` (a chain that was running and lost its state), the read starts
+/// no later than `hold` and the `window` steps are fed too, so the open
+/// windows come back exactly as they were. Without it, windows are skipped:
+/// a restart re-reads them from the held-back cursor instead.
 pub(crate) async fn warm(
     chain: &mut Chain,
     wal: &Wal,
     reader_name: &str,
     upto: u64,
     frames: u64,
+    hold: Option<u64>,
     read_bytes: usize,
 ) -> Result<u64, ThadamError> {
-    if upto == 0 || frames == 0 {
+    if upto == 0 || (frames == 0 && hold.is_none()) {
         return Ok(0);
     }
-    let start = upto.saturating_sub(frames - 1).max(1);
+    let mut start = if frames == 0 {
+        upto
+    } else {
+        upto.saturating_sub(frames - 1).max(1)
+    };
+    if let Some(h) = hold {
+        start = start.min(h.max(1));
+    }
     let epoch = wal.epoch();
     let mut reader = wal
         .reader(reader_name, StartFrom::At(WalPos::new(start)))
@@ -171,7 +184,13 @@ pub(crate) async fn warm(
                 let frames = chunk.into_frames();
                 let keep = frames.partition_point(|f| f.seq().get() <= upto);
                 for group in clock_groups(&frames[..keep]) {
-                    with_input(epoch, group, |input| chain.warm(input));
+                    with_input(epoch, group, |input| {
+                        if hold.is_some() {
+                            chain.warm_open_windows(input);
+                        } else {
+                            chain.warm(input);
+                        }
+                    });
                     warmed += group.len() as u64;
                 }
                 if past {
@@ -241,8 +260,11 @@ impl ChainTask {
         Ok(())
     }
 
-    async fn warm_to(&mut self, upto: u64) -> Result<(), ThadamError> {
-        if !self.cfg.has_state {
+    /// Warms the rebuilt chain up to frame `upto`. `hold` is the oldest frame
+    /// an open window needed before the rebuild (see [`warm`]); `None` at
+    /// start-up and after a rewind, when the chain begins from the cursor.
+    async fn warm_to(&mut self, upto: u64, hold: Option<WalPos>) -> Result<(), ThadamError> {
+        if !self.cfg.has_state && hold.is_none() {
             return Ok(());
         }
         let name = format!("warm.{}", self.cfg.sink_id);
@@ -252,6 +274,7 @@ impl ChainTask {
             &name,
             upto,
             self.cfg.warm_frames,
+            hold.map(WalPos::get),
             self.cfg.read_bytes,
         )
         .await?;
@@ -262,11 +285,13 @@ impl ChainTask {
     /// Processes one clock group. A panic rebuilds the chain (its step state
     /// may be inconsistent), warms it from the frames before, and retries
     /// frame by frame; a frame that still panics after `poison_retries`
-    /// rebuilds is rejected whole.
+    /// rebuilds is rejected whole. `hold` is the chain's hold before the
+    /// group, from which a rebuild replays the open windows.
     async fn process_group(
         &mut self,
         epoch: WalEpoch,
         frames: &[Frame],
+        hold: Option<WalPos>,
     ) -> Result<Processed, ThadamError> {
         if let Some(done) = try_process(&mut self.chain, epoch, frames, &self.cfg.failpoints) {
             return Ok(done);
@@ -275,7 +300,7 @@ impl ChainTask {
         let before = frames
             .first()
             .map_or(0, |f| f.seq().get().saturating_sub(1));
-        self.warm_to(before).await?;
+        self.warm_to(before, hold).await?;
         let Some(origin) = group_range(epoch, frames) else {
             return Err(ThadamError::fatal(
                 ErrorDomain::Transform,
@@ -288,6 +313,7 @@ impl ChainTask {
         let mut rejects = Vec::new();
         for frame in frames {
             let one = std::slice::from_ref(frame);
+            let hold = self.chain.hold();
             let mut attempts = 0;
             loop {
                 if let Some((o, r)) = try_process(&mut self.chain, epoch, one, &self.cfg.failpoints)
@@ -299,7 +325,8 @@ impl ChainTask {
                     break;
                 }
                 self.on_panic(one)?;
-                self.warm_to(frame.seq().get().saturating_sub(1)).await?;
+                self.warm_to(frame.seq().get().saturating_sub(1), hold)
+                    .await?;
                 attempts += 1;
                 if attempts > self.cfg.poison_retries {
                     let err = ThadamError::permanent(
@@ -399,7 +426,7 @@ impl ChainTask {
                 return Ok(());
             }
         };
-        self.warm_to(start).await?;
+        self.warm_to(start, None).await?;
         let from = if start == 0 {
             self.cfg.start_from
         } else {
@@ -430,7 +457,7 @@ impl ChainTask {
                     let rw = *self.rewind.borrow_and_update();
                     generation = rw.generation;
                     self.rebuild()?;
-                    self.warm_to(rw.from.saturating_sub(1)).await?;
+                    self.warm_to(rw.from.saturating_sub(1), None).await?;
                     reader.seek(WalPos::new(rw.from));
                     tracing::warn!(sink = %self.cfg.sink_id, from = rw.from, "chain rewound by its driver");
                     continue;
@@ -454,6 +481,7 @@ impl ChainTask {
                         clock_synced: true,
                         datasets: out.batches,
                         rejects: Vec::new(),
+                        hold: self.chain.hold(),
                         generation,
                     };
                     if !self.send(batch, 1).await {
@@ -470,7 +498,8 @@ impl ChainTask {
                         add(&self.component.counters.messages, records as u64);
                         let bytes = group_bytes(group);
                         add(&self.component.counters.bytes, bytes as u64);
-                        let (out, mut rejects) = self.process_group(epoch, group).await?;
+                        let hold = self.chain.hold();
+                        let (out, mut rejects) = self.process_group(epoch, group, hold).await?;
                         self.count_output(&out, &rejects);
                         if !self.cfg.primary && !rejects.is_empty() {
                             self.component
@@ -489,6 +518,7 @@ impl ChainTask {
                             clock_synced: group.first().is_some_and(Frame::clock_synced),
                             datasets: out.batches,
                             rejects,
+                            hold: self.chain.hold(),
                             generation,
                         };
                         if !self.send(batch, bytes).await {

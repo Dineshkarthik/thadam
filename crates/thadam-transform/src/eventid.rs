@@ -1,15 +1,17 @@
 //! Event id derivation: `xxh3_128` over a canonical, tagged encoding.
 
-use thadam_core::{EventId, Value, WalEpoch, WalPos};
+use thadam_core::{AssetPath, EventId, Value, WalEpoch, WalPos};
 use smallvec::SmallVec;
 use twox_hash::XxHash3_128;
 
 const TAG_POSITIONAL: u8 = 1;
 const TAG_CONTENT: u8 = 2;
 const TAG_SAMPLE: u8 = 3;
+const TAG_WINDOW: u8 = 4;
 const NO_SAMPLE: u32 = u32::MAX;
 
 /// A growing byte string that is hashed once at the end.
+#[derive(Clone, Debug)]
 pub(crate) struct IdBuf(SmallVec<[u8; 96]>);
 
 impl IdBuf {
@@ -24,6 +26,30 @@ impl IdBuf {
         let mut b = Self::with_tag(TAG_CONTENT);
         b.str(dataset);
         b
+    }
+
+    /// The part of a `window` aggregate's id that every aggregate of one step
+    /// shares: the dataset, the window size, and the output column names.
+    pub(crate) fn window(dataset: &str, size_ns: i64, columns: &[&str]) -> Self {
+        let mut b = Self::with_tag(TAG_WINDOW);
+        b.str(dataset);
+        b.u64(size_ns as u64);
+        for c in columns {
+            b.str(c);
+        }
+        b
+    }
+
+    /// The id of the aggregate of `asset`'s window starting at `start_ns`,
+    /// derived from content only so a re-read after a restart yields the same
+    /// id.
+    pub(crate) fn window_event(&self, asset: &AssetPath, start_ns: i64) -> EventId {
+        let mut b = self.clone();
+        for (_, level) in asset.iter() {
+            b.level(level);
+        }
+        b.u64(start_ns as u64);
+        b.finish()
     }
 
     fn u32(&mut self, v: u32) {
@@ -176,6 +202,28 @@ mod tests {
         a.level("x");
         b.level("x");
         assert_ne!(a.finish(), b.finish());
+    }
+
+    #[test]
+    fn window_ids_depend_on_content_only() {
+        let asset = |r: &str| AssetPath::new([("robot", r)]).unwrap();
+        let base = IdBuf::window("telemetry", 10, &["start", "n"]);
+        let a = base.window_event(&asset("a"), 0);
+        assert_eq!(a, base.window_event(&asset("a"), 0));
+        assert_ne!(a, base.window_event(&asset("b"), 0));
+        assert_ne!(a, base.window_event(&asset("a"), 10));
+        assert_ne!(
+            a,
+            IdBuf::window("telemetry", 20, &["start", "n"]).window_event(&asset("a"), 0)
+        );
+        assert_ne!(
+            a,
+            IdBuf::window("telemetry", 10, &["start", "m"]).window_event(&asset("a"), 0)
+        );
+        assert_ne!(
+            a,
+            IdBuf::window("joints", 10, &["start", "n"]).window_event(&asset("a"), 0)
+        );
     }
 
     #[test]

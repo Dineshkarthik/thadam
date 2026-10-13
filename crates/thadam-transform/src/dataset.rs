@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use thadam_core::{
     AssetPath, ErrorDomain, Event, EventId, FieldDef, FieldType, Quality, QualityFlags, Record,
-    ThadamError, Shape, ShapeRef, ShapeRegistry, SourceId, Sym, TimeDomain, Times, Value, codes,
+    ThadamError, Shape, ShapeRef, ShapeRegistry, SourceId, Sym, TimeDomain, Times, Value, WalPos,
+    codes,
 };
 use serde_json::Value as Json;
 
@@ -31,7 +32,8 @@ pub struct DatasetStats {
     pub messages: u64,
     /// Events emitted.
     pub written: u64,
-    /// Events dropped by a step (`filter`, `on_change`, `sample`, `enrich`).
+    /// Events dropped by a step (`filter`, `on_change`, `sample`, `enrich`),
+    /// or absorbed into an open `window`.
     pub filtered: u64,
     /// Messages dropped as duplicates.
     pub deduped: u64,
@@ -166,6 +168,9 @@ pub(crate) struct Dataset {
     pub(crate) declared: ShapeRef,
     time: Option<TimePlan>,
     steps: Vec<Box<dyn Step>>,
+    /// During warm-up, the index of the step records stop at; `None` runs
+    /// every step.
+    warm_to: Option<usize>,
     pub(crate) out_shape: ShapeRef,
     pub(crate) enrichment: Vec<EnrichmentInfo>,
     pub(crate) stats: DatasetStats,
@@ -656,6 +661,7 @@ impl Dataset {
             declared,
             time,
             steps: Vec::new(),
+            warm_to: None,
             enrichment: Vec::new(),
             stats: DatasetStats::default(),
             warm_evictions: (0, 0),
@@ -1172,7 +1178,7 @@ impl Dataset {
         if let Some(i) = sample {
             builder = builder.sample_idx(i);
         }
-        let mut event = match builder.build() {
+        let event = match builder.build() {
             Ok(e) => e,
             Err(e) => {
                 let e = ThadamError::permanent(
@@ -1184,7 +1190,25 @@ impl Dataset {
             }
         };
 
-        for step in &mut self.steps {
+        self.run_steps(0, event, view, sample, out, rejects);
+    }
+
+    /// Runs `event` through the steps from `first` on. A step that emits
+    /// several events continues each of them through the steps after it.
+    fn run_steps(
+        &mut self,
+        first: usize,
+        mut event: Event,
+        view: &RawRecordView<'_>,
+        sample: Option<u32>,
+        out: &mut Vec<Event>,
+        rejects: &mut Vec<RejectedRaw>,
+    ) {
+        let end = self.warm_to.unwrap_or(self.steps.len());
+        for i in first..end {
+            let Some(step) = self.steps.get_mut(i) else {
+                break;
+            };
             match step.apply(event) {
                 StepResult::Keep(next) => event = next,
                 StepResult::Filtered => {
@@ -1196,10 +1220,45 @@ impl Dataset {
                     rejects.push(RejectedRaw::new(view, Some(&self.id), sample, e));
                     return;
                 }
+                StepResult::Emit(events) => {
+                    if events.is_empty() {
+                        self.stats.filtered += 1;
+                    }
+                    for next in events {
+                        self.run_steps(i + 1, next, view, sample, out, rejects);
+                    }
+                    return;
+                }
             }
+        }
+        if end < self.steps.len() {
+            return;
         }
         self.stats.written += 1;
         out.push(event);
+    }
+
+    /// The oldest WAL position an open window still needs; see
+    /// [`Step::hold`].
+    pub(crate) fn hold(&self) -> Option<WalPos> {
+        self.steps.iter().filter_map(|s| s.hold()).min()
+    }
+
+    /// Whether a step's state is rebuilt by re-reading from [`Dataset::hold`].
+    pub(crate) fn holds_back(&self) -> bool {
+        self.steps.iter().any(|s| s.windowed())
+    }
+
+    /// With `stop`, records go no further than the first window step. Warm-up
+    /// covers frames before the cursor, which the hold-back guarantees no
+    /// pending window needs; feeding them would only open windows whose
+    /// aggregates the sink already holds, and pin the cursor on them.
+    pub(crate) fn stop_at_windows(&mut self, stop: bool) {
+        self.warm_to = if stop {
+            self.steps.iter().position(|s| s.windowed())
+        } else {
+            None
+        };
     }
 }
 

@@ -513,6 +513,19 @@ impl Pipeline {
                     }
                 }
                 Planned::Batch(f, cp) => {
+                    if cp.chain.holds_back() {
+                        errs.push(
+                            config_error(
+                                "transforms",
+                                format!(
+                                    "a `window` step needs a segment sink: sink `{}` is a batch sink, whose cursor does not yet hold back for open windows",
+                                    s.id
+                                ),
+                            )
+                            .with_context("component", s.id.clone()),
+                        );
+                        continue;
+                    }
                     let ctx =
                         BuildContext::new(s.id.as_str(), Arc::clone(&clock), layout.sink(&s.id))
                             .with_datasets(Arc::clone(&cp.decl_datasets))
@@ -803,6 +816,7 @@ impl Pipeline {
                         force.clone(),
                     );
                     d.start_latest = chain_cfg.start_from == StartFrom::Latest;
+                    d.holds_back = chain.holds_back();
                     sup.spawn(Group::Lanes, Arc::clone(&sink_c), d.run());
                 }
                 SinkConn::Batch(sink) => {

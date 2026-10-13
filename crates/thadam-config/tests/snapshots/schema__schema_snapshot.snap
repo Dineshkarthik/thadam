@@ -1,6 +1,5 @@
 ---
 source: crates/thadam-config/tests/schema.rs
-assertion_line: 10
 expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
 ---
 {
@@ -22,6 +21,60 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
           ]
         }
       },
+      "type": "object"
+    },
+    "AggregateFn": {
+      "description": "How a `window` aggregate reduces a field's values in one window.",
+      "oneOf": [
+        {
+          "const": "count",
+          "description": "The number of non-null values; any field type.",
+          "type": "string"
+        },
+        {
+          "const": "sum",
+          "description": "The sum, as `f64`; null when the window saw no value.",
+          "type": "string"
+        },
+        {
+          "const": "min",
+          "description": "The smallest value, as `f64`; null when the window saw no value.",
+          "type": "string"
+        },
+        {
+          "const": "max",
+          "description": "The largest value, as `f64`; null when the window saw no value.",
+          "type": "string"
+        },
+        {
+          "const": "mean",
+          "description": "The mean, as `f64`; null when the window saw no value.",
+          "type": "string"
+        }
+      ]
+    },
+    "AggregateSpec": {
+      "additionalProperties": false,
+      "description": "One output column of a `window` step.",
+      "properties": {
+        "as": {
+          "description": "The output column name; unique, and not `window_start` or `window_end`.",
+          "type": "string"
+        },
+        "field": {
+          "description": "The input field. `sum`, `min`, `max` and `mean` need a numeric field\nother than `i64` and `u64`, which `f64` cannot hold exactly.",
+          "type": "string"
+        },
+        "fn": {
+          "$ref": "#/$defs/AggregateFn",
+          "description": "The reduction."
+        }
+      },
+      "required": [
+        "field",
+        "fn",
+        "as"
+      ],
       "type": "object"
     },
     "ConnectorSpec": {
@@ -1462,6 +1515,53 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
           "required": [
             "kind",
             "dataset"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Experimental. Tumbling windows on ingest time: one aggregate event per\nasset and window, emitted when the asset's next window begins. The\noutput replaces the dataset's fields with `window_start`, `window_end`\nand the aggregates. Sink cursors are held back for open windows, so\nthe sink must be a segment sink.",
+          "properties": {
+            "aggregates": {
+              "description": "The output columns.",
+              "items": {
+                "$ref": "#/$defs/AggregateSpec"
+              },
+              "type": "array"
+            },
+            "dataset": {
+              "description": "The dataset the step applies to.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "window",
+              "type": "string"
+            },
+            "sinks": {
+              "description": "Restricts the step to these sink ids.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "size": {
+              "description": "The window length; greater than zero.",
+              "examples": [
+                "50ms",
+                "5s",
+                "1h"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "dataset",
+            "size",
+            "aggregates"
           ],
           "type": "object"
         }

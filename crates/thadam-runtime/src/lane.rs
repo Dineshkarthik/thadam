@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use thadam_core::WalRange;
+use thadam_core::{WalPos, WalRange};
 use thadam_transform::{DatasetBatch, RejectedRaw};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 
@@ -15,6 +15,10 @@ pub(crate) struct ChainBatch {
     pub clock_synced: bool,
     pub datasets: Vec<DatasetBatch>,
     pub rejects: Vec<RejectedRaw>,
+    /// The oldest WAL position any open window of the chain still needs once
+    /// this batch is processed; `None` when no window is open. It never
+    /// decreases within a generation.
+    pub hold: Option<WalPos>,
     /// The rewind generation the batch was read in; the driver drops batches
     /// from older generations.
     pub generation: u64,
@@ -44,6 +48,7 @@ impl ChainBatch {
             clock_synced: true,
             datasets: Vec::new(),
             rejects: Vec::new(),
+            hold: None,
             generation: 0,
         }
     }

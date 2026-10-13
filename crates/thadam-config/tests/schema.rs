@@ -88,6 +88,7 @@ fn transform_kinds_are_listed() {
         "cast",
         "pose",
         "joint_state",
+        "window",
     ] {
         assert!(text.contains(kind), "{kind}");
     }

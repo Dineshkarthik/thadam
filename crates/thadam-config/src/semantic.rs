@@ -16,12 +16,12 @@ use crate::check::{Parsed, Section, closest};
 use crate::ctx::Ctx;
 use crate::path::{PathExt, PathVec};
 use crate::predicate::{Condition, Literal, Predicate, Test};
-use crate::scalars::FieldTypeSpec;
+use crate::scalars::{DurationSpec, FieldTypeSpec};
 use crate::spans::Anchor;
 use crate::spec::{
-    ConnectorSpec, DECLARED_FIELD_ID_RANGE, DatasetSpec, EnrichFieldSpec, EnrichFormat,
-    EnrichKeySpec, FieldSpec, IDENTITY_LEVEL_ID_RANGE, MaxLagSpec, SinkSpec, TimeUnit,
-    TransformSpec, WalSpec, WatchField,
+    AggregateFn, AggregateSpec, ConnectorSpec, DECLARED_FIELD_ID_RANGE, DatasetSpec,
+    EnrichFieldSpec, EnrichFormat, EnrichKeySpec, FieldSpec, IDENTITY_LEVEL_ID_RANGE, MaxLagSpec,
+    SinkSpec, TimeUnit, TransformSpec, WalSpec, WatchField,
 };
 
 /// What the connector checks read from a source or a sink.
@@ -1094,6 +1094,68 @@ impl<'p> Checker<'p, '_, '_> {
                     self.joint_state_field(base, key, name, floats, names);
                 }
             }
+            TransformSpec::Window {
+                size, aggregates, ..
+            } => self.window(base, *size, aggregates, names),
+        }
+    }
+
+    /// The `window` step's checks, mirroring the engine's compile: a positive
+    /// `size` that fits in nanoseconds, at least one aggregate, unique output
+    /// columns, and input fields the aggregate can read.
+    fn window(
+        &mut self,
+        base: &PathVec,
+        size: DurationSpec,
+        aggregates: &[AggregateSpec],
+        names: &Names,
+    ) {
+        if size.get().is_zero() || i64::try_from(size.get().as_nanos()).is_err() {
+            self.ctx.invalid(
+                &base.key("size"),
+                Anchor::Value,
+                "`size` must be greater than zero and fit in 63 bits of nanoseconds",
+            );
+        }
+        if aggregates.is_empty() {
+            self.ctx.invalid(
+                &base.key("aggregates"),
+                Anchor::Value,
+                "`aggregates` needs at least one entry",
+            );
+        }
+        let mut seen: HashSet<&str> = HashSet::from(["window_start", "window_end"]);
+        for (i, a) in aggregates.iter().enumerate() {
+            let p = base.key("aggregates").idx(i);
+            if a.name.is_empty() || !seen.insert(a.name.as_str()) {
+                self.ctx.invalid_hint(
+                    &p.key("as"),
+                    Anchor::Value,
+                    format!(
+                        "output column `{}` is empty, repeated, or reserved",
+                        a.name
+                    ),
+                    "`window_start` and `window_end` are always written; give each aggregate its own name",
+                );
+            }
+            let Some(ty) = names.fields.get(&a.field) else {
+                self.unknown_step_field(&p.key("field"), Anchor::Value, &a.field, names);
+                continue;
+            };
+            let exact = is_numeric(ty) && !matches!(ty, FieldType::I64 | FieldType::U64);
+            if a.func != AggregateFn::Count && !exact {
+                self.ctx.invalid_hint(
+                    &p.key("field"),
+                    Anchor::Value,
+                    format!(
+                        "`{}` needs a numeric field other than i64 and u64, but `{}` is `{}`",
+                        a.func.as_str(),
+                        a.field,
+                        type_label(ty)
+                    ),
+                    "`count` accepts any field; i64 and u64 do not fit the f64 result exactly",
+                );
+            }
         }
     }
 
@@ -1810,6 +1872,19 @@ fn evolve(t: &TransformSpec, names: &Names) -> FieldMap {
                     out.entry(a.name.clone())
                         .or_insert_with(|| a.ty.field_type().clone());
                 }
+            }
+        }
+        TransformSpec::Window { aggregates, .. } => {
+            out.clear();
+            out.insert("window_start".to_owned(), FieldType::Ts);
+            out.insert("window_end".to_owned(), FieldType::Ts);
+            for a in aggregates {
+                let ty = if a.func == AggregateFn::Count {
+                    FieldType::U64
+                } else {
+                    FieldType::F64
+                };
+                out.entry(a.name.clone()).or_insert(ty);
             }
         }
         _ => {}

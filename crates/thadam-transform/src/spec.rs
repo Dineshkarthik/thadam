@@ -816,6 +816,56 @@ pub struct CastSpec {
     pub fields: BTreeMap<String, String>,
 }
 
+/// How `window` reduces the values of one field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AggFn {
+    /// How many non-null values.
+    Count,
+    /// Their sum.
+    Sum,
+    /// The smallest.
+    Min,
+    /// The largest.
+    Max,
+    /// The mean.
+    Mean,
+}
+
+/// One aggregate of a `window`: an output column over one input field.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct AggregateSpec {
+    /// The input field.
+    pub field: String,
+    /// The reduction.
+    #[serde(rename = "fn")]
+    pub func: AggFn,
+    /// The output column.
+    #[serde(rename = "as")]
+    pub name: String,
+}
+
+/// `window`: tumbling windows on ingest time, one aggregate event per asset
+/// and window.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct WindowSpec {
+    /// The datasets it applies to.
+    #[serde(default)]
+    pub dataset: DatasetSelector,
+    /// The runtime's sink selector; ignored by the chain.
+    #[serde(default)]
+    pub sinks: Option<Vec<String>>,
+    /// The window length.
+    pub size: HumanDuration,
+    /// The output columns.
+    pub aggregates: Vec<AggregateSpec>,
+}
+
 /// A transform step. `kind` selects the variant.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -841,6 +891,8 @@ pub enum TransformSpec {
     Pose(PoseSpec),
     /// Flags malformed joint-state arrays.
     JointState(JointStateSpec),
+    /// Tumbling-window aggregates per asset.
+    Window(WindowSpec),
 }
 
 impl TransformSpec {
@@ -856,6 +908,7 @@ impl TransformSpec {
             TransformSpec::Cast(s) => &s.dataset,
             TransformSpec::Pose(s) => &s.dataset,
             TransformSpec::JointState(s) => &s.dataset,
+            TransformSpec::Window(s) => &s.dataset,
         }
     }
 
@@ -872,6 +925,7 @@ impl TransformSpec {
             TransformSpec::Cast(_) => "cast",
             TransformSpec::Pose(_) => "pose",
             TransformSpec::JointState(_) => "joint_state",
+            TransformSpec::Window(_) => "window",
         }
     }
 }
