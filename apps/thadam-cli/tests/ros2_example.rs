@@ -188,6 +188,15 @@ fn ros2_example_runs_end_to_end_and_round_trips() {
     assert_eq!(joints.len(), JOINT_MESSAGES, "joint_states rows");
     assert_eq!(poses.len(), POSE_MESSAGES, "poses rows");
 
+    // The same data directory again: the source resumes after the committed
+    // messages, so nothing is ingested twice.
+    assert_ok(
+        &thadam(&["run", cfg, "--exit-when-sources-finish"]),
+        "thadam run, second time",
+    );
+    assert_eq!(rows(&sink.join("joint_states")).len(), JOINT_MESSAGES);
+    assert_eq!(rows(&sink.join("poses")).len(), POSE_MESSAGES);
+
     for col in [
         "header.stamp",
         "header.frame_id",

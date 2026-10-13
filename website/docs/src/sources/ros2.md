@@ -160,7 +160,18 @@ ROS 2 has two clocks you can choose from in `time`:
 
 `time.field` reads the decoded record too: with dataset `decode: ros2`, `/header.stamp` addresses the flattened key the decoder writes (a nanosecond `Ts`, read as-is with `unit: ns`), exactly as the field paths above do.
 
-The source is finite: it ends with `None` once the inputs are drained. Acks are no-ops (`ack_mode: none`) and stay ordered trivially, because files are re-readable: replay is idempotent from the input, so after a crash or restart the source simply reads the files again from the start and nothing is skipped or acknowledged early.
+The source is finite: it ends with `None` once the inputs are drained.
+
+### Restarts and resume
+
+Reading a file again is not harmless: each re-read message lands at a new WAL position, so its default event id differs and sinks would receive duplicate rows. The source therefore resumes instead. It acknowledges after the WAL commit (`ack_mode: on_commit`) and, on each acknowledgement, atomically writes `resume.json` into its component directory, `<data_dir>/sources/<source id>/` (a temporary file, fsync, rename, directory fsync). For every input file the state holds the file's path, size, and modification time, and how many of its messages (counted in file order, before the `topics` and time filters) the committed batches cover.
+
+On the next start with the same data directory, a completed file is skipped and a partly read file continues after its last committed message. Batches the runtime had not yet acknowledged are read again, so no uncommitted message is skipped. Two caveats:
+
+- A crash in the short window between a batch's WAL commit and the state write can repeat that window's batches: delivery is at-least-once, the same contract as the other acknowledged sources.
+- Resume trusts a file only if its path, size, and modification time are unchanged, and only if `topics`, `start`, and `end` are unchanged. Otherwise that file (or, for a changed selection, every file) is replayed from the start and the source logs a warning. To replay everything on purpose, delete `resume.json`.
+
+A `resume.json` that cannot be read or parsed fails the run (`buffer.io` or `buffer.corrupt`) instead of silently starting over, and a state write that fails stops the run with `buffer.io`.
 
 ### Performance note
 

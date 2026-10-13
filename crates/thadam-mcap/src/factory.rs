@@ -47,7 +47,10 @@ impl SourceFactory for McapSourceFactory {
             }
             first
         })?;
-        let source = McapSource::new(config);
+        let mut source = McapSource::new(config);
+        if !ctx.data_dir.as_os_str().is_empty() {
+            source = source.with_resume_dir(&ctx.data_dir);
+        }
         Ok(Box::new(match &ctx.schema_dir {
             Some(dir) => source.with_schema_store(thadam_core::SchemaStore::open(dir)),
             None => source,
@@ -101,11 +104,17 @@ mod tests {
     }
 
     #[test]
-    fn mcap_sources_have_no_acknowledgements() {
-        let source = McapSourceFactory::new()
-            .build(json!({"paths": ["a.mcap"]}), &ctx())
-            .unwrap();
+    fn mcap_sources_acknowledge_after_commit_only_with_a_data_directory() {
+        let cfg = json!({"paths": ["a.mcap"]});
+        let source = McapSourceFactory::new().build(cfg.clone(), &ctx()).unwrap();
         assert_eq!(source.capabilities().ack_mode, AckMode::None);
+        let ctx = BuildContext::new(
+            "mcap-1",
+            Arc::new(SystemClock::new()),
+            PathBuf::from("/data/sources/mcap-1"),
+        );
+        let source = McapSourceFactory::new().build(cfg, &ctx).unwrap();
+        assert_eq!(source.capabilities().ack_mode, AckMode::OnCommit);
     }
 
     #[test]

@@ -99,6 +99,11 @@ finalized         2            35606
 Row counts: `joint_states` 200, `poses` 50. The Parquet files sit under
 `data/thadam/sinks/local/ready/<dataset>/unsynced/`.
 
+Running step 3 again on the same `data/thadam` adds no rows: the MCAP source keeps
+its replay position in `data/thadam/sources/bag/resume.json` and skips what was
+already committed. Replaying the recording on purpose means a fresh data directory;
+deleting `resume.json` alone would append the rows again.
+
 Step 5 prints one flagged row per dataset:
 
 ```text
