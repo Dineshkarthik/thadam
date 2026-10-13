@@ -113,3 +113,132 @@ fn a_sink_debug_output_and_serialization_redact_secrets() {
             .contains("super-secret-token")
     );
 }
+
+/// Two datasets on one source, so each test chooses which Parquet sink ships which.
+const PIPELINE: &str = r#"version: 1
+pipeline: { name: demo, node_id: n1, data_dir: /var/lib/thadam }
+sources:
+  - id: src
+    kind: mqtt
+    config: { url: "mqtt://broker:1883", topics: [{ filter: "t/+/data", qos: 1 }] }
+wal: { max_disk: 1GiB, on_full: block }
+datasets:
+  - id: readings
+    match: { source: src, topic: "t/+/data" }
+    decode: json
+    identity: { device: { id: 100, template: "{topic.1}" } }
+    time: { field: /ts, unit: ms, domain: utc }
+    fields:
+      - { id: 1000, name: temp, type: f32, from: /temp }
+  - id: imu
+    match: { source: src, topic: "t/+/imu" }
+    decode: json
+    identity: { device: { id: 100, template: "{topic.1}" } }
+    time: { field: /ts, unit: ms, domain: utc }
+    fields:
+      - { id: 1000, name: ax, type: f32, from: /ax }
+"#;
+
+fn shipping(sinks: &str) -> String {
+    format!("{PIPELINE}sinks:{sinks}")
+}
+
+/// The path and message of the one error a rejected configuration reports.
+fn sole_error(yaml: &str) -> (String, String) {
+    let c = check_str(yaml, &MapEnv::new(), &CheckOptions::new());
+    assert!(c.spec.is_none(), "{}", c.report);
+    let [d] = c.report.errors.as_slice() else {
+        panic!("expected one error, got:\n{}", c.report);
+    };
+    assert_eq!(d.code, "config.invalid", "{}", c.report);
+    (d.path.clone(), d.message.clone())
+}
+
+#[test]
+fn shippers_of_two_parquet_sinks_that_share_a_dataset_collide() {
+    let (path, message) = sole_error(&shipping(
+        r#"
+  - { id: local_a, kind: parquet, config: { datasets: [readings] } }
+  - { id: local_b, kind: parquet, config: { datasets: [readings] } }
+  - { id: ship_a, kind: object_store, config: { from: local_a, pipeline: fleet, url: "s3://bucket/pfx" } }
+  - { id: ship_b, kind: object_store, config: { from: local_b, pipeline: fleet, url: "s3://bucket/pfx/" } }
+"#,
+    ));
+    assert_eq!(path, "sinks[3].config.url");
+    for want in [
+        "`ship_b`",
+        "`local_b`",
+        "`ship_a`",
+        "`local_a`",
+        "`readings`",
+        "`s3://bucket/pfx`",
+    ] {
+        assert!(message.contains(want), "missing {want} in: {message}");
+    }
+}
+
+#[test]
+fn two_shippers_of_one_parquet_sink_collide() {
+    let (path, message) = sole_error(&shipping(
+        r#"
+  - { id: local, kind: parquet, config: { datasets: [readings] } }
+  - { id: ship_a, kind: object_store, config: { from: local, pipeline: fleet, url: "s3://bucket/pfx" } }
+  - { id: ship_b, kind: object_store, config: { from: local, pipeline: fleet, url: "s3://bucket/pfx" } }
+"#,
+    ));
+    assert_eq!(path, "sinks[2].config.url");
+    assert!(
+        message.contains("`ship_b`") && message.contains("`ship_a`"),
+        "{message}"
+    );
+}
+
+#[test]
+fn an_absent_or_empty_datasets_list_selects_every_dataset() {
+    let (path, message) = sole_error(&shipping(
+        r#"
+  - { id: local_a, kind: parquet }
+  - { id: local_b, kind: parquet, config: { datasets: [] } }
+  - { id: ship_a, kind: object_store, config: { from: local_a, pipeline: fleet, url: "s3://bucket/pfx" } }
+  - { id: ship_b, kind: object_store, config: { from: local_b, pipeline: fleet, url: "s3://bucket/pfx" } }
+"#,
+    ));
+    assert_eq!(path, "sinks[3].config.url");
+    assert!(message.contains("`imu`"), "{message}");
+}
+
+#[test]
+fn disjoint_datasets_on_the_parquet_sinks_do_not_collide() {
+    load(&shipping(
+        r#"
+  - { id: local_a, kind: parquet, config: { datasets: [readings] } }
+  - { id: local_b, kind: parquet, config: { datasets: [imu] } }
+  - { id: ship_a, kind: object_store, config: { from: local_a, pipeline: fleet, url: "s3://bucket/pfx" } }
+  - { id: ship_b, kind: object_store, config: { from: local_b, pipeline: fleet, url: "s3://bucket/pfx" } }
+"#,
+    ));
+}
+
+#[test]
+fn a_distinct_node_id_on_one_parquet_sink_does_not_collide() {
+    load(&shipping(
+        r#"
+  - { id: local_a, kind: parquet, config: { datasets: [readings] } }
+  - { id: local_b, kind: parquet, config: { datasets: [readings], node_id: n2 } }
+  - { id: ship_a, kind: object_store, config: { from: local_a, pipeline: fleet, url: "s3://bucket/pfx" } }
+  - { id: ship_b, kind: object_store, config: { from: local_b, pipeline: fleet, url: "s3://bucket/pfx" } }
+"#,
+    ));
+}
+
+#[test]
+fn distinct_url_prefixes_do_not_collide() {
+    load(&shipping(
+        r#"
+  - { id: local_a, kind: parquet, config: { datasets: [readings] } }
+  - { id: local_b, kind: parquet, config: { datasets: [readings] } }
+  - { id: ship_a, kind: object_store, config: { from: local_a, pipeline: fleet, url: "s3://bucket/a" } }
+  - { id: ship_b, kind: object_store, config: { from: local_b, pipeline: fleet, url: "s3://bucket/b" } }
+"#,
+    ));
+}

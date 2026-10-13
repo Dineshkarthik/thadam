@@ -2,7 +2,7 @@
 //! references between sections, identifier and pointer syntax, and predicate
 //! names and literal types resolved against the declared schema.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::ops::RangeInclusive;
 use std::path::Path;
@@ -355,6 +355,7 @@ pub(crate) fn check(parsed: &Parsed, kinds: &KindPolicy, ctx: &mut Ctx<'_>) {
     c.connectors("sources", &parsed.sources, kinds.source_kinds.as_deref());
     c.connectors("sinks", &parsed.sinks, kinds.sink_kinds.as_deref());
     c.sink_policies();
+    c.object_store_key_collisions();
     c.unique_ids("datasets", &parsed.datasets.ids);
     c.datasets();
     c.transforms();
@@ -550,6 +551,51 @@ impl<'p> Checker<'p, '_, '_> {
                     "remove `max_lag` or set `required: true`",
                 );
             }
+        }
+    }
+
+    /// Two `object_store` shippers that share a pipeline, a bucket and prefix,
+    /// and the node id of their Parquet sinks write the same keys for any
+    /// dataset both ship, so one overwrites the other's segments.
+    fn object_store_key_collisions(&mut self) {
+        let parsed = self.parsed;
+        let Some(pipeline) = &parsed.pipeline else {
+            return;
+        };
+        let mut seen: Vec<Shipper<'_>> = Vec::new();
+        for (i, sink) in parsed.sinks.present() {
+            if sink.kind != "object_store" {
+                continue;
+            }
+            let Some(shipper) = Shipper::new(parsed, sink, &pipeline.node_id) else {
+                continue;
+            };
+            let clash = seen.iter().find_map(|first| {
+                // shortcut: the endpoint is not compared, so two stores at different endpoints with one bucket and prefix are rejected; compare it once a config needs such stores.
+                let same_keys = first.pipeline == shipper.pipeline
+                    && first.url == shipper.url
+                    && first.node_id == shipper.node_id;
+                if !same_keys {
+                    return None;
+                }
+                first
+                    .datasets
+                    .intersection(&shipper.datasets)
+                    .next()
+                    .map(|dataset| (first, *dataset))
+            });
+            if let Some((first, dataset)) = clash {
+                self.ctx.invalid_hint(
+                    &Vec::new().key("sinks").idx(i).key("config").key("url"),
+                    Anchor::Value,
+                    format!(
+                        "shipper `{}` (from sink `{}`) and shipper `{}` (from sink `{}`) write identical object keys for dataset `{dataset}` under `{}` (node `{}`)",
+                        shipper.id, shipper.from, first.id, first.from, shipper.url, shipper.node_id
+                    ),
+                    "use a distinct `url` prefix, non-overlapping `datasets`, or a distinct `config.node_id` on one Parquet sink",
+                );
+            }
+            seen.push(shipper);
         }
     }
 
@@ -1829,6 +1875,67 @@ impl<'p> Checker<'p, '_, '_> {
                 );
             }
         }
+    }
+}
+
+/// The object keys one `object_store` shipper writes: its pipeline, its URL
+/// without a trailing slash, the node id of the Parquet sink it ships, and the
+/// datasets that sink selects.
+struct Shipper<'a> {
+    id: &'a str,
+    from: &'a str,
+    pipeline: &'a str,
+    url: &'a str,
+    node_id: &'a str,
+    datasets: BTreeSet<&'a str>,
+}
+
+impl<'a> Shipper<'a> {
+    /// `None` when the shipper's `from`, `pipeline`, or `url` is not a string,
+    /// `from` names no `parquet` sink, or that sink's `datasets` is not a list
+    /// of strings: there is no key to compare.
+    fn new(parsed: &'a Parsed, sink: &'a SinkSpec, pipeline_node_id: &'a str) -> Option<Self> {
+        let from = sink.config.get("from")?.as_str()?;
+        let pipeline = sink.config.get("pipeline")?.as_str()?;
+        let url = sink.config.get("url")?.as_str()?.trim_end_matches('/');
+        let (_, parquet) = parsed
+            .sinks
+            .present()
+            .find(|(_, s)| s.id == from && s.kind == "parquet")?;
+        let node_id = parquet
+            .config
+            .get("node_id")
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(pipeline_node_id);
+        let listed = match parquet.config.get("datasets") {
+            None | Some(serde_json::Value::Null) => Vec::new(),
+            Some(list) => list
+                .as_array()?
+                .iter()
+                .map(serde_json::Value::as_str)
+                .collect::<Option<Vec<&str>>>()?,
+        };
+        // An empty list selects every dataset, as it does when the sink is built.
+        let datasets = if listed.is_empty() {
+            parsed
+                .datasets
+                .ids
+                .iter()
+                .flatten()
+                .map(String::as_str)
+                .collect()
+        } else {
+            listed.into_iter().collect()
+        };
+        Some(Shipper {
+            id: &sink.id,
+            from,
+            pipeline,
+            url,
+            node_id,
+            datasets,
+        })
     }
 }
 
