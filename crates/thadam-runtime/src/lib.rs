@@ -3,7 +3,9 @@
 //! # Responsibility
 //!
 //! - The connector registry and build-time validation ([`Registry`],
-//!   [`Pipeline::build`]).
+//!   [`Pipeline::check`], [`Pipeline::build`]), and the read-only look at a
+//!   data directory that `thadam validate --against-data-dir` uses
+//!   ([`check_data_dir`]).
 //! - Drivers: source, chain, segment sink, batch sink, and service tasks.
 //! - The supervisor, component state machine, and shutdown tree.
 //! - Startup recovery, maintenance, and WAL-range [`replay`].
@@ -161,8 +163,8 @@ mod status;
 pub use admin::{AdminConfig, router, serve, validate_admin_config};
 pub use datadir::{
     BIRTHS_DIR, CATALOG_FORMAT_VERSION, CURSOR_LAYOUT_VERSION, THADAM_JSON, THADAM_JSON_KIND,
-    RUNTIME_FORMAT_VERSION, ThadamJson, WAL_DIR, WalBinding, births_dir, lock as lock_data_dir,
-    read_thadam_json, schemas_dir,
+    RUNTIME_FORMAT_VERSION, ThadamJson, WAL_DIR, WalBinding, births_dir, check_data_dir,
+    lock as lock_data_dir, read_thadam_json, schemas_dir,
 };
 pub use exit::ExitStatus;
 pub use failpoints::Failpoints;

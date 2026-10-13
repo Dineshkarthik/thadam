@@ -21,8 +21,13 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use thadam_config::PipelineSpec;
 use thadam_core::{ErrorDomain, ThadamError, WalEpoch, codes};
 use serde::{Deserialize, Serialize};
+
+use crate::chain::wal_error;
+use crate::plan::cursor_name;
+use crate::registry::{Registry, SinkFactory};
 
 /// The file name of the runtime's metadata in the data directory.
 pub const THADAM_JSON: &str = "thadam.json";
@@ -51,6 +56,7 @@ pub const SCHEMAS_DIR: &str = "schemas";
 pub const BIRTHS_DIR: &str = "sparkplug/births";
 
 const LOCK_FILE: &str = "LOCK";
+const WAL_META_FILE: &str = "wal.json";
 
 /// The schema-store directory of the data directory at `root`.
 pub fn schemas_dir(root: &Path) -> PathBuf {
@@ -333,6 +339,115 @@ pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// What a restart with `spec` would do to the data directory at `root`, read
+/// without writing: the refusals `run` makes before it writes, and notes on the
+/// state it would act on. Nothing is created, locked, or written, so this is
+/// safe beside a running pipeline. A note is information; an error is a refusal
+/// (exit 3) or a directory that cannot be read.
+pub fn check_data_dir(
+    root: &Path,
+    spec: &PipelineSpec,
+    registry: &Registry,
+) -> Result<Vec<String>, ThadamError> {
+    let existing = read_thadam_json(root)?;
+    check_before_wal(existing.as_ref(), &spec.pipeline.name, false)?;
+
+    let config_hash = spec.config_hash_hex();
+    let mut notes = Vec::new();
+    match &existing {
+        None => notes.push(
+            "no thadam.json: a new or uninitialized data directory; a run creates it".to_owned(),
+        ),
+        Some(meta) => {
+            let change = if meta.config_hash == config_hash {
+                "unchanged"
+            } else {
+                "changed"
+            };
+            notes.push(format!(
+                "config hash: {} -> {config_hash} ({change})",
+                meta.config_hash
+            ));
+        }
+    }
+
+    let wal_root = root.join(WAL_DIR);
+    if wal_root.join(WAL_META_FILE).is_file() {
+        let wal = thadam_wal::inspect(&wal_root).map_err(|e| wal_error(&e))?;
+        check_wal_binding(existing.as_ref(), wal.epoch, false)?;
+        if let Some(bound) = wal.node_id.as_deref()
+            && bound != spec.pipeline.node_id
+        {
+            return Err(data_dir_error(format!(
+                "the WAL in {} is bound to node_id `{bound}`, not `{}`; use another data directory",
+                wal_root.display(),
+                spec.pipeline.node_id
+            )));
+        }
+        for sink in &spec.sinks {
+            if reads_wal(registry, &sink.kind)
+                && !wal.cursors.iter().any(|c| c.name == cursor_name(&sink.id))
+            {
+                notes.push(format!(
+                    "sink `{}` has no cursor yet, so it starts from `{}`",
+                    sink.id,
+                    sink.start_from.as_str()
+                ));
+            }
+        }
+    } else if let Some(bound) = existing.as_ref().and_then(|m| m.wal.epoch.as_deref()) {
+        return Err(data_dir_error(format!(
+            "the WAL in {} is missing but sink state was written against epoch {bound}; \
+             a new WAL would resume sinks at old positions and skip data (pass --repair to accept it)",
+            wal_root.display()
+        )));
+    }
+
+    let sink_ids: Vec<&str> = spec.sinks.iter().map(|s| s.id.as_str()).collect();
+    let source_ids: Vec<&str> = spec.sources.iter().map(|s| s.id.as_str()).collect();
+    notes.extend(unlisted_dirs(&root.join("sinks"), "sinks", &sink_ids)?);
+    notes.extend(unlisted_dirs(
+        &root.join("sources"),
+        "sources",
+        &source_ids,
+    )?);
+    Ok(notes)
+}
+
+/// Whether `kind` names a sink whose chain reads the WAL (segment or batch,
+/// not a service).
+fn reads_wal(registry: &Registry, kind: &str) -> bool {
+    matches!(
+        registry.sink_factories(kind).as_slice(),
+        [SinkFactory::Segment(_) | SinkFactory::Batch(_)]
+    )
+}
+
+/// Subdirectories of `parent` whose names are not in `listed`, as notes.
+fn unlisted_dirs(parent: &Path, kind: &str, listed: &[&str]) -> Result<Vec<String>, ThadamError> {
+    let entries = match fs::read_dir(parent) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(io_error("read", parent, &e)),
+    };
+    let mut notes = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| io_error("read", parent, &e))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let is_dir = entry
+            .file_type()
+            .map_err(|e| io_error("stat", &entry.path(), &e))?
+            .is_dir();
+        if is_dir && !listed.contains(&name.as_str()) {
+            notes.push(format!(
+                "{kind}/{name} is not in the configuration; its state stays on disk"
+            ));
+        }
+    }
+    notes.sort();
+    Ok(notes)
+}
+
 /// Directory layout helpers.
 #[derive(Clone, Debug)]
 pub(crate) struct Layout {
@@ -368,6 +483,8 @@ impl Layout {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
 
     #[test]
@@ -429,5 +546,68 @@ mod tests {
         assert!(err.message.contains("format version 99"), "{err}");
         fs::write(dir.path().join(THADAM_JSON), br#"{"kind":"other"}"#).unwrap();
         assert!(read_thadam_json(dir.path()).is_err());
+    }
+
+    fn spec(name: &str, node: &str, data_dir: &Path) -> PipelineSpec {
+        let yaml = format!(
+            r#"version: 1
+pipeline: {{ name: {name}, node_id: {node}, data_dir: "{dir}" }}
+sources:
+  - {{ id: src, kind: memory }}
+wal: {{ max_disk: 64MiB, on_full: block }}
+datasets:
+  - id: d
+    match: {{ source: src }}
+    decode: json
+    fields:
+      - {{ id: 1000, name: n, type: u64, from: /n, required: true }}
+sinks:
+  - {{ id: out, kind: recseg }}
+"#,
+            dir = data_dir.display()
+        );
+        thadam_config::load_str(&yaml, &thadam_config::MapEnv::new())
+            .unwrap_or_else(|r| panic!("{}", r.render(&yaml)))
+    }
+
+    #[test]
+    fn a_fresh_data_dir_is_noted_and_never_created() {
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("data");
+        let notes = check_data_dir(&root, &spec("p", "n1", &root), &Registry::new()).unwrap();
+        assert!(
+            notes.iter().any(|n| n.contains("uninitialized")),
+            "{notes:?}"
+        );
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn a_missing_wal_under_recorded_sink_state_is_refused() {
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path();
+        let meta = next_thadam_json(None, "p", "aa", WalEpoch::new(7));
+        write_thadam_json(root, &meta).unwrap();
+        let err = check_data_dir(root, &spec("p", "n1", root), &Registry::new()).unwrap_err();
+        assert_eq!(err.code, codes::BUFFER_INCOMPATIBLE);
+        assert!(err.message.contains("is missing"), "{err}");
+    }
+
+    #[test]
+    fn a_wal_bound_to_another_node_is_refused() {
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path();
+        let mut opts = thadam_wal::WalOptions::new(thadam_wal::OnFull::Block);
+        opts.node_id = Some("n1".to_owned());
+        let (_wal, _) = thadam_wal::open(
+            &root.join(WAL_DIR),
+            opts,
+            Arc::new(thadam_core::DiskBudget::new()),
+            Arc::new(thadam_core::SystemClock::new()),
+        )
+        .unwrap();
+        let err = check_data_dir(root, &spec("p", "n2", root), &Registry::new()).unwrap_err();
+        assert_eq!(err.code, codes::BUFFER_INCOMPATIBLE);
+        assert!(err.message.contains("node_id `n1`"), "{err}");
     }
 }

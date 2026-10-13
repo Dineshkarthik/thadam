@@ -8,7 +8,8 @@ use std::sync::Arc;
 use thadam_config::{PipelineSpec, SinkSpec};
 use thadam_core::{
     BatchSink, BuildContext, DatasetDecl, ErrorDomain, ThadamError, SegmentSink, Service,
-    ServiceContext, SharedObjects, Shutdown, SinkContext, SinkId, Source, WalPos, codes,
+    ServiceContext, SharedObjects, Shutdown, SinkContext, SinkId, Source, SourceFactory, WalPos,
+    codes,
 };
 use thadam_transform::Chain;
 use thadam_wal::{CursorState, RecoveryReport, StartFrom, Wal};
@@ -157,6 +158,14 @@ fn check_id(kind: &str, index: usize, id: &str, errs: &mut Vec<ThadamError>) {
     }
 }
 
+fn layout_for(spec: &PipelineSpec, opts: &RuntimeOptions) -> Layout {
+    let root = opts
+        .data_dir
+        .clone()
+        .unwrap_or_else(|| spec.pipeline.data_dir.clone());
+    Layout { root }
+}
+
 fn locate(errs: Vec<ThadamError>, component: &str) -> impl Iterator<Item = ThadamError> + '_ {
     errs.into_iter()
         .map(move |e| e.with_context("component", component))
@@ -176,6 +185,16 @@ struct ChainPlan {
     decl_datasets: Arc<[DatasetDecl]>,
     /// The chain's enrichment hash, recorded in the sink's footers.
     enrichment_hash: String,
+}
+
+/// The pre-connector half of a build: every factory that resolved, every
+/// sink's chain, and the quarantine configuration, ready for `build` to
+/// construct connectors from.
+struct Preflight<'s, 'r> {
+    source_factories: Vec<&'r dyn SourceFactory>,
+    sinks: Vec<(&'s SinkSpec, Planned<'r>)>,
+    policies: BTreeMap<String, SinkPolicy>,
+    quarantine_cfg: serde_json::Value,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -272,21 +291,26 @@ impl Supervisor {
 }
 
 impl Pipeline {
-    /// Validates every connector's configuration through its factory, compiles
-    /// each sink's chain, and builds the connectors. Returns every problem
-    /// found; map them to an exit code with [`ExitStatus::for_errors`].
-    pub fn build(
-        spec: PipelineSpec,
+    /// Runs every check [`Pipeline::build`] makes before it constructs a
+    /// connector: ids, each factory's `validate`, each chain's compilation, the
+    /// batch-sink `window` refusal, and the quarantine configuration. Builds no
+    /// connector and touches neither the data directory nor the WAL. Map the
+    /// errors with [`ExitStatus::for_errors`].
+    pub fn check(
+        spec: &PipelineSpec,
         registry: &Registry,
-        opts: RuntimeOptions,
-    ) -> Result<Pipeline, Vec<ThadamError>> {
+        opts: &RuntimeOptions,
+    ) -> Result<(), Vec<ThadamError>> {
+        Self::preflight(spec, registry, opts, &layout_for(spec, opts)).map(|_| ())
+    }
+
+    fn preflight<'s, 'r>(
+        spec: &'s PipelineSpec,
+        registry: &'r Registry,
+        opts: &RuntimeOptions,
+        layout: &Layout,
+    ) -> Result<Preflight<'s, 'r>, Vec<ThadamError>> {
         let mut errs = Vec::new();
-        let config_hash = spec.config_hash_hex();
-        let root = opts
-            .data_dir
-            .clone()
-            .unwrap_or_else(|| spec.pipeline.data_dir.clone());
-        let layout = Layout { root };
 
         let mut seen = HashMap::new();
         let id_lists = [
@@ -369,7 +393,7 @@ impl Pipeline {
             let chain_plan = if matches!(factory, SinkFactory::Service(_)) {
                 None
             } else {
-                let only = match plan::sink_datasets(&spec, i, &s.config) {
+                let only = match plan::sink_datasets(spec, i, &s.config) {
                     Ok(o) => o,
                     Err(e) => {
                         errs.push(e);
@@ -394,7 +418,7 @@ impl Pipeline {
                     },
                 );
                 let cs = match plan::chain_spec(
-                    &spec,
+                    spec,
                     &s.id,
                     only.as_deref(),
                     opts.config_dir.as_deref(),
@@ -419,13 +443,13 @@ impl Pipeline {
                                 limits: limits.clone(),
                                 start_from,
                                 primary,
-                                has_state: plan::chain_has_state(&spec, &s.id, only.as_deref()),
+                                has_state: plan::chain_has_state(spec, &s.id, only.as_deref()),
                                 warm_frames: opts.warm_start_frames,
                                 read_bytes: opts.read_batch_bytes,
                                 poison_retries: opts.poison_retries,
                                 failpoints: opts.failpoints.clone(),
                             },
-                            decl_datasets: plan::dataset_decls(&spec, only.as_deref()),
+                            decl_datasets: plan::dataset_decls(spec, only.as_deref()),
                             enrichment_hash,
                         })
                     }
@@ -439,14 +463,29 @@ impl Pipeline {
                 s,
                 match (factory, chain_plan) {
                     (SinkFactory::Segment(f), Some(p)) => Planned::Segment(f, p),
-                    (SinkFactory::Batch(f), Some(p)) => Planned::Batch(f, p),
+                    (SinkFactory::Batch(f), Some(p)) => {
+                        if p.chain.holds_back() {
+                            errs.push(
+                                config_error(
+                                    "transforms",
+                                    format!(
+                                        "a `window` step needs a segment sink: sink `{}` is a batch sink, whose cursor does not yet hold back for open windows",
+                                        s.id
+                                    ),
+                                )
+                                .with_context("component", s.id.clone()),
+                            );
+                            continue;
+                        }
+                        Planned::Batch(f, p)
+                    }
                     (SinkFactory::Service(f), _) => Planned::Service(f),
                     _ => continue,
                 },
             ));
         }
 
-        let quarantine_cfg = plan::quarantine_config(&spec);
+        let quarantine_cfg = plan::quarantine_config(spec);
         if let Some(q) = registry.quarantine_factory()
             && let Err(es) = q.validate(&quarantine_cfg)
         {
@@ -455,6 +494,32 @@ impl Pipeline {
         if !errs.is_empty() {
             return Err(errs);
         }
+        Ok(Preflight {
+            source_factories,
+            sinks: planned,
+            policies,
+            quarantine_cfg,
+        })
+    }
+
+    /// Validates every connector's configuration through its factory, compiles
+    /// each sink's chain, and builds the connectors. Returns every problem
+    /// found; map them to an exit code with [`ExitStatus::for_errors`].
+    /// [`Pipeline::check`] runs the first part without building anything.
+    pub fn build(
+        spec: PipelineSpec,
+        registry: &Registry,
+        opts: RuntimeOptions,
+    ) -> Result<Pipeline, Vec<ThadamError>> {
+        let config_hash = spec.config_hash_hex();
+        let layout = layout_for(&spec, &opts);
+        let Preflight {
+            source_factories,
+            sinks: planned,
+            policies,
+            quarantine_cfg,
+        } = Self::preflight(&spec, registry, &opts, &layout)?;
+        let mut errs = Vec::new();
 
         let clock = Arc::clone(&opts.clock);
         let mut sources = Vec::new();
@@ -513,19 +578,6 @@ impl Pipeline {
                     }
                 }
                 Planned::Batch(f, cp) => {
-                    if cp.chain.holds_back() {
-                        errs.push(
-                            config_error(
-                                "transforms",
-                                format!(
-                                    "a `window` step needs a segment sink: sink `{}` is a batch sink, whose cursor does not yet hold back for open windows",
-                                    s.id
-                                ),
-                            )
-                            .with_context("component", s.id.clone()),
-                        );
-                        continue;
-                    }
                     let ctx =
                         BuildContext::new(s.id.as_str(), Arc::clone(&clock), layout.sink(&s.id))
                             .with_datasets(Arc::clone(&cp.decl_datasets))

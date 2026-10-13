@@ -4,6 +4,14 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::{Arc, Mutex};
+
+use bytes::Bytes;
+use thadam_config::MapEnv;
+use thadam_core::{BuildContext, ErrorDomain, ThadamError, Shutdown, Source, SourceFactory, codes};
+use thadam_runtime::{Pipeline, Registry, RuntimeOptions};
+use thadam_testkit::{MemorySource, MemorySourceConfig, TempDataDir};
+use serde_json::{Value, json};
 
 fn thadam(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_thadam"))
@@ -190,4 +198,239 @@ fn the_same_config_prints_the_same_hash() {
             .expect("hash line")
     };
     assert_eq!(run(), run());
+}
+
+/// Hands the one prepared source to the seeding run. Its kind is `mqtt`, the
+/// kind the configurations below name, so their hash is the same either way.
+struct OneSource(Arc<Mutex<Option<Box<dyn Source>>>>);
+
+impl SourceFactory for OneSource {
+    fn kind(&self) -> &'static str {
+        "mqtt"
+    }
+    fn config_schema(&self) -> Value {
+        json!({"type": "object"})
+    }
+    fn validate(&self, _cfg: &Value) -> Result<(), Vec<ThadamError>> {
+        Ok(())
+    }
+    fn build(&self, _cfg: Value, _ctx: &BuildContext) -> Result<Box<dyn Source>, ThadamError> {
+        self.0.lock().unwrap().take().ok_or_else(|| {
+            ThadamError::permanent(
+                ErrorDomain::Config,
+                codes::CONFIG_INVALID,
+                "the test source was already built",
+            )
+        })
+    }
+}
+
+/// A configuration with one MQTT source and one dataset, the given
+/// `transforms:` block (empty or ending in a newline), and the sinks.
+fn data_dir_config(data: &Path, name: &str, node: &str, transforms: &str, sinks: &str) -> String {
+    format!(
+        r#"version: 1
+pipeline: {{ name: {name}, node_id: {node}, data_dir: "{dir}" }}
+sources:
+  - id: src
+    kind: mqtt
+    config: {{ url: "mqtt://broker:1883", client_id: "edge-01", topics: [{{ filter: "t/+/data", qos: 1 }}] }}
+wal: {{ max_disk: 256MiB, on_full: block }}
+datasets:
+  - id: readings
+    match: {{ source: src }}
+    decode: json
+    fields:
+      - {{ id: 1000, name: temp, type: f32, from: /temp }}
+      - {{ id: 1001, name: device, type: str, from: /device }}
+{transforms}sinks:
+  - id: local
+    kind: parquet
+    config: {{ datasets: [readings] }}
+{sinks}"#,
+        dir = data.display()
+    )
+}
+
+/// Runs `yaml` once over three messages, so the data directory holds what
+/// `thadam run` leaves behind: `thadam.json`, `wal/`, and each sink's cursor.
+async fn seed(yaml: &str) {
+    let spec = thadam_config::load_str(yaml, &MapEnv::new())
+        .unwrap_or_else(|r| panic!("{}", r.render(yaml)));
+    let payloads = (1..=3).map(|n| Bytes::from(format!("{{\"temp\":{n}.5,\"device\":\"d{n}\"}}")));
+    let (source, _upstream) = MemorySource::scripted(payloads, MemorySourceConfig::default());
+    let slot: Arc<Mutex<Option<Box<dyn Source>>>> = Arc::new(Mutex::new(Some(Box::new(source))));
+    let mut registry = Registry::new();
+    registry
+        .source(Box::new(OneSource(slot)))
+        .segment_sink(Box::new(thadam_segments::ParquetSegmentSinkFactory::new()));
+    let mut opts = RuntimeOptions::default();
+    opts.stop_when_sources_finish = true;
+    opts.clock_sync_probe = None;
+    let pipeline =
+        Pipeline::build(spec, &registry, opts).unwrap_or_else(|e| panic!("build: {e:?}"));
+    pipeline
+        .run(Shutdown::new())
+        .await
+        .expect("the seeding run failed");
+}
+
+fn write_config(base: &TempDataDir, yaml: &str) -> PathBuf {
+    let path = base.join("pipeline.yaml");
+    std::fs::write(&path, yaml).unwrap();
+    path
+}
+
+#[test]
+fn validate_against_data_dir_on_a_fresh_directory_exits_0_and_creates_nothing() {
+    let base = TempDataDir::new().unwrap();
+    let data = base.join("data");
+    let config = write_config(&base, &data_dir_config(&data, "demo", "n1", "", ""));
+    let out = thadam(&["validate", "--against-data-dir", config.to_str().unwrap()]);
+    let stdout = text(&out.stdout);
+    assert_eq!(code(&out), 0, "{stdout}\n{}", text(&out.stderr));
+    assert!(
+        stdout.contains(&format!("data directory: {}", data.display())),
+        "{stdout}"
+    );
+    assert!(stdout.contains("no thadam.json"), "{stdout}");
+    assert!(!data.exists(), "validate created the data directory");
+}
+
+#[tokio::test]
+async fn validate_against_data_dir_on_a_matching_directory_reports_an_unchanged_hash() {
+    let base = TempDataDir::new().unwrap();
+    let data = base.join("data");
+    let yaml = data_dir_config(&data, "demo", "n1", "", "");
+    seed(&yaml).await;
+    let config = write_config(&base, &yaml);
+    let out = thadam(&["validate", "--against-data-dir", config.to_str().unwrap()]);
+    let stdout = text(&out.stdout);
+    assert_eq!(code(&out), 0, "{stdout}\n{}", text(&out.stderr));
+    assert!(stdout.contains("(unchanged)"), "{stdout}");
+    assert!(!stdout.contains("(changed)"), "{stdout}");
+    assert!(!stdout.contains("has no cursor yet"), "{stdout}");
+}
+
+#[tokio::test]
+async fn validate_against_data_dir_notes_the_hash_change_a_new_sink_and_orphaned_state() {
+    let base = TempDataDir::new().unwrap();
+    let data = base.join("data");
+    seed(&data_dir_config(&data, "demo", "n1", "", "")).await;
+    std::fs::create_dir_all(data.join("sinks").join("gone")).unwrap();
+    let extra = "  - id: local2\n    kind: parquet\n    config: { datasets: [readings] }\n";
+    let config = write_config(&base, &data_dir_config(&data, "demo", "n1", "", extra));
+    let out = thadam(&["validate", "--against-data-dir", config.to_str().unwrap()]);
+    let stdout = text(&out.stdout);
+    assert_eq!(code(&out), 0, "{stdout}\n{}", text(&out.stderr));
+    assert!(stdout.contains("(changed)"), "{stdout}");
+    assert!(
+        stdout.contains("sink `local2` has no cursor yet, so it starts from `earliest`"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("sink `local` has no cursor"), "{stdout}");
+    assert!(
+        stdout.contains("sinks/gone is not in the configuration"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn validate_against_data_dir_exits_2_on_a_connector_config_error_that_plain_validate_accepts() {
+    let base = TempDataDir::new().unwrap();
+    let data = base.join("data");
+    let typo =
+        "  - id: typo\n    kind: parquet\n    config: { datasets: [readings], compresion: none }\n";
+    let config = write_config(&base, &data_dir_config(&data, "demo", "n1", "", typo));
+    let path = config.to_str().unwrap();
+
+    let plain = thadam(&["validate", path]);
+    assert_eq!(code(&plain), 0, "{}", text(&plain.stderr));
+    let out = thadam(&["validate", "--against-data-dir", path]);
+    assert_eq!(code(&out), 2, "{}", text(&out.stderr));
+    assert!(
+        text(&out.stderr).contains("compresion"),
+        "{}",
+        text(&out.stderr)
+    );
+    assert!(!data.exists());
+}
+
+#[test]
+fn validate_against_data_dir_exits_2_on_a_chain_that_does_not_compile() {
+    let base = TempDataDir::new().unwrap();
+    let data = base.join("data");
+    let transforms = "transforms:\n  - { kind: enrich, dataset: readings, file: /nonexistent-thadam-validate/devices.csv, key: { field: device, column: id }, add: [{ name: model, type: str }], on_miss: reject }\n";
+    let config = write_config(&base, &data_dir_config(&data, "demo", "n1", transforms, ""));
+    let path = config.to_str().unwrap();
+
+    let plain = thadam(&["validate", path]);
+    assert_eq!(code(&plain), 0, "{}", text(&plain.stderr));
+    let out = thadam(&["validate", "--against-data-dir", path]);
+    assert_eq!(code(&out), 2, "{}", text(&out.stderr));
+    assert!(
+        text(&out.stderr).contains("transforms[0].file"),
+        "{}",
+        text(&out.stderr)
+    );
+}
+
+#[tokio::test]
+async fn validate_against_data_dir_exits_3_on_a_pipeline_name_change() {
+    let base = TempDataDir::new().unwrap();
+    let data = base.join("data");
+    seed(&data_dir_config(&data, "demo", "n1", "", "")).await;
+    let config = write_config(&base, &data_dir_config(&data, "other", "n1", "", ""));
+    let path = config.to_str().unwrap();
+
+    let plain = thadam(&["validate", path]);
+    assert_eq!(
+        code(&plain),
+        0,
+        "validate without the flag only reads the file"
+    );
+    let out = thadam(&["validate", "--against-data-dir", path]);
+    assert_eq!(code(&out), 3, "{}", text(&out.stderr));
+    assert!(
+        text(&out.stderr).contains("belongs to pipeline `demo`"),
+        "{}",
+        text(&out.stderr)
+    );
+}
+
+#[tokio::test]
+async fn validate_against_data_dir_exits_3_on_a_wal_bound_to_another_node() {
+    let base = TempDataDir::new().unwrap();
+    let data = base.join("data");
+    seed(&data_dir_config(&data, "demo", "n1", "", "")).await;
+    let config = write_config(&base, &data_dir_config(&data, "demo", "n2", "", ""));
+
+    let out = thadam(&["validate", "--against-data-dir", config.to_str().unwrap()]);
+    assert_eq!(code(&out), 3, "{}", text(&out.stderr));
+    assert!(
+        text(&out.stderr).contains("node_id `n1`"),
+        "{}",
+        text(&out.stderr)
+    );
+}
+
+#[test]
+fn validate_against_data_dir_refuses_allow_unresolved() {
+    let base = TempDataDir::new().unwrap();
+    let data = base.join("data");
+    let config = write_config(&base, &data_dir_config(&data, "demo", "n1", "", ""));
+    let out = thadam(&[
+        "validate",
+        "--against-data-dir",
+        "--allow-unresolved",
+        config.to_str().unwrap(),
+    ]);
+    assert_eq!(code(&out), 2, "{}", text(&out.stderr));
+    assert!(
+        text(&out.stderr).contains("--allow-unresolved"),
+        "{}",
+        text(&out.stderr)
+    );
+    assert!(text(&out.stdout).is_empty());
+    assert!(!data.exists());
 }

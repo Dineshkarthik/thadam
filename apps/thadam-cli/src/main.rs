@@ -72,6 +72,12 @@ struct ValidateArgs {
     /// configuration can be checked on a machine that lacks the secrets.
     #[arg(long)]
     allow_unresolved: bool,
+    /// Also check the configuration the way `run` would start it: every
+    /// connector's configuration, every chain, and the data directory
+    /// `pipeline.data_dir` (read-only). Needs the real secrets, so it cannot be
+    /// combined with `--allow-unresolved`.
+    #[arg(long)]
+    against_data_dir: bool,
 }
 
 #[derive(Args)]
@@ -177,6 +183,7 @@ fn main() -> ExitCode {
         Command::Validate(args) => validate::run(
             &args.path,
             args.allow_unresolved,
+            args.against_data_dir,
             &ProcessEnv,
             &mut out,
             &mut err,
