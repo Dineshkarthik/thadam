@@ -480,7 +480,8 @@ impl Pipeline {
                 let qctx =
                     BuildContext::new(id.as_str(), Arc::clone(&clock), layout.quarantine(&s.id))
                         .with_datasets(Arc::clone(decls))
-                        .with_config_hashes(&config_hash, enrichment_hash);
+                        .with_config_hashes(&config_hash, enrichment_hash)
+                        .with_node_id(&spec.pipeline.node_id);
                 match q.build(quarantine_cfg.clone(), &qctx) {
                     Ok(q) => Some(q),
                     Err(e) => {
@@ -494,7 +495,8 @@ impl Pipeline {
                     let ctx =
                         BuildContext::new(s.id.as_str(), Arc::clone(&clock), layout.sink(&s.id))
                             .with_datasets(Arc::clone(&cp.decl_datasets))
-                            .with_config_hashes(&config_hash, &cp.enrichment_hash);
+                            .with_config_hashes(&config_hash, &cp.enrichment_hash)
+                            .with_node_id(&spec.pipeline.node_id);
                     match f.build(s.config.clone(), &ctx) {
                         Ok(sink) => sinks.push(SinkSlot {
                             id: s.id.clone(),
@@ -514,7 +516,8 @@ impl Pipeline {
                     let ctx =
                         BuildContext::new(s.id.as_str(), Arc::clone(&clock), layout.sink(&s.id))
                             .with_datasets(Arc::clone(&cp.decl_datasets))
-                            .with_config_hashes(&config_hash, &cp.enrichment_hash);
+                            .with_config_hashes(&config_hash, &cp.enrichment_hash)
+                            .with_node_id(&spec.pipeline.node_id);
                     match f.build(s.config.clone(), &ctx) {
                         Ok(sink) => sinks.push(SinkSlot {
                             id: s.id.clone(),

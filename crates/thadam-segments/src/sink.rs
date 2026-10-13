@@ -952,7 +952,7 @@ impl SegmentSinkFactory for ParquetSegmentSinkFactory {
         cfg: serde_json::Value,
         ctx: &thadam_core::BuildContext,
     ) -> Result<Box<dyn SegmentSink>, ThadamError> {
-        let parsed = config::parse_sink_config(&cfg, ctx.data_dir.clone(), &ctx.component_id)
+        let parsed = config::parse_sink_config(&cfg, ctx.data_dir.clone(), &ctx.node_id)
             .and_then(|options| {
                 options.with_datasets(&ctx.datasets, &ctx.config_hash, &ctx.enrichment_hash)
             })

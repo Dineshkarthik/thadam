@@ -188,13 +188,19 @@ pub struct BuildContext {
     /// come from (`thadam.enrichment_hash`); empty when the chain loaded no
     /// enrichment table.
     pub enrichment_hash: String,
+    /// The node id Parquet segment files are named under. The runtime sets
+    /// it to `pipeline.node_id` (see [`BuildContext::with_node_id`]); outside
+    /// a pipeline it is the component id.
+    pub node_id: String,
 }
 
 impl BuildContext {
     /// A context for building `component_id`, consuming no datasets.
     pub fn new(component_id: impl Into<Sym>, clock: Arc<dyn Clock>, data_dir: PathBuf) -> Self {
+        let component_id = component_id.into();
         BuildContext {
-            component_id: component_id.into(),
+            node_id: component_id.to_string(),
+            component_id,
             clock,
             data_dir,
             schema_dir: None,
@@ -228,6 +234,13 @@ impl BuildContext {
     ) -> Self {
         self.config_hash = config_hash.into();
         self.enrichment_hash = enrichment_hash.into();
+        self
+    }
+
+    /// Sets the pipeline's node id, which segment file names carry.
+    #[must_use]
+    pub fn with_node_id(mut self, node_id: impl Into<String>) -> Self {
+        self.node_id = node_id.into();
         self
     }
 }
