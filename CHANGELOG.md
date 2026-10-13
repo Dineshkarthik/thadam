@@ -17,6 +17,7 @@ Thadam is early in its first milestone (M1 / MVP v0.1). No releases exist yet; t
 - **Site polish pass**: the stylesheet is consolidated into one dark-mode path and one reduced-motion block. Status labels are pills (Available, In progress, Planned) so colour is never the only signal. The homepage and docs introduction are rewritten to the claims register: "Nothing that Thadam acknowledged is lost" is replaced with "acknowledged data survives a process crash when fsync is enabled". `check.py` lints for forbidden claim wording and checks status labels and the single `h1`.
 - **Homepage hero art**: the hero illustration is now the light and dark artwork, cropped to the illustration (`thadam-illusion-light-hero.png` and `thadam-illusion-dark-hero.png`) instead of the CSS grid plane.
 - **Agent instructions**: `AGENTS.md` is the source of truth for agents; `CLAUDE.md`, `.cursor/rules/website.mdc`, and `.github/copilot-instructions.md` point to it.
+- **Product scope amendments**: `product.md` now carries the approved Part A amendments (A.1 to A.9 and A.11) of `docs/design/product-amendments.md`. MVP v0.1 is M1 (MQTT, durable capture log, Parquet, S3-compatible storage), ROS 2 is M2, ClickHouse is P1 (M3), and HTTP and gRPC move after the MVP. This closes readiness blocker 2.
 
 ### Added
 
