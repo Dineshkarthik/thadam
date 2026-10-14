@@ -10,7 +10,6 @@ sources:
       url: mqtts://broker.example:8883
       client_id: thadam-edge-01
       clean_start: false
-      session_expiry: 1d
       keep_alive: 30s
       topics:
         - { filter: "robots/+/telemetry", qos: 1 }
@@ -22,7 +21,7 @@ sources:
 
 ## All options
 
-Required: `url`, `client_id`, `topics`. Unknown keys are rejected. Durations are whole seconds (`30`) or a unit string (`30s`, `5m`, `1h`; `keep_alive`, `connect_timeout`, and `open_timeout` require whole seconds). Limits below are enforced by `thadam validate`.
+Required: `url`, `client_id`, `topics`. Unknown keys are rejected. Durations are whole seconds (`30`) or a unit string (`30s`, `5m`, `1h`; `keep_alive`, `connect_timeout`, and `open_timeout` require whole seconds). Limits below are checked by `thadam validate --against-data-dir` and by `thadam run` at startup. Plain `thadam validate` does not start connectors, so it does not check them ([validating configurations](../getting-started/validating-configs.md#against-the-data-directory)).
 
 | Key | Type | Default | Description |
 |---|---|---|---|

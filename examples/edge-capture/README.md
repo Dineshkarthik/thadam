@@ -2,7 +2,7 @@
 
 **A synthetic robot fleet keeps producing data; Thadam captures it over MQTT, normalizes it, filters it, and writes durable local Parquet — optionally shipping it to S3-compatible storage.** A seeded simulator records the truth (every sample it sent, per message acks, and what the pipeline should do with it) so anything Thadam writes can be checked against that record.
 
-This milestone ships demo levels 1 and 2, the oracle verifier (`make verify`), and chaos scenarios F1, F3, F4, F5, F7, and F8 (`make chaos-*`, see [Chaos](#chaos)). Benchmarks and `make report` are [PR18](../../ARCHITECTURE.md); replay (level 4) is PR17.
+This demo has levels 1 and 2, the oracle verifier (`make verify`), and chaos scenarios F1, F3, F4, F5, F7, and F8 (`make chaos-*`, see [Chaos](#chaos)). Benchmarks, `make report`, and scenarios F2, F6, F9, and F10 are not in it yet.
 
 - **Level 1 — first Parquet in 10 minutes:** Mosquitto + simulator + Thadam → local Parquet → DuckDB.
 - **Level 2 — edge to bucket:** + SeaweedFS S3 behind Toxiproxy, with the idempotent shipper.
@@ -21,7 +21,7 @@ flowchart LR
     init["bucket-init\n(curl PUT thadam-demo)"] --> weed
   end
   tox -->|"cloud leg"| weed
-  thadam["thadam (NATIVE, this milestone)\nadmin 127.0.0.1:9464 · ./data"] -->|"mqtt://localhost:21883"| tox
+  thadam["thadam (NATIVE)\nadmin 127.0.0.1:9464 · ./data"] -->|"mqtt://localhost:21883"| tox
   thadam -->|"http://localhost:29000"| tox
   subgraph obs [profile: observe]
     prom["prometheus :9090"]
@@ -30,7 +30,7 @@ flowchart LR
   prom --> thadam
 ```
 
-Key property of this layout: the simulator talks **directly** to the broker, so the Toxiproxy toggles used by the chaos scenarios can only affect Thadam's consumption — production and the oracle record stay clean. Thadam reaches broker and S3 **only** through Toxiproxy, so the same chaos works for in-container runs once the `thadam` image lands (PR18 builds `thadam:failpoints`; Thadam runs natively until then).
+Key property of this layout: the simulator talks **directly** to the broker, so the Toxiproxy toggles used by the chaos scenarios can only affect Thadam's consumption — production and the oracle record stay clean. Thadam reaches broker and S3 **only** through Toxiproxy, so the same chaos would apply to an in-container Thadam too. This demo runs Thadam natively.
 
 ## Prerequisites
 
@@ -66,6 +66,8 @@ make status            # readyz + /status JSON
 make query             # DuckDB over data/sinks/local/ready/**/…
 ```
 
+`make query` reads only finalized files under `data/sinks/local/ready/`. Open segments stay in `staging/` until they rotate after 60 s (`rotation.max_age` in `thadam/pipeline.local.yaml`) or until shutdown, so run `make query` at least 60 s after `make run-native` starts. Before then there is nothing to read.
+
 You should see one file-family per dataset and thousands of rows per minute: telemetry at 10 msg/s/robot and joints/imu/pose each at 10 msg/s/robot (batched samples), state on change, events filtered.
 
 **4. Check the truth.** The simulator's oracle is the record of every sample it sent:
@@ -95,11 +97,10 @@ make run-native CONFIG=thadam/pipeline.s3.local.yaml
 s3://thadam-demo/fleet/thadam/v1/edge-capture/{dataset}/date=YYYY-MM-DD/hour=HH/edge-01_{epoch}_{first}_{last}.parquet
 ```
 
-Inspect the bucket without extra tooling:
+List the object keys in the demo bucket through the S3 proxy. Unsigned requests work in this demo store, so `curl` is enough. The output is empty until the shipper has uploaded a segment:
 
 ```bash
-docker compose -f compose.yaml exec seaweedfs ls /data 2>/dev/null | head
-# or any S3 CLI pointed at http://localhost:29000 (unsigned works in this demo store)
+curl -s "http://localhost:29000/thadam-demo?list-type=2" | grep -o '<Key>[^<]*</Key>'
 ```
 
 Point DuckDB at it (`INSTALL httpfs; LOAD httpfs;` then `s3://thadam-demo/fleet/thadam/v1/edge-capture/...`); `sql/explore.sql` notes where the same queries run over S3 globs.
@@ -115,7 +116,7 @@ make up-observe
 - Prometheus: http://127.0.0.1:9090 (scrapes the native admin `/metrics` via `host.docker.internal`).
 - Grafana: http://127.0.0.1:3000 (anonymous admin — demo only), the provisioned **Thadam edge-capture** dashboard from [`grafana/dashboards/edge-capture.json`](grafana/dashboards/edge-capture.json).
 
-Dashboard rows track intake vs written, WAL commit p50/p99 and disk vs budget, segment states and sink lag, ship throughput and retries, quality flags and dedup drops, and process resources. (Ship metrics land with the shipper-metrics work item; panels show "No data" until then.)
+Dashboard rows track intake vs written, WAL commit p50/p99 and disk vs budget, segment states and sink lag, ship throughput and retries, quality flags and dedup drops, and process resources.
 
 ## Chaos
 
@@ -174,7 +175,7 @@ The simulator writes `oracle/oracle.ndjson` — one JSON object per **sample** (
 | `duplicate_of` | same `seq` re-publish → message-level dedup drop |
 | `state_repeat` | `on_change` drop: identical `(mode, cycle_id, program)` inside the heartbeat window |
 
-Dedup is configured on **all six** datasets in the demo configs (`state` and `events` carry a 50k window; the high-rate streams 500k): the simulator's duplicate chaos applies to every stream, so dedup must see all of them for the `duplicate_of` expectation to be testable. `pipeline.yaml` (the container topology reference) was adjusted to match — the only PR15 config change, keeping `thadam validate` clean.
+Dedup is configured on **all six** datasets in the demo configs (`state` and `events` carry a 50k window; the high-rate streams 500k): the simulator's duplicate chaos applies to every stream, so dedup must see all of them for the `duplicate_of` expectation to be testable. `pipeline.yaml` (the container topology reference) uses the same windows.
 
 ## The simulator
 
@@ -197,11 +198,11 @@ thadam-simulator oracle-stats <oracle.ndjson> [--json]
 
 Streams per robot: telemetry 10 Hz (1 sample), joints 100 Hz (10/msg), imu 200 Hz (20/msg), pose 50 Hz (5/msg, `frame: map`), state on change + 60 s heartbeat, events ~0.5/s Poisson including `cycle_start`/`cycle_end` pairs, faults, alarms, and 40% debug noise. Topics: `thadam-demo/v1/{site}/{robot}/{stream}`, QoS 1, no retained messages (retained messages would replay on every resubscribe and look like duplicates — the docs explain why the demo avoids them).
 
-## What this milestone does NOT include
+## What this demo does not include
 
-- **Chaos scenarios F2, F6, F9, F10, benchmarks, and `make report`** — PR18. F2, F6, F9, and F10 have no scripts here yet.
-- **Replay (level 4)** — PR17; the catch is the WAL `retain_for: 1h` and `replay --output` never writing to production paths.
-- **A `thadam` container image.** Thadam runs natively here (`make run-native`); the published image (and thus the true cold-clone-under-10-minutes gate) lands with PR18's `thadam:failpoints` image work. Level-1 end-to-end on a warm checkout is a couple of minutes; the first `make up` also builds the simulator image.
+- **Chaos scenarios F2, F6, F9, F10, benchmarks, and `make report`.** F2, F6, F9, and F10 have no scripts here yet.
+- **A replay walkthrough (level 4).** `thadam replay` exists (see the [CLI reference](../../website/docs/src/cli/index.md)), but this demo does not use it. The WAL keeps data for `retain_for: 1h`, the replay window, bounded by `max_disk`.
+- **A `thadam` container in this demo.** Thadam runs natively here (`make run-native`). [`deploy/docker/Dockerfile`](../../deploy/docker/Dockerfile) builds a `thadam` image, but this demo does not run it. Level-1 end-to-end on a warm checkout is a couple of minutes; the first `make up` also builds the simulator image.
 - **Power-loss honesty.** Containers cannot simulate it; the `fsync: { interval: 50ms }` exposure window is what it is, and hardware-rig evidence is pending before any power-loss claim (see the repo README's claims discipline). macOS is for development only; durability statements cover Linux.
 - **Security hardening.** Anonymous MQTT, HTTP-only S3, unsigned bucket operations, and a token-less loopback admin bind are demo-only postures. A TLS/mTLS broker variant and the least-privilege bucket policy (no `DeleteObject`, no `ListBucket`) are documented follow-ups.
 

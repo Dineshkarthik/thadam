@@ -19,7 +19,7 @@ wal:
 | `max_disk` | size | required | The WAL disk budget. Must be at least one segment; a budget under four segments warns (retention and `on_full` then act on very coarse units). |
 | `segment_bytes` | size | `16MiB` | The size at which a segment file is sealed. Minimum 1 MiB. |
 | `fsync` | `always`, `never`, or `{ interval: <duration> }` | `{ interval: 10ms }` (provisional) | The fsync policy; see below. `interval: 0` is invalid. |
-| `on_full` | `block` or `drop_oldest` | **none — required** | What happens at `max_disk`. Data loss must be an explicit choice (ADR-0011, D4). See [`on_full`](#on_full). |
+| `on_full` | `block` or `drop_oldest` | **none — required** | What happens at `max_disk`. Data loss must be an explicit choice (ADR-0011, D4). See [`on_full`](#on_full-policy). |
 | `retain_for` | duration | none | How long *consumed* data stays available for replay, bounded by `max_disk`. Zero is invalid; omit to keep nothing beyond consumption. |
 | `max_pending_bytes` | size | `8MiB` | Bytes a source may have submitted to the WAL writer without a completed commit. Zero is invalid. A batch larger than the budget takes the whole budget, which avoids deadlock. |
 

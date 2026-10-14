@@ -25,11 +25,10 @@ messages (six joints, 100 Hz) and 50 `/robot_pose` messages (frame `map`,
 
 ## Prerequisites
 
-- Rust toolchain (the workspace `rust-toolchain` pins it)
-- From the repository root, build the CLI with a dedicated target dir:
+- Rust toolchain (the workspace `rust-toolchain.toml` pins it)
+- From the repository root, build the CLI:
 
 ```sh
-export CARGO_TARGET_DIR=$PWD/target/ros2-example
 cargo build -p thadam-cli
 ```
 
@@ -44,7 +43,7 @@ from `examples/ros2-mcap-to-parquet`.
 
 ```sh
 cd examples/ros2-mcap-to-parquet
-THADAM=../../target/ros2-example/debug/thadam
+THADAM=../../target/debug/thadam
 
 # 1. Generate the sample recording (writes data/sample.mcap, about 18 KB).
 cargo run -p thadam-mcap --example make_ros2_sample -- data/sample.mcap
