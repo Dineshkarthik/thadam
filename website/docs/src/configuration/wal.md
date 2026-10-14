@@ -48,13 +48,13 @@ Where rejected events go, with their own disk budget so rejects cannot starve no
 
 ```yaml
 quarantine:
-  format: parquet      # parquet (default) | ndjson
+  format: parquet      # parquet (default); ndjson is reserved and rejected
   max_disk: 256MiB
 ```
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `format` | `parquet` or `ndjson` | `parquet` | The segment format for quarantine files. `ndjson` trades compactness for inspectability while debugging. |
+| `format` | `parquet` | `parquet` | The segment format for quarantine files. `ndjson` is reserved: `thadam validate` rejects it. |
 | `max_disk` | size | `256MiB` | The quarantine disk budget. Must be greater than zero. It covers both the quarantine segments and the small staging file described below. |
 | `rotation` | `{ max_bytes, max_rows, max_age }` | `max_bytes: 128 MiB`, `max_age: 300` (seconds) | When the open quarantine segment is closed. This is the quarantine's own cadence: it does not delay the owning sink (see below). |
 
