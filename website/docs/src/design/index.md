@@ -36,7 +36,7 @@ Naming: `NNNN-kebab-title.md`; status lifecycle Draft → Proposed → Accepted 
 | 0009 Object-store architecture | Reserved | Split across ADR-0011 (commit-then-ship) and ADR-0013 (keys); ARCHITECTURE section 8. |
 | 0010 Python SDK boundary | Reserved | Post-MVP. |
 | 0014 Time and clock semantics | Reserved | Folded into ADR-0001 and ADR-0013. |
-| 0015 Recording and replay format | Draft | WAL retention window; MCAP is export/import only; `thadam export --mcap` keeps original encodings and records gaps and provenance. |
+| [0015 — Recording and replay format](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0015-recording-and-replay-format.md) | Draft | WAL retention window; MCAP is export/import only; `thadam export --mcap` keeps original encodings and records gaps and provenance. |
 | [0016 — Naming and publishing](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0016-naming-and-publishing.md) | Draft | Provisional name; clearance is pending; all crates are `publish = false`. |
 | 0017 Plugin mechanism | Reserved | Compile-time features now; out-of-process later; Rust dylibs rejected. |
 | 0019 Transform semantics | Reserved | Folded into ADR-0011 and ARCHITECTURE section 7. |
@@ -49,6 +49,8 @@ Spikes are time-boxed experiments whose reports feed ADRs; the code is throwaway
 |---|---|---|
 | [WAL spike](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/spikes/S1-wal.md) | ADR-0004 | Custom segmented log vs SQLite vs redb: correctness under kill -9/LazyFS/torn tails, write amplification, recovery time, fsync behavior. |
 | [MQTT spike](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/spikes/S2-mqtt.md) | ADR-0006, ADR-0011 | Ack-window throughput model, liveness under backpressure, `poll` cancel-safety, payload-stripped acks, persistent sessions, broker limits (Mosquitto 2.1.2, EMQX 5.8.6). |
+| [ROS 2 live spike](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/spikes/S3-ros2-live.md) | ADR-0007 | Live ROS 2 transport over `rmw_zenoh` (`zenoh` 1.10.1), key expressions, 33-byte publisher attachments, and `transient_local` late-join queries on Jazzy and Lyrical. |
+| [Sparkplug B and OPC UA PubSub spike](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/spikes/sparkplug-b-and-opcua-pubsub.md) | Phase 3 | Sparkplug B `spBv1.0` protobuf decoding, BIRTH/DEATH alias resolution, and OPC UA PubSub evaluation. |
 | [Record representation](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/spikes/D8-record-representation.md) | ADR-0001 | Memory layout of the canonical record (shape-shared positional records behind an opaque `Record`). |
 | [ADR-0012 YAML spike](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/spikes/ADR-012-yaml.md) | ADR-0012 | YAML crate selection (`serde-saphyr`), strictness and budget measurements. |
 | [ADR-0018 filter spike](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/spikes/ADR-018-filter.md) | ADR-0018 | Structured predicates vs an expression language (CEL evaluator cost on ARM). |

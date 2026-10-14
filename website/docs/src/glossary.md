@@ -10,7 +10,7 @@ Terms as Thadam uses them. Where a term has a formal definition in an ADR, the A
 
 **At-most-once** — Delivery without retransmission; a crash can lose messages. Applies to QoS 0 and `ack_mode: on_receive` across a crash.
 
-**Batch sink** — Sink contract for transactional batch targets (ClickHouse, NATS): deterministic batches retried under the same batch ID. Compare *segment sink*.
+**Batch sink** — Sink contract for transactional batch targets (ClickHouse, Kafka, NATS, MQTT publish): deterministic batches retried under the same batch ID. Compare *segment sink*.
 
 **Capture-first WAL** — The architectural rule (ADR-0003) that raw messages are appended to a durable write-ahead log *before* decode, transform, or acknowledgement. See [WAL](concepts/wal-and-replay.md).
 
@@ -24,7 +24,7 @@ Terms as Thadam uses them. Where a term has a formal definition in an ADR, the A
 
 **Dataset** — An output table: match rule, decoder, identity template, optional event ID/dedup/explode/time rule, and a declared field list. The unit every sink produces. [Reference](configuration/datasets.md).
 
-**Delivery class** — What a sink can guarantee: `AtLeastOnce` or `IdempotentBatch` (for example effectively-once ClickHouse inserts under probed table settings).
+**Delivery class** — What a sink can guarantee: `AtMostOnce`, `AtLeastOnce`, or `IdempotentBatch` (for example effectively-once ClickHouse inserts under probed table settings).
 
 **Durable end** — The last WAL position covered by a successful fsync; the bound readers and cursor commits respect.
 
@@ -62,6 +62,6 @@ Terms as Thadam uses them. Where a term has a formal definition in an ADR, the A
 
 **Time domain** — Which clock `source_time` is on: `utc`, `tai`, `monotonic`, `sim`, or `unknown`. Only `utc` becomes event time.
 
-**Warm start** — Rebuilding stateful transform state (dedup, `on_change`) at startup by re-reading `[cursor − window, cursor)` from the WAL without emitting.
+**Warm start** — Rebuilding stateful transform state (dedup, `on_change`, `sample`) at startup by re-reading `[cursor − window, cursor)` from the WAL without emitting.
 
 **Watermark (sink)** — The WAL position through which a segment sink's files are durable; the runtime commits cursors only up to watermarks.

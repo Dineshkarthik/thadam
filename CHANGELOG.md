@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Website and docs sync**: marked `ROS 2 live` (`kind: ros2_live`, opt-in `ros2-live` feature) and `Iceberg` (`kind: iceberg`, opt-in `iceberg` feature) as `Available` (experimental) across the homepage, user docs, `readiness.md`, `ARCHITECTURE.md`, and `README.md`; unified the navigation header, typography, sidebar, tables, and code blocks across `/`, `/404.html`, and `/docs/` using `thadam-wordmark-{light,dark}.svg` (`165×28`) and `thadam.css` tokens; fixed `edit-url-template` in `website/docs/book.toml`; synced `thadam validate` outputs in the getting-started guides; added the `S3` and Sparkplug B spike reports to the design index; marked the Python SDK page status; and updated the roadmap and README to reflect OAuth2 401 token refresh in `thadam-iceberg`.
+
 ## [0.1.0] - Unreleased (tag pending the ADR-0004 reference-hardware run)
 
 **Summary.** Thadam 0.1.0 is an open-source, Rust-first data plane for robotics and industrial telemetry. It accepts messages from MQTT, HTTP, gRPC, MCAP files, Modbus TCP, SocketCAN, OPC UA, and live ROS 2, writes each one to a local write-ahead log before delivery, and sends it to local Parquet segments, S3-compatible object storage, NATS JetStream, Apache Kafka, MQTT, ClickHouse, or Apache Iceberg. The release includes config validation, transform chains, a quarantine for rejected records, replay and MCAP export, an admin API with Prometheus metrics, and Docker and systemd deployment files. Status: pre-alpha. The WAL format is versioned but not frozen, the tag waits for the reference-hardware run, and live ROS 2 and Iceberg are experimental. Detailed status: [docs/design/readiness.md](docs/design/readiness.md) and ARCHITECTURE.md section 21.
@@ -138,8 +142,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### In progress (not yet usable)
 
 - Published benchmark results and the ADR-0004 WAL re-run on reference hardware (the bench script landed above; the runs are not done).
-- Live ROS 2 source (ADR-0007 stage 4): `kind: ros2_live` landed above as experimental (rmw_zenoh transport only, no discovery, no ARM numbers yet). Spike S3 (stage 3) is complete.
-- Iceberg append (P2, phase 4): `kind: iceberg` landed above as experimental steps 1 to 3 (registration, schema evolution by field ID, catalog authentication with OAuth2 401 refresh, and mTLS); no compaction, partitioning, or deletes yet.
+- Live ROS 2 liveliness discovery and ARM reference-hardware numbers (`kind: ros2_live` over `rmw_zenoh` and Spike S3 are complete and available behind the opt-in `ros2-live` feature as experimental).
+- Iceberg compaction, partitioning, and deletes (`kind: iceberg` registration, schema evolution by field ID, catalog authentication with OAuth2 401 refresh, and mTLS are complete and available behind the opt-in `iceberg` feature as experimental).
 
 ### Not started
 

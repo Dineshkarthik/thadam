@@ -823,9 +823,9 @@ Spikes are throwaway experiments whose reports live in `docs/design/spikes/`. Co
 | Additional sources: `thadam-http`, `thadam-grpc`, `thadam-modbus`, `thadam-can`, `thadam-opcua` (Cargo feature `opcua`) | Done |
 | Additional batch sinks: `thadam-nats` (JetStream), `thadam-kafka` (`rskafka`), `thadam-clickhouse` (P1, default-on Cargo feature `clickhouse`) | Done |
 | Offline ROS 2: `thadam-ros2-msg`, `thadam-mcap`, `thadam export --mcap` (ADR-0015 Draft), `examples/ros2-mcap-to-parquet` | Done |
-| Live ROS 2: `thadam-ros2-live` (`kind: ros2_live` over `rmw_zenoh`, Cargo feature `ros2-live`, ADR-0007 stage 4) | In progress (experimental) |
+| Live ROS 2: `thadam-ros2-live` (`kind: ros2_live` over `rmw_zenoh`, Cargo feature `ros2-live`, ADR-0007 stage 4) | Done (experimental) |
 | Sparkplug B: `thadam-sparkplug` (`decode: sparkplug_b` and per-sink `BirthStore`) | Done |
-| Apache Iceberg registrar: `thadam-iceberg` (`kind: iceberg`, steps 1 to 3: `fast_append`, schema evolution by field ID, catalog auth and mTLS; Cargo feature `iceberg`, P2) | In progress (experimental) |
+| Apache Iceberg registrar: `thadam-iceberg` (`kind: iceberg`, steps 1 to 3: `fast_append`, schema evolution by field ID, catalog auth and mTLS; Cargo feature `iceberg`, P2) | Done (experimental) |
 | Deployment tooling (`deploy/docker/Dockerfile`, `deploy/systemd/thadam.service`, `deploy/apply-config.sh` with rollback) | Done |
 | Python SDK (`sdk/python`) | Done |
 | `cargo fuzz` targets (6 targets across `thadam-transform`, `thadam-ros2-msg`, `thadam-sparkplug`) and `fuzz-smoke` CI job | Done |

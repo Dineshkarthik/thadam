@@ -37,10 +37,10 @@ sinks:
 | `modbus` | source | built-in | Available ([Modbus source](../sources/modbus.md)); Modbus TCP polling |
 | `can` | source | built-in | Available ([CAN source](../sources/can.md)); Linux SocketCAN (`raw` and DBC `decoded`) |
 | `opcua` | source | `opcua` (off by default) | Available ([OPC UA source](../sources/opcua.md)) |
-| `ros2_live` | source | `ros2-live` (off by default) | In progress ([ROS 2 live source](../sources/ros2-live.md)); `rmw_zenoh` transport, experimental |
+| `ros2_live` | source | `ros2-live` (off by default) | Available ([ROS 2 live source](../sources/ros2-live.md)); `rmw_zenoh` transport, experimental |
 | `parquet` | segment sink | built-in | Available ([Parquet segments sink](../sinks/parquet.md)) |
 | `object_store` | shipper service | built-in | Available ([object storage sink](../sinks/object-store.md)); configured under `sinks:` and runs as a service shipping the named segment sink |
-| `iceberg` | registrar service | `iceberg` (off by default) | In progress ([Apache Iceberg registrar](../sinks/iceberg.md)); configured under `sinks:`, experimental (P2) |
+| `iceberg` | registrar service | `iceberg` (off by default) | Available ([Apache Iceberg registrar](../sinks/iceberg.md)); configured under `sinks:`, experimental (P2) |
 | `nats` | batch sink | built-in | Available ([NATS JetStream sink](../sinks/nats.md)); one message per event, deduplicated by `Nats-Msg-Id` |
 | `kafka` | batch sink | built-in | Available ([Apache Kafka sink](../sinks/kafka.md)); one record per event, `acks=all` |
 | `mqtt_publish` | batch sink | built-in | Available ([MQTT publish sink](../sinks/mqtt-publish.md)); one message per event, QoS 0 or 1 |

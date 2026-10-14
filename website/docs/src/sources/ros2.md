@@ -1,6 +1,6 @@
 # ROS 2
 
-**Status: Available (offline MCAP); live transport In progress (experimental).** Thadam's ROS 2 support is staged (ADR-0007). Stage 1 (`thadam-ros2-msg`, the transport-independent `.msg` parser and CDR decoder) and the Stage 2 file source (`thadam-mcap`, replaying MCAP and rosbag2-MCAP recordings) exist today.
+**Status: Available (offline MCAP and experimental live `rmw_zenoh` source).** Thadam's ROS 2 support is staged (ADR-0007). Stage 1 (`thadam-ros2-msg`, the transport-independent `.msg` parser and CDR decoder), Stage 2 (`thadam-mcap`, replaying MCAP and rosbag2-MCAP recordings, plus `thadam export --mcap`), Stage 3 (the live-transport spike), and Stage 4 ([`ros2_live`](ros2-live.md), experimental behind the opt-in `ros2-live` feature) exist today.
 
 | Stage | Status |
 |---|---|
@@ -9,7 +9,7 @@
 | Stage 2: `thadam export --mcap` ([`thadam export`](../cli/export.md)) | **Available** |
 | Stage 2, rest: [`examples/ros2-mcap-to-parquet`](https://github.com/Dineshkarthik/thadam/tree/main/examples/ros2-mcap-to-parquet) (MCAP to decoded, validated Parquet and back) | **Available** |
 | Stage 3: live-transport spike (Zenoh-native, sidecar, `r2r`) | **Available** (rmw_zenoh primary, bridge mapped) |
-| Stage 4: live ROS 2 source ([`ros2_live`](ros2-live.md)) | **In progress** (rmw_zenoh transport, experimental) |
+| Stage 4: live ROS 2 source ([`ros2_live`](ros2-live.md)) | **Available** (rmw_zenoh transport, experimental, opt-in `ros2-live` feature) |
 
 ## How it works
 

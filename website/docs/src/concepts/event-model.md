@@ -54,4 +54,4 @@ By default the event ID is deterministic per WAL record (`xxh3_128` over the epo
 
 ## Payloads and media
 
-Sources hand chains raw bytes; decoding (JSON today) produces typed records that conform to the declared dataset shape. Large media does not travel in the event path: frames, bags, and videos are referenced by object URI (an `ObjectRef` payload kind) rather than embedded. There are no `Pose`- or `Ros2Msg`-typed variants in the core model — robotics types are records following field conventions (for example `frame_id` is a payload field, not an envelope field).
+Sources hand chains raw bytes; decoding (JSON, ROS 2 CDR, or Sparkplug B) produces typed records that conform to the declared dataset shape. Large media does not travel in the event path: frames, bags, and videos are referenced by object URI (an `ObjectRef` payload kind) rather than embedded. There are no `Pose`- or `Ros2Msg`-typed variants in the core model — robotics types are records following field conventions (for example `frame_id` is a payload field, not an envelope field).

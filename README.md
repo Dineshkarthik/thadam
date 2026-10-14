@@ -25,9 +25,9 @@ Thadam is under active development. The architecture and the delivery guarantees
 
 **Implemented today:**
 
-- Configuration format `version: 1` with `thadam validate`, `thadam schema`, and `thadam version`, including `${env:}`/`${file:}` secret interpolation and a memory estimate.
+- Configuration format `version: 1` with `thadam init`, `thadam validate` (including `--against-data-dir`), `thadam schema`, and `thadam version`, including `${env:}`/`${file:}` secret interpolation and a memory estimate.
 - The capture-first write-ahead log (`thadam-wal`): segments, group-commit fsync, cursors, retention, disk budgets, crash recovery. The on-disk format is versioned but **not frozen** ([ADR-0004](docs/design/adr/0004-durable-buffer.md) awaits a hardware re-run).
-- The transform chain (`thadam-transform`): router, JSON decode, identity, event IDs, deduplication, `explode`, units, time extraction, and the steps `validate`, `on_change`, `filter`, `sample`, `enrich`, `rename`, `project`, `cast`, `pose`, and `joint_state`.
+- The transform chain (`thadam-transform`): router, JSON/ROS 2/Sparkplug B decode, identity, event IDs, deduplication, `explode`, units, time extraction, and the steps `validate`, `on_change`, `filter`, `sample`, `enrich`, `rename`, `project`, `cast`, `pose`, `joint_state`, and `window` (experimental).
 - The MQTT source (`thadam-mqtt`, [ADR-0006](docs/design/adr/0006-mqtt-client.md)): persistent sessions, acknowledge-after-commit, ordered acks, TLS and mTLS, session-loss detection.
 - Other sources: HTTP, gRPC, Modbus TCP, SocketCAN (Linux), and OPC UA (behind the opt-in `opcua` feature). Sparkplug B payloads decode with `decode: sparkplug_b`.
 - Other sinks: Apache Kafka, NATS JetStream, and MQTT publish (`mqtt_publish`), plus ClickHouse (P1, on by default, outside the core v0.1 reliability gate; [ADR-0008](docs/design/adr/0008-clickhouse-sink.md) is still Draft).
@@ -37,13 +37,14 @@ Thadam is under active development. The architecture and the delivery guarantees
 - The seeded demo simulator (`tools/thadam-simulator`) and the `edge-capture` demo stack: a 6-robot MQTT fleet with a per-sample truth oracle, Docker Compose topology (Mosquitto, Toxiproxy, SeaweedFS, Prometheus/Grafana), and a DuckDB exploration script.
 - Replay and inspection (`thadam replay`, `thadam inspect`), the chaos suites, the oracle verifier, and the benchmark harness (`tools/thadam-bench`).
 - Offline ROS 2 ([ADR-0007](docs/design/adr/0007-ros2-strategy.md)): MCAP capture, `decode: ros2` in the chain, `thadam export --mcap`, and [`examples/ros2-mcap-to-parquet`](examples/ros2-mcap-to-parquet).
+- Live ROS 2 transport (`kind: ros2_live`, `rmw_zenoh`, experimental behind the opt-in `ros2-live` feature).
+- The Iceberg registrar (`kind: iceberg`, P2, experimental behind the opt-in `iceberg` feature): `fast_append` registration, schema evolution by field ID, catalog authentication (with OAuth2 401 refresh), and mutual TLS.
 
 **In progress:**
 
 - Published benchmark results and the ADR-0004 WAL re-run on reference hardware (`scripts/wal-hw-bench.sh` is ready; the runs are not done).
-- Live ROS 2 transport (`kind: ros2_live`, rmw_zenoh): experimental, behind the opt-in `ros2-live` feature. No discovery and no ARM numbers yet; ROS 2 is not part of v0.1.
-- Iceberg registrar (`kind: iceberg`, P2): experimental, behind the opt-in `iceberg` feature. Schema evolution and catalog authentication are in; token refresh, compaction, and partitioning are not.
-- Windowing (`window`): experimental. WASM operators and in-chain inference are deferred until a user needs them.
+- Live ROS 2 liveliness discovery, `zenoh-bridge-ros2dds` sidecar mode, and ARM reference-hardware numbers (ROS 2 is not part of v0.1).
+- Iceberg table compaction and partitioning.
 
 Current per-component status is tracked in [docs/design/readiness.md](docs/design/readiness.md) and [ARCHITECTURE.md](ARCHITECTURE.md) section 21.
 

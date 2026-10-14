@@ -9,3 +9,4 @@ website/docs/book/
 # Stale mdBook output from before the website/ move; remove once no local build remains.
 docs/book/
 examples/**/data/
+thadam-assets/brand/reference/

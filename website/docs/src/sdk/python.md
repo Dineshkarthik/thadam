@@ -1,6 +1,6 @@
 # Python SDK
 
-Thadam ships a Python SDK built with PyO3 and maturin, at `sdk/python/` in the
+**Status: Available.** Thadam ships a Python SDK built with PyO3 and maturin, at `sdk/python/` in the
 repository. It exposes configuration validation and hashing, reads of the
 Parquet sink's ready segments, and in-process pipeline runs.
 

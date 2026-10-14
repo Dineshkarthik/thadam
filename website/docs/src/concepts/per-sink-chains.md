@@ -8,7 +8,7 @@ A chain is synchronous, pure, and owned by one task. It:
 
 1. reads committed frames from its WAL cursor,
 2. routes records to datasets by `match` (source id and topic filter),
-3. decodes payloads (JSON today) into the declared shapes,
+3. decodes payloads (JSON, ROS 2 CDR, or Sparkplug B) into the declared shapes,
 4. runs the dataset pipeline and the `transforms:` list, and
 5. hands one `EventBatch` per dataset to its sink driver — the segment driver (Parquet) or the batch driver (ClickHouse, Kafka, NATS, MQTT publish).
 

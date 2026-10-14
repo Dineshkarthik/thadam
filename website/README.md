@@ -48,7 +48,7 @@ Edit files in `thadam-assets/brand/` (SVG sources in `svg/`, tokens in `tokens/t
 
 ## Metadata, performance, and checks
 
-- Social card: `thadam-assets/brand/png/og-card.png` (1200x630) is used by `og:image` and `twitter:card` on the homepage and every docs page. Regenerate it with `python3 thadam-assets/brand/reference/make_og_card.py` (needs Pillow and macOS system fonts) and commit the result.
+- Social card: `thadam-assets/brand/png/og-card.png` (1200x630) is used by `og:image` and `twitter:card` on the homepage and every docs page. The maintainer regenerates it from the brand source files, which are not in the repository, and commits the result.
 - Web app manifest: `public/site.webmanifest` lists the 192 and 512 px PNGs from `thadam-assets/brand/png/`.
 - The mdBook print page is disabled (`[output.html.print] enable = false` in `docs/book.toml`) to keep the output small.
 - Budget: the homepage HTML plus `site.css` must stay under 30 KB. `check.py` fails above that.

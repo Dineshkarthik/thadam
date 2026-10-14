@@ -19,8 +19,9 @@ Developer-native, precise, understated, and infrastructure-oriented. The mark is
 Canonical values live in `tokens/thadam.css` and `tokens/colors.json`. Do not copy these hex values into other files; reference the tokens.
 
 ## Logo usage
-- `svg/thadam-logo-light.svg` on warm-white and light backgrounds; `svg/thadam-logo-dark.svg` on graphite and dark backgrounds.
-- `svg/thadam-mark-*.svg` is the standalone mark; `svg/thadam-icon-*.svg` is the app icon and favicon source.
+- `svg/thadam-logo-light.svg` on warm-white and light backgrounds; `svg/thadam-logo-dark.svg` on graphite and dark backgrounds (`500×82`, mark + wordmark + tagline).
+- `svg/thadam-wordmark-light.svg` and `svg/thadam-wordmark-dark.svg` (`500×58`, mark + wordmark without tagline) where the tagline would be too small.
+- `svg/thadam-mark-*.svg` is the standalone mark (`64×64`); `svg/thadam-icon-*.svg` is the app icon and favicon source (`64×64`).
 - Use the SVGs unmodified: no redraw, recolour, stretch, rotation, shadow, or gradient.
 - Preserve aspect ratio and clear space of at least the width of the mark's vertical stem.
 - At tiny sizes, use the standalone icon and check legibility at 16, 24, and 32 px.
