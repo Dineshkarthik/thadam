@@ -6,7 +6,7 @@ use object_store::Error as StoreError;
 use thadam_core::{Classify, ErrorDomain, Retry, ThadamError, codes};
 
 /// The named Iceberg table must exist but does not (`create_table: false`).
-pub const CODE_TABLE_MISSING: &str = "sink.iceberg_table_missing";
+pub const CODE_TABLE_MISSING: &str = "config.iceberg_table_missing";
 /// A segment's Parquet footer does not map into Iceberg types at all (for
 /// example `UInt64` under the `unsigned: native` Arrow policy).
 pub const CODE_UNSUPPORTED_TYPE: &str = "sink.iceberg_unsupported_type";

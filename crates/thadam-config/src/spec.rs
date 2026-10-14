@@ -511,7 +511,7 @@ pub enum QuarantineFormat {
     /// Parquet with the fixed quarantine schema.
     #[default]
     Parquet,
-    /// Newline-delimited JSON.
+    /// Newline-delimited JSON. Reserved: `thadam validate` rejects it.
     Ndjson,
 }
 

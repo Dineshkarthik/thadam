@@ -4,7 +4,7 @@ Every error Thadam surfaces — in logs, `/status`, quarantine rows, diagnostics
 
 - **Retry classes:** `Transient` (retry with capped, jittered backoff; component `Degraded`), `Permanent` (retrying cannot help; per-event errors become rejects), `Fatal` (component `Failed`, readiness false, capture continues within policy).
 - **Severity** defaults from the retry class: Warning, Error, Critical.
-- Codes are stable: never reused for a different meaning, only added; the full set is snapshot-tested in `thadam-core`.
+- Codes are stable: never reused for a different meaning, only added. The `thadam-core` codes are snapshot-tested; the Iceberg codes are defined in `thadam-iceberg`.
 
 ## Domains and codes
 
@@ -32,6 +32,8 @@ Every error Thadam surfaces — in logs, `/status`, quarantine rows, diagnostics
 | `decode.too_large` | The payload exceeds the size limit. |
 | `decode.depth_exceeded` | The payload nests deeper than the limit. |
 | `decode.invalid_time` | A timestamp could not be parsed. |
+| `decode.schema_ref_missing` | The message does not carry the schema reference the decoder needs. |
+| `decode.unknown_schema` | The referenced schema hash is not in the schema store. |
 
 ### `schema` — declared schemas and shapes
 
@@ -83,6 +85,9 @@ Every error Thadam surfaces — in logs, `/status`, quarantine rows, diagnostics
 | `sink.io` | A local I/O operation failed. |
 | `sink.non_monotonic_append` | A segment sink was given a batch not after its previous one. |
 | `sink.object_key_collision` | A create-if-absent conflict found an object with different content (epoch or node-id misconfiguration); the shipper refuses to overwrite. Fatal. |
+| `sink.iceberg_unsupported_type` | A segment's footer has a type Iceberg cannot represent, such as `UInt64` under `unsigned: native`. Fatal. |
+| `sink.iceberg_schema_mismatch` | The table's current schema cannot accept the segment's schema. Fatal. |
+| `sink.iceberg_commit` | A commit kept conflicting with another writer past the bounded retry; retried on a later tick. Transient. |
 | `sink.panic` | The sink task panicked. |
 
 ### `auth` — authentication and authorization
@@ -101,6 +106,7 @@ Every error Thadam surfaces — in logs, `/status`, quarantine rows, diagnostics
 | `config.missing` | A required configuration value is missing. |
 | `config.unknown_kind` | No connector is registered for the configured `kind`. |
 | `config.incompatible` | A configuration or data-directory version is not supported (exit code 3 on the data-directory path; also raised for a non-loopback admin bind without a token). |
+| `config.iceberg_table_missing` | The Iceberg table does not exist and `create_table` is false. Fatal. |
 
 ## Where codes show up
 

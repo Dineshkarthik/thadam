@@ -72,7 +72,7 @@ the key was already in the `Uploaded` log record.
   the catalog record, never from string templates, so a config drift cannot
   fabricate a path.
 - `create_table: false` (default): the table must exist, otherwise Fatal
-  `sink.iceberg_table_missing`. `create_table: true`: if the table is absent
+  `config.iceberg_table_missing`. `create_table: true`: if the table is absent
   the schema is derived from the first pending segment's footer (see "Schema
   mapping"), the namespace is created if needed, and the table is created
   (format v2, unpartitioned) — by **client-authored initial metadata plus
