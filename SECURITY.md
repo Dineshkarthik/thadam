@@ -35,10 +35,10 @@ These are deliberate design decisions, not vulnerabilities; please read before r
 
 Dependency and toolchain security follows [ADR-0020](docs/design/adr/0020-dependency-security-and-toolchain-policy.md):
 
-- **`cargo deny check` is blocking in CI**: RustSec advisories (minimum-secure versions are pinned, e.g. `rustls` ≥ 0.23.45, `bytes` ≥ 1.11.1, `tokio` ≥ 1.44.2, `object_store` ≥ 0.10.2), a license allow-list, bans on `aws-lc-sys`/`openssl-sys`/`serde_yaml`, and crates.io-only sources with a committed `Cargo.lock`.
+- **`cargo deny check` is blocking in CI**: RustSec advisories (minimum-secure versions are pinned, e.g. `rustls` ≥ 0.23.45, `bytes` ≥ 1.11.1, `tokio` ≥ 1.44.2, `object_store` ≥ 0.10.2), a license allow-list (with scoped `deny.toml` MPL-2.0 exceptions for `async-opcua*` and `option-ext` behind the default-off `opcua` and `ros2-live` features), bans on `aws-lc-sys`/`openssl-sys`/`serde_yaml` (`serde_yaml` is exceptioned in `deny.toml` solely for `async-opcua-core` and `zenoh-config` behind those two default-off features), time-boxed advisory exceptions `RUSTSEC-2023-0071` (`rsa` via `async-opcua-crypto`, mitigated by a handshake rate limiter) and `RUSTSEC-2026-0041` (`lz4_flex` via `zenoh-transport`, compression disabled) reviewed by `2027-04-01`, and crates.io-only sources with a committed `Cargo.lock`.
 - **TLS is rustls with the `ring` provider** everywhere. Where an upstream dependency could not be used safely (the MQTT client's TLS features pin a vulnerable `rustls-webpki`), TLS is terminated inside Thadam instead of linking the vulnerable path (ADR-0006 amendment).
 - **Unsafe code is forbidden** across the workspace (`#![forbid(unsafe_code)]`); platform syscalls go through `rustix`'s safe API.
-- **Untrusted-input parsers get fuzz targets** (the JSON decoder; WAL frame decoding is a recommended target).
+- **Untrusted-input parsers get fuzz targets**: six `cargo fuzz` targets run in CI (`fuzz-smoke`) across `thadam-transform` (`chain_process`, `spec_compile`, `text_parsers`), `thadam-ros2-msg` (`msg_parse`, `cdr_decode`), and `thadam-sparkplug` (`decoder_handle`); WAL frame decoding is a recommended future target.
 - Credentials are handled through `Secret<T>` and are redacted from logs and diagnostics.
 
 Dependency vulnerabilities are tracked through `cargo deny` in CI rather than this page; if you find a fixable advisory in the tree, a public issue (or private report, for exploitable paths) is welcome.

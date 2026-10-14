@@ -179,7 +179,7 @@ Every apply stops intake, drains (up to 10 seconds for chains, 30 seconds overal
 
 ### Measured restart time {#measured-restart-time}
 
-The `apply_config` integration test (`apps/thadam-cli/tests/apply_config.rs`) times the restart. The clock starts when the restart command writes its first line, before it stops the old process, and stops at the first `/status` poll that reports the candidate's hash as running and ready. Seven runs of the valid-change test on one machine (macOS, Darwin, arm64), with a debug build, one idle `http` source, and a local data directory: 92, 96, 98, 100, 101, 101, and 103 ms, a median of 100 ms. The full `apply-config.sh` run, including `thadam validate` and the first readiness poll, took 687 to 727 ms across the same runs.
+The `apply_config` integration test (`apps/thadam-cli/tests/apply_config.rs`) times the restart. The clock starts when the restart command writes its first line, before it stops the old process, and stops at the first `/status` poll that reports the candidate's hash as running and ready. Seven runs of the valid-change test on one machine (macOS, arm64), with a debug build, one idle `http` source, and a local data directory: 92, 96, 98, 100, 101, 101, and 103 ms, a median of 100 ms. The full `apply-config.sh` run, including `thadam validate` and the first readiness poll, took 687 to 727 ms across the same runs.
 
 Not measured: the stop and start under the systemd unit, the Docker image, a release build, and a node with a backlog or in-flight batches. A node with more to drain takes longer to stop.
 

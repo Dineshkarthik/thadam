@@ -4,25 +4,41 @@ Thanks for your interest. Thadam is a young, pre-alpha project with a deliberate
 
 ## Development environment
 
-- **Rust:** the toolchain is pinned by [`rust-toolchain.toml`](rust-toolchain.toml) (channel `1.99.0`, minimal profile, with `rustfmt` and `clippy`; the Linux `x86_64` and `aarch64` `unknown-linux-gnu` targets). With rustup installed, `cargo build` in the repo downloads it automatically. The workspace MSRV is **Rust 1.89** (`rust-version` at the workspace root); only the pinned toolchain is used for CI and releases.
+- **Rust:** the toolchain is pinned by [`rust-toolchain.toml`](rust-toolchain.toml) (channel `1.99.0`, minimal profile, with `rustfmt` and `clippy`; the Linux `x86_64` and `aarch64` `unknown-linux-gnu` targets). With rustup installed, `cargo build` in the repo downloads it automatically. The workspace MSRV is **Rust 1.89** (`rust-version` at the workspace root), except `crates/thadam-iceberg` (the opt-in `iceberg` feature), which declares **Rust 1.94** for upstream `iceberg` 0.10.1; CI checks `cargo +1.89 check --workspace --exclude thadam-python --exclude thadam-iceberg --locked`, and the pinned toolchain is used for full builds and releases.
 - **Docker** (or a compatible runtime) for broker-dependent integration tests (`thadam-mqtt`'s `docker_e2e` and conformance suites are `#[ignore]`d by default).
 - Recommended: `cargo nextest` (0.9.x), `cargo deny` (0.20.x). CI installs both.
-- `mdbook` 0.5.x only if you work on the site (`cargo install mdbook --locked`); build the whole site with `website/scripts/build.sh`. Notes for coding agents: [AGENTS.md](AGENTS.md).
+- `mdbook` 0.5.x only if you work on the site (`cargo install mdbook --locked`); build the whole site with `website/scripts/build.sh`. Notes for automated contributors: [AGENTS.md](AGENTS.md).
 
 ## Workspace layout
 
 ```text
-crates/thadam-core          model, errors, positions, connector traits, clock, shutdown, disk budget
+crates/thadam-core          model, errors, positions, connector traits, clock, shutdown, disk budget, schema/birth stores
 crates/thadam-config        YAML → typed PipelineSpec, interpolation, diagnostics, JSON Schema
 crates/thadam-wal           capture WAL: writer thread, readers, cursors, retention, recovery
 crates/thadam-transform     chains: router, decoders, shapes, steps, chain compiler (sync, pure)
 crates/thadam-runtime       drivers, supervisor, shutdown, replay, observability, admin API
 crates/thadam-arrow         Event → Arrow, dataset schema mapping, Parquet field IDs
-crates/thadam-segments      Parquet/NDJSON segment sink, catalog, quarantine (in progress)
-crates/thadam-object-store  S3-compatible shipper over the segment catalog (in progress)
-crates/thadam-mqtt          MQTT source
+crates/thadam-segments      Parquet segment sink, catalog, quarantine writer
+crates/thadam-object-store  S3-compatible shipper over the segment catalog
+crates/thadam-iceberg       Apache Iceberg REST table registrar service (Cargo feature `iceberg`, Rust 1.94)
+crates/thadam-mqtt          MQTT source and `mqtt_publish` batch sink
+crates/thadam-http          HTTP `listen` and `poll` source
+crates/thadam-grpc          gRPC `Publish`/`PublishStream` source
+crates/thadam-mcap          MCAP / rosbag2 file source and `McapExporter`
+crates/thadam-ros2-msg      ROS 2 `.msg` parser and CDR decoder
+crates/thadam-ros2-live     live ROS 2 source over `rmw_zenoh` (Cargo feature `ros2-live`, experimental)
+crates/thadam-modbus        Modbus TCP polling source
+crates/thadam-can           Linux SocketCAN source (`raw` and DBC `decoded`)
+crates/thadam-opcua         OPC UA `subscribe` and `poll` source (Cargo feature `opcua`)
+crates/thadam-sparkplug     Sparkplug B `spBv1.0` protobuf decoder
+crates/thadam-nats          NATS JetStream batch sink
+crates/thadam-kafka         Apache Kafka batch sink
+crates/thadam-clickhouse    ClickHouse batch sink (default-on Cargo feature `clickhouse`)
 crates/thadam-testkit       memory connectors, conformance suites, fake clock, crash harness
 apps/thadam-cli             the `thadam` binary; the only composition root
+tools/thadam-simulator      synthetic fleet to MQTT, with a send-oracle manifest and verifier
+tools/thadam-bench          scenario runner and result collection
+sdk/python                 `thadam-python` PyO3 extension (excluded from `default-members`)
 website/                   the site: public/ (homepage, served at /), docs/ (mdBook user docs, served at /docs/), scripts/ (build.sh, preview.sh, check.py)
 docs/design/               engineering records: ADRs, readiness, owner decisions, spikes
 examples/edge-capture/     the demo pipeline
@@ -38,11 +54,16 @@ These mirror CI exactly and should pass on Linux x86_64 (and aarch64 when availa
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --exclude thadam-python --all-targets --locked -- -D warnings
+cargo clippy -p thadam-cli --all-features --all-targets --locked -- -D warnings
+cargo clippy -p thadam-mqtt --features v5 --all-targets --locked -- -D warnings
 cargo build --workspace --exclude thadam-python --locked
+cargo +1.89 check --workspace --exclude thadam-python --exclude thadam-iceberg --locked
 cargo nextest run --workspace --exclude thadam-python --locked
+cargo nextest run -p thadam-cli --all-features --locked
 scripts/check-deps.sh                      # dependency-direction guard
 scripts/check-deps.sh --self-test          # the guard fails on its violating fixture
 cargo deny --locked check                  # advisories, bans, licenses, sources
+shellcheck --severity=warning scripts/*.sh deploy/*.sh website/scripts/*.sh
 ```
 
 Notes:
@@ -55,9 +76,9 @@ Notes:
 
 ## Dependency and toolchain policy (ADR-0020)
 
-- License allow-list: Apache-2.0, MIT, BSD-2/3-Clause, ISC, Unicode-3.0, Zlib.
-- Bans: `aws-lc-sys`, `openssl-sys`, `serde_yaml`. Sources: crates.io only, with a `Cargo.lock` (`--locked` builds).
-- Adversarial-input parsers need `cargo fuzz` targets (the JSON decoder has one; WAL frames are a recommended target).
+- License allow-list: Apache-2.0, MIT, BSD-2/3-Clause, ISC, Unicode-3.0, Zlib, plus scoped `deny.toml` MPL-2.0 exceptions for `async-opcua*` and `option-ext` (pulled only by the default-off `opcua` and `ros2-live` features).
+- Bans and advisories: `aws-lc-sys`, `openssl-sys`, `serde_yaml` (with narrow `deny.toml` exceptions for `async-opcua-core` and `zenoh-config` behind the default-off `opcua` and `ros2-live` features), and time-boxed advisory exceptions `RUSTSEC-2023-0071` (`rsa` via `async-opcua-crypto`, bounded by a handshake rate limiter) and `RUSTSEC-2026-0041` (`lz4_flex` via `zenoh-transport`, compression disabled), both reviewed by `2027-04-01`. Sources: crates.io only, with a `Cargo.lock` (`--locked` builds).
+- Adversarial-input parsers have six `cargo fuzz` targets exercised in the `fuzz-smoke` CI job: `thadam-transform` (`chain_process`, `spec_compile`, `text_parsers`), `thadam-ros2-msg` (`msg_parse`, `cdr_decode`), and `thadam-sparkplug` (`decoder_handle`). WAL frames remain a recommended future target.
 - TLS is rustls with `ring`, always.
 
 ## Python SDK (`sdk/python`)

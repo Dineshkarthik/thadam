@@ -60,17 +60,33 @@ The workspace is split by dependency weight and change rate, with the dependency
 
 | Crate | Responsibility |
 |---|---|
-| `thadam-core` | Model, errors, positions, connector traits, clock, shutdown, disk budget |
-| `thadam-config` | YAML → typed and validated pipeline spec, interpolation, diagnostics, JSON Schema |
-| `thadam-wal` | Capture WAL: writer thread, readers, cursors, retention, recovery |
-| `thadam-transform` | Synchronous, pure chains: router, decoders, shapes, steps, chain compiler |
-| `thadam-runtime` | Drivers, supervisor, shutdown, replay, observability, admin API |
-| `thadam-arrow` | Event → Arrow RecordBatch, dataset schema mapping, Parquet field IDs |
-| `thadam-segments` | Parquet segment sink, segment catalog, quarantine writer |
-| `thadam-object-store` | S3-compatible shipper over the segment catalog |
-| `thadam-mqtt` | MQTT source |
-| `thadam-testkit` | Memory connectors, conformance suites, fake clock, crash harness (dev only) |
+| `crates/thadam-core` | Model, errors, positions, connector traits, clock, shutdown, disk budget, schema and birth stores |
+| `crates/thadam-config` | YAML → typed and validated pipeline spec, interpolation, diagnostics, JSON Schema |
+| `crates/thadam-wal` | Capture WAL: writer thread, readers, cursors, retention, recovery |
+| `crates/thadam-transform` | Synchronous, pure chains: router, decoders, shapes, steps, chain compiler |
+| `crates/thadam-runtime` | Drivers, supervisor, shutdown, replay, observability, admin API |
+| `crates/thadam-arrow` | Event → Arrow RecordBatch, dataset schema mapping, Parquet field IDs |
+| `crates/thadam-segments` | Parquet segment sink, segment catalog, quarantine writer |
+| `crates/thadam-object-store` | S3-compatible shipper over the segment catalog |
+| `crates/thadam-iceberg` | Apache Iceberg REST table registrar service (Cargo feature `iceberg`, Rust 1.94) |
+| `crates/thadam-mqtt` | MQTT source and `mqtt_publish` batch sink |
+| `crates/thadam-http` | HTTP `listen` and `poll` source |
+| `crates/thadam-grpc` | gRPC `Publish` and `PublishStream` source |
+| `crates/thadam-mcap` | MCAP / rosbag2 file source and `McapExporter` |
+| `crates/thadam-ros2-msg` | ROS 2 `.msg` parser and CDR decoder |
+| `crates/thadam-ros2-live` | Live ROS 2 source over `rmw_zenoh` (Cargo feature `ros2-live`, experimental) |
+| `crates/thadam-modbus` | Modbus TCP polling source |
+| `crates/thadam-can` | Linux SocketCAN source (`raw` and DBC `decoded`) |
+| `crates/thadam-opcua` | OPC UA `subscribe` and `poll` source (Cargo feature `opcua`) |
+| `crates/thadam-sparkplug` | Sparkplug B `spBv1.0` protobuf decoder |
+| `crates/thadam-nats` | NATS JetStream batch sink |
+| `crates/thadam-kafka` | Apache Kafka batch sink |
+| `crates/thadam-clickhouse` | ClickHouse batch sink (P1, default-on Cargo feature `clickhouse`) |
+| `crates/thadam-testkit` | Memory connectors, conformance suites, fake clock, crash harness (dev only) |
 | `apps/thadam-cli` | The `thadam` binary; the only composition root |
+| `tools/thadam-simulator` | Synthetic fleet to MQTT, with a send-oracle manifest and verifier |
+| `tools/thadam-bench` | Scenario runner and benchmark result collection |
+| `sdk/python` | `thadam-python` PyO3 extension (excluded from `default-members`) |
 
 `thadam-runtime` knows connectors only through `thadam-core` traits; Arrow and protocol libraries never appear in core APIs. The graph and the rules are in `ARCHITECTURE.md` section 9.
 
