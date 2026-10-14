@@ -7,6 +7,7 @@
 //! them (ADR-0020).
 
 use std::fmt;
+use std::net::IpAddr;
 use std::path::Path;
 use std::time::Duration;
 
@@ -57,6 +58,41 @@ pub struct IcebergConfig {
     pub store: StoreConfig,
     /// The unbounded retry schedule for catalog and store outages.
     pub retry: RetryConfig,
+}
+
+impl IcebergConfig {
+    /// Whether `catalog_token` or `catalog_credential` is sent over plain
+    /// `http://` to a non-loopback host.
+    pub(crate) fn sends_credentials_unsecured(&self) -> bool {
+        let plain_non_loopback = |url: &str| url.starts_with("http://") && !is_loopback_http(url);
+        match &self.catalog_auth {
+            CatalogAuth::None => false,
+            CatalogAuth::Token(_) => plain_non_loopback(&self.catalog_uri),
+            CatalogAuth::Credential(cred) => {
+                plain_non_loopback(&self.catalog_uri) || plain_non_loopback(&cred.token_url)
+            }
+        }
+    }
+}
+
+/// Whether `url` is plain `http://` to a loopback host (`localhost`,
+/// `127.0.0.0/8`, `::1`), where credentials never leave the machine.
+pub(crate) fn is_loopback_http(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("http://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host_port = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host_port)| host_port);
+    let host = match host_port.strip_prefix('[') {
+        Some(bracketed) => bracketed.split(']').next().unwrap_or_default(),
+        None => host_port
+            .rsplit_once(':')
+            .map_or(host_port, |(host, _)| host),
+    };
+    host.eq_ignore_ascii_case("localhost")
+        || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
 }
 
 /// S3-compatible access for Iceberg file IO.
@@ -562,7 +598,7 @@ pub fn parse_iceberg_config(value: &serde_json::Value) -> Result<IcebergConfig, 
     if !errors.is_empty() {
         return Err(errors);
     }
-    Ok(IcebergConfig {
+    let config = IcebergConfig {
         from: raw.from,
         pipeline: raw.pipeline,
         catalog_uri: catalog_root.to_owned(),
@@ -587,7 +623,14 @@ pub fn parse_iceberg_config(value: &serde_json::Value) -> Result<IcebergConfig, 
             max: raw.retry.max,
             jitter: raw.retry.jitter,
         },
-    })
+    };
+    if config.sends_credentials_unsecured() {
+        tracing::warn!(
+            catalog_uri = %config.catalog_uri,
+            "Iceberg catalog credentials are sent over plain http://; use https:// outside local setups"
+        );
+    }
+    Ok(config)
 }
 
 /// The JSON Schema for the `config:` block of `kind: iceberg`.
@@ -888,5 +931,64 @@ mod tests {
         );
         assert!(parse_s3_url("s3:///x").is_err());
         assert!(parse_s3_url("http://b").is_err());
+    }
+
+    #[test]
+    fn non_loopback_plaintext_catalog_credentials_are_flagged() {
+        for url in [
+            "http://localhost:8181",
+            "http://LOCALHOST/",
+            "http://127.0.0.1:8181",
+            "http://127.8.9.1",
+            "http://[::1]:8181",
+        ] {
+            assert!(is_loopback_http(url), "{url}");
+        }
+        for url in [
+            "http://catalog.internal:8181",
+            "http://10.0.0.5:8181",
+            "http://0.0.0.0:8181",
+            "http://localhost.evil.test:8181",
+            "https://localhost:8181",
+        ] {
+            assert!(!is_loopback_http(url), "{url}");
+        }
+
+        // Loopback http:// with token or credential is not flagged.
+        let mut v = base();
+        v["catalog_token"] = serde_json::json!("tok");
+        let cfg = parse_iceberg_config(&v).expect("valid");
+        assert!(!cfg.sends_credentials_unsecured());
+
+        // Non-loopback http:// with catalog_token is flagged.
+        v["catalog_uri"] = serde_json::json!("http://catalog.internal:8181");
+        let cfg = parse_iceberg_config(&v).expect("valid");
+        assert!(cfg.sends_credentials_unsecured());
+
+        // Non-loopback https:// with catalog_token is not flagged.
+        v["catalog_uri"] = serde_json::json!("https://catalog.internal:8181");
+        let cfg = parse_iceberg_config(&v).expect("valid");
+        assert!(!cfg.sends_credentials_unsecured());
+
+        // Non-loopback http:// with catalog_credential is flagged.
+        let mut v = base();
+        v["catalog_uri"] = serde_json::json!("http://catalog.internal:8181");
+        v["catalog_credential"] =
+            serde_json::json!({"client_id": "thadam", "client_secret": "s3cret"});
+        let cfg = parse_iceberg_config(&v).expect("valid");
+        assert!(cfg.sends_credentials_unsecured());
+
+        // https:// catalog_uri with non-loopback http:// oauth2_server_uri is flagged.
+        v["catalog_uri"] = serde_json::json!("https://catalog.internal:8181");
+        v["catalog_credential"]["oauth2_server_uri"] =
+            serde_json::json!("http://auth.internal/oauth/tokens");
+        let cfg = parse_iceberg_config(&v).expect("valid");
+        assert!(cfg.sends_credentials_unsecured());
+
+        // Both https:// is not flagged.
+        v["catalog_credential"]["oauth2_server_uri"] =
+            serde_json::json!("https://auth.internal/oauth/tokens");
+        let cfg = parse_iceberg_config(&v).expect("valid");
+        assert!(!cfg.sends_credentials_unsecured());
     }
 }

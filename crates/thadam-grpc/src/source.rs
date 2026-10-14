@@ -100,6 +100,12 @@ impl Source for GrpcSource {
         self.shutdown = Some(ctx.shutdown.clone());
         let stop = ctx.shutdown.child();
 
+        if self.config.sends_credentials_unsecured() {
+            tracing::warn!(
+                bind = %self.config.bind,
+                "gRPC bearer_token is configured on a non-loopback address without tls; the token is not encrypted"
+            );
+        }
         let max_bytes = usize::try_from(self.config.max_message_bytes).unwrap_or(usize::MAX);
         let addr = server::start(
             &self.config,

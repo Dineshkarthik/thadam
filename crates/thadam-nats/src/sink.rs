@@ -254,6 +254,13 @@ impl NatsSink {
 #[async_trait]
 impl BatchSink for NatsSink {
     async fn open(&mut self, _ctx: &SinkContext) -> Result<SinkCapabilities, ThadamError> {
+        if self.config.sends_credentials_unsecured() {
+            tracing::warn!(
+                sink = %self.sink_id,
+                url = %self.config.url,
+                "the NATS token or password is sent over plain nats:// without TLS; use tls:// or set tls outside local setups"
+            );
+        }
         // `open` is retried by the driver after transient failures; drop any
         // earlier half-probe before reconnecting.
         self.connection = None;

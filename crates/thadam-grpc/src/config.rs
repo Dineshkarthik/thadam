@@ -71,6 +71,11 @@ impl fmt::Debug for GrpcConfig {
 }
 
 impl GrpcConfig {
+    /// Bearer token travels on a non-loopback address without TLS.
+    pub(crate) fn sends_credentials_unsecured(&self) -> bool {
+        !self.bind.ip().is_loopback() && self.bearer_token.is_some() && self.tls.is_none()
+    }
+
     /// Parses and validates `value`, returning every problem found.
     pub fn from_value(value: &serde_json::Value) -> Result<GrpcConfig, Vec<ThadamError>> {
         let config: GrpcConfig = serde_json::from_value(value.clone()).map_err(|e| {
@@ -84,6 +89,12 @@ impl GrpcConfig {
         })?;
         let errors = config.problems();
         if errors.is_empty() {
+            if config.sends_credentials_unsecured() {
+                tracing::warn!(
+                    bind = %config.bind,
+                    "gRPC bearer_token is configured on a non-loopback address without tls; the token is not encrypted"
+                );
+            }
             Ok(config)
         } else {
             Err(errors)
@@ -114,11 +125,11 @@ impl GrpcConfig {
                 "bearer_token must be non-empty with no control characters".into(),
             ));
         }
-        if !self.bind.ip().is_loopback() && self.bearer_token.is_none() && self.tls.is_none() {
+        if !self.bind.ip().is_loopback() && self.bearer_token.is_none() {
             found.push((
                 "bind",
                 format!(
-                    "binding to {} exposes the endpoint beyond loopback: set `bearer_token` or `tls`",
+                    "binding to {} exposes the endpoint beyond loopback: set `bearer_token`",
                     self.bind.ip()
                 ),
             ));
@@ -145,7 +156,7 @@ pub fn config_schema() -> serde_json::Value {
         "properties": {
             "bind": {
                 "type": "string",
-                "description": "Socket address, for example 127.0.0.1:50051. Non-loopback needs bearer_token or tls.",
+                "description": "Socket address, for example 127.0.0.1:50051. Non-loopback needs bearer_token.",
                 "default": "127.0.0.1:50051"
             },
             "bearer_token": {"type": "string", "minLength": 1},
@@ -216,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn non_loopback_bind_requires_token_or_tls() {
+    fn non_loopback_bind_requires_token_and_flags_plaintext_token() {
         assert_eq!(
             fields(json!({"bind": "0.0.0.0:50051"})),
             vec!["bind".to_string()]
@@ -225,18 +236,32 @@ mod tests {
             fields(json!({"bind": "[::]:50051"})),
             vec!["bind".to_string()]
         );
-        assert!(
-            GrpcConfig::from_value(&json!({
-                "bind": "0.0.0.0:50051", "bearer_token": "s3cret"
-            }))
-            .is_ok()
-        );
-        assert!(
-            GrpcConfig::from_value(&json!({
+        assert_eq!(
+            fields(json!({
                 "bind": "[::]:50443", "tls": {"cert": "/c.pem", "key": "/k.pem"}
-            }))
-            .is_ok()
+            })),
+            vec!["bind".to_string()],
+            "TLS without client auth does not authenticate callers"
         );
+        let plaintext = GrpcConfig::from_value(&json!({
+            "bind": "0.0.0.0:50051", "bearer_token": "s3cret"
+        }))
+        .expect("valid");
+        assert!(plaintext.sends_credentials_unsecured());
+
+        let secured = GrpcConfig::from_value(&json!({
+            "bind": "[::]:50443",
+            "bearer_token": "s3cret",
+            "tls": {"cert": "/c.pem", "key": "/k.pem"}
+        }))
+        .expect("valid");
+        assert!(!secured.sends_credentials_unsecured());
+
+        let loopback = GrpcConfig::from_value(&json!({
+            "bind": "127.0.0.1:50051", "bearer_token": "s3cret"
+        }))
+        .expect("valid");
+        assert!(!loopback.sends_credentials_unsecured());
         assert!(GrpcConfig::from_value(&json!({"bind": "[::1]:50051"})).is_ok());
     }
 

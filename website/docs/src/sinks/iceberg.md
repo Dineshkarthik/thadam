@@ -80,7 +80,7 @@ Notes:
     scope: catalog                                  # optional
     oauth2_server_uri: https://auth.example/token   # optional
   ```
-  A token or credential the catalog or token endpoint rejects (401 or 403) is a fatal `auth.failed` error that stops the service; it is not retried forever. Unreachable endpoints and 5xx stay transient.
+  A token or credential the catalog or token endpoint rejects (401 or 403) is a fatal `auth.failed` error that stops the service; it is not retried forever. Unreachable endpoints and 5xx stay transient. Configuring `catalog_token` or `catalog_credential` over a non-loopback `http://` `catalog_uri` (or `oauth2_server_uri`) logs a warning because credentials travel in cleartext.
 - **Mutual TLS:** `catalog_client_cert` (a PEM certificate chain) and `catalog_client_key` (its PEM private key) must be set together, need an `https://` `catalog_uri`, and must be existing files (checked at config time). Every catalog connection, including the schema commit, presents that certificate. It combines with `catalog_ca_file` and with either auth option. A catalog that refuses the certificate (none presented, or one from a CA it does not trust) answers with a TLS alert, which is a fatal `auth.failed` error. The key is read at startup and never logged.
 - `url` gives the bucket and key prefix. Tables are created at `{url}/thadam/v1/{pipeline}/{dataset}`; data-file URIs come from the catalog's recorded object keys, never from string templates.
 - Credentials in `store` arrive already resolved by `${env:}`/`${file:}` ([secrets](../configuration/index.md#secrets)) and are never logged.

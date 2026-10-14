@@ -105,6 +105,12 @@ impl Source for HttpSource {
         match self.config.mode {
             HttpMode::Listen => {
                 let listen = self.config.listen_settings();
+                if listen.sends_credentials_unsecured() {
+                    tracing::warn!(
+                        bind = %listen.bind,
+                        "HTTP bearer_token is configured on a non-loopback address without tls; the token is not encrypted"
+                    );
+                }
                 let addr = listen::start(
                     &listen,
                     max_bytes,

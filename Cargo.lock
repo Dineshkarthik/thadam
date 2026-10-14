@@ -5061,574 +5061,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "thadam-arrow"
-version = "0.1.0"
-dependencies = [
- "arrow-array 60.0.0",
- "arrow-buffer 60.0.0",
- "arrow-ipc 60.0.0",
- "arrow-schema 60.0.0",
- "bytes",
- "criterion",
- "insta",
- "parquet 60.0.0",
- "proptest",
- "thadam-core",
- "sha2 0.11.0",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "thadam-bench"
-version = "0.1.0"
-dependencies = [
- "clap",
- "humantime",
- "serde",
- "serde-saphyr",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "thadam-can"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "can-dbc",
- "thadam-core",
- "serde",
- "serde_json",
- "socketcan",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "thadam-cli"
-version = "0.1.0"
-dependencies = [
- "assert_cmd",
- "axum",
- "bytes",
- "clap",
- "mcap",
- "parquet 60.0.0",
- "prost",
- "thadam-can",
- "thadam-clickhouse",
- "thadam-config",
- "thadam-core",
- "thadam-grpc",
- "thadam-http",
- "thadam-iceberg",
- "thadam-kafka",
- "thadam-mcap",
- "thadam-modbus",
- "thadam-mqtt",
- "thadam-nats",
- "thadam-object-store",
- "thadam-opcua",
- "thadam-ros2-live",
- "thadam-runtime",
- "thadam-segments",
- "thadam-sparkplug",
- "thadam-testkit",
- "thadam-wal",
- "rumqttc",
- "rustls",
- "serde_json",
- "tokio",
- "tracing",
- "ureq",
-]
-
-[[package]]
-name = "thadam-clickhouse"
-version = "0.1.0"
-dependencies = [
- "arrow-array 60.0.0",
- "arrow-schema 60.0.0",
- "async-trait",
- "clickhouse",
- "clickhouse-types",
- "thadam-arrow",
- "thadam-core",
- "thadam-testkit",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "thadam-config"
-version = "0.1.0"
-dependencies = [
- "bitflags 2.13.2",
- "bytesize",
- "humantime",
- "insta",
- "proptest",
- "thadam-arrow",
- "thadam-core",
- "schemars 1.2.2",
- "serde",
- "serde-saphyr",
- "serde_json",
- "serde_path_to_error",
- "sha2 0.11.0",
- "tempfile",
-]
-
-[[package]]
-name = "thadam-core"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bitflags 2.13.2",
- "bytes",
- "insta",
- "loom",
- "proptest",
- "rustix 1.1.5",
- "serde_json",
- "sha2 0.11.0",
- "smallvec",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "thadam-grpc"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "prost",
- "protox",
- "rcgen",
- "thadam-core",
- "thadam-testkit",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-rustls",
- "tokio-stream",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
- "tracing",
-]
-
-[[package]]
-name = "thadam-http"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "axum",
- "bytes",
- "rcgen",
- "reqwest 0.13.5",
- "thadam-core",
- "thadam-testkit",
- "rustls-native-certs",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-rustls",
- "tracing",
-]
-
-[[package]]
-name = "thadam-iceberg"
-version = "0.1.0"
-dependencies = [
- "arrow-array 58.4.0",
- "arrow-array 60.0.0",
- "async-trait",
- "bytes",
- "futures",
- "futures-util",
- "iceberg",
- "iceberg-catalog-rest",
- "object_store",
- "parquet 58.4.0",
- "parquet 60.0.0",
- "rcgen",
- "reqwest 0.12.28",
- "reqwest 0.13.5",
- "thadam-arrow",
- "thadam-core",
- "thadam-object-store",
- "thadam-segments",
- "thadam-testkit",
- "rustls",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "typetag",
- "uuid",
-]
-
-[[package]]
-name = "thadam-kafka"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "futures-util",
- "rcgen",
- "thadam-core",
- "thadam-testkit",
- "rskafka",
- "rustls-native-certs",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-rustls",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "thadam-mcap"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "humantime",
- "mcap",
- "thadam-core",
- "thadam-ros2-msg",
- "thadam-testkit",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "thadam-modbus"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "thadam-core",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "tokio-modbus",
- "tracing",
-]
-
-[[package]]
-name = "thadam-mqtt"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "lru",
- "rcgen",
- "thadam-core",
- "thadam-testkit",
- "rumqttc",
- "rustls-native-certs",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-rustls",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "thadam-nats"
-version = "0.1.0"
-dependencies = [
- "async-nats",
- "async-trait",
- "bytes",
- "futures-util",
- "rcgen",
- "thadam-core",
- "rustls-native-certs",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-rustls",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "thadam-object-store"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "bytesize",
- "futures-util",
- "object_store",
- "reqwest 0.13.5",
- "thadam-core",
- "thadam-segments",
- "rustls",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-rustls",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "thadam-opcua"
-version = "0.1.0"
-dependencies = [
- "async-opcua",
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "thadam-core",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "thadam-python"
-version = "0.1.0"
-dependencies = [
- "arrow-array 59.3.0",
- "arrow-schema 59.3.0",
- "parquet 59.3.0",
- "pyo3",
- "pyo3-arrow",
- "thadam-config",
- "thadam-core",
- "thadam-grpc",
- "thadam-http",
- "thadam-mqtt",
- "thadam-object-store",
- "thadam-runtime",
- "thadam-segments",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "thadam-ros2-live"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "thadam-core",
- "thadam-ros2-msg",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
- "zenoh",
-]
-
-[[package]]
-name = "thadam-ros2-msg"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "criterion",
- "proptest",
- "thadam-core",
-]
-
-[[package]]
-name = "thadam-runtime"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "axum",
- "bytes",
- "crc32c",
- "futures-util",
- "http-body-util",
- "object_store",
- "parquet 60.0.0",
- "prometheus-client",
- "thadam-config",
- "thadam-core",
- "thadam-object-store",
- "thadam-segments",
- "thadam-testkit",
- "thadam-transform",
- "thadam-wal",
- "rustix 1.1.5",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tower",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "thadam-segments"
-version = "0.1.0"
-dependencies = [
- "arrow-array 60.0.0",
- "arrow-buffer 60.0.0",
- "arrow-schema 60.0.0",
- "async-trait",
- "bytes",
- "crc32c",
- "criterion",
- "insta",
- "parquet 60.0.0",
- "thadam-arrow",
- "thadam-core",
- "thadam-testkit",
- "rustix 1.1.5",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "thadam-simulator"
-version = "0.1.0"
-dependencies = [
- "arrow-array 60.0.0",
- "arrow-schema 60.0.0",
- "clap",
- "humantime",
- "parquet 60.0.0",
- "rand 0.9.5",
- "rand_chacha 0.9.0",
- "rumqttc",
- "serde",
- "serde-saphyr",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "thadam-sparkplug"
-version = "0.1.0"
-dependencies = [
- "prost",
- "prost-build",
- "protox",
- "thadam-core",
- "tempfile",
-]
-
-[[package]]
-name = "thadam-testkit"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "thadam-core",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "thadam-transform"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "criterion",
- "csv",
- "proptest",
- "prost",
- "thadam-core",
- "thadam-ros2-msg",
- "thadam-sparkplug",
- "serde",
- "serde-saphyr",
- "serde_json",
- "sha2 0.11.0",
- "smallvec",
- "tempfile",
- "thiserror 2.0.21",
- "twox-hash 2.1.5",
-]
-
-[[package]]
-name = "thadam-wal"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "crc32c",
- "criterion",
- "proptest",
- "prost",
- "thadam-core",
- "thadam-testkit",
- "rustix 1.1.5",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
-]
-
-[[package]]
 name = "roaring"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6597,6 +6029,577 @@ name = "termtree"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
+
+[[package]]
+name = "thadam-arrow"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 60.0.0",
+ "arrow-buffer 60.0.0",
+ "arrow-ipc 60.0.0",
+ "arrow-schema 60.0.0",
+ "bytes",
+ "criterion",
+ "insta",
+ "parquet 60.0.0",
+ "proptest",
+ "sha2 0.11.0",
+ "thadam-core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "thadam-bench"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "humantime",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "thadam-can"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "can-dbc",
+ "serde",
+ "serde_json",
+ "socketcan",
+ "tempfile",
+ "thadam-core",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "thadam-cli"
+version = "0.1.0"
+dependencies = [
+ "assert_cmd",
+ "axum",
+ "bytes",
+ "clap",
+ "mcap",
+ "parquet 60.0.0",
+ "prost",
+ "rumqttc",
+ "rustls",
+ "serde_json",
+ "thadam-can",
+ "thadam-clickhouse",
+ "thadam-config",
+ "thadam-core",
+ "thadam-grpc",
+ "thadam-http",
+ "thadam-iceberg",
+ "thadam-kafka",
+ "thadam-mcap",
+ "thadam-modbus",
+ "thadam-mqtt",
+ "thadam-nats",
+ "thadam-object-store",
+ "thadam-opcua",
+ "thadam-ros2-live",
+ "thadam-runtime",
+ "thadam-segments",
+ "thadam-sparkplug",
+ "thadam-testkit",
+ "thadam-wal",
+ "tokio",
+ "tracing",
+ "ureq",
+]
+
+[[package]]
+name = "thadam-clickhouse"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 60.0.0",
+ "arrow-schema 60.0.0",
+ "async-trait",
+ "clickhouse",
+ "clickhouse-types",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thadam-arrow",
+ "thadam-core",
+ "thadam-testkit",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "thadam-config"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.13.2",
+ "bytesize",
+ "humantime",
+ "insta",
+ "proptest",
+ "schemars 1.2.2",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "serde_path_to_error",
+ "sha2 0.11.0",
+ "tempfile",
+ "thadam-arrow",
+ "thadam-core",
+]
+
+[[package]]
+name = "thadam-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitflags 2.13.2",
+ "bytes",
+ "insta",
+ "loom",
+ "proptest",
+ "rustix 1.1.5",
+ "serde_json",
+ "sha2 0.11.0",
+ "smallvec",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "thadam-grpc"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "prost",
+ "protox",
+ "rcgen",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thadam-core",
+ "thadam-testkit",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tracing",
+]
+
+[[package]]
+name = "thadam-http"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "bytes",
+ "rcgen",
+ "reqwest 0.13.5",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thadam-core",
+ "thadam-testkit",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+]
+
+[[package]]
+name = "thadam-iceberg"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 58.4.0",
+ "arrow-array 60.0.0",
+ "async-trait",
+ "bytes",
+ "futures",
+ "futures-util",
+ "iceberg",
+ "iceberg-catalog-rest",
+ "object_store",
+ "parquet 58.4.0",
+ "parquet 60.0.0",
+ "rcgen",
+ "reqwest 0.12.28",
+ "reqwest 0.13.5",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thadam-arrow",
+ "thadam-core",
+ "thadam-object-store",
+ "thadam-segments",
+ "thadam-testkit",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "typetag",
+ "uuid",
+]
+
+[[package]]
+name = "thadam-kafka"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "futures-util",
+ "rcgen",
+ "rskafka",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thadam-core",
+ "thadam-testkit",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "thadam-mcap"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "humantime",
+ "mcap",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thadam-core",
+ "thadam-ros2-msg",
+ "thadam-testkit",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "thadam-modbus"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "serde",
+ "serde_json",
+ "thadam-core",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-modbus",
+ "tracing",
+]
+
+[[package]]
+name = "thadam-mqtt"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "lru",
+ "rcgen",
+ "rumqttc",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thadam-core",
+ "thadam-testkit",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "thadam-nats"
+version = "0.1.0"
+dependencies = [
+ "async-nats",
+ "async-trait",
+ "bytes",
+ "futures-util",
+ "rcgen",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thadam-core",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "thadam-object-store"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "bytesize",
+ "futures-util",
+ "object_store",
+ "reqwest 0.13.5",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thadam-core",
+ "thadam-segments",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "thadam-opcua"
+version = "0.1.0"
+dependencies = [
+ "async-opcua",
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thadam-core",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "thadam-python"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 59.3.0",
+ "arrow-schema 59.3.0",
+ "parquet 59.3.0",
+ "pyo3",
+ "pyo3-arrow",
+ "tempfile",
+ "thadam-config",
+ "thadam-core",
+ "thadam-grpc",
+ "thadam-http",
+ "thadam-mqtt",
+ "thadam-object-store",
+ "thadam-runtime",
+ "thadam-segments",
+ "tokio",
+]
+
+[[package]]
+name = "thadam-ros2-live"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thadam-core",
+ "thadam-ros2-msg",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "zenoh",
+]
+
+[[package]]
+name = "thadam-ros2-msg"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "criterion",
+ "proptest",
+ "thadam-core",
+]
+
+[[package]]
+name = "thadam-runtime"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "bytes",
+ "crc32c",
+ "futures-util",
+ "http-body-util",
+ "object_store",
+ "parquet 60.0.0",
+ "prometheus-client",
+ "rustix 1.1.5",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thadam-config",
+ "thadam-core",
+ "thadam-object-store",
+ "thadam-segments",
+ "thadam-testkit",
+ "thadam-transform",
+ "thadam-wal",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "thadam-segments"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 60.0.0",
+ "arrow-buffer 60.0.0",
+ "arrow-schema 60.0.0",
+ "async-trait",
+ "bytes",
+ "crc32c",
+ "criterion",
+ "insta",
+ "parquet 60.0.0",
+ "rustix 1.1.5",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thadam-arrow",
+ "thadam-core",
+ "thadam-testkit",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "thadam-simulator"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 60.0.0",
+ "arrow-schema 60.0.0",
+ "clap",
+ "humantime",
+ "parquet 60.0.0",
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
+ "rumqttc",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "thadam-sparkplug"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "prost-build",
+ "protox",
+ "tempfile",
+ "thadam-core",
+]
+
+[[package]]
+name = "thadam-testkit"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "tempfile",
+ "thadam-core",
+ "tokio",
+]
+
+[[package]]
+name = "thadam-transform"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "criterion",
+ "csv",
+ "proptest",
+ "prost",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "sha2 0.11.0",
+ "smallvec",
+ "tempfile",
+ "thadam-core",
+ "thadam-ros2-msg",
+ "thadam-sparkplug",
+ "thiserror 2.0.21",
+ "twox-hash 2.1.5",
+]
+
+[[package]]
+name = "thadam-wal"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "crc32c",
+ "criterion",
+ "proptest",
+ "prost",
+ "rustix 1.1.5",
+ "serde_json",
+ "tempfile",
+ "thadam-core",
+ "thadam-testkit",
+ "thiserror 2.0.21",
+ "tokio",
+]
 
 [[package]]
 name = "thiserror"

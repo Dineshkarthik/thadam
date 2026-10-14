@@ -118,6 +118,13 @@ pub struct ListenConfig {
     pub extract_headers: Vec<String>,
 }
 
+impl ListenConfig {
+    /// Bearer token travels on a non-loopback address without TLS.
+    pub(crate) fn sends_credentials_unsecured(&self) -> bool {
+        !self.bind.ip().is_loopback() && self.bearer_token.is_some() && self.tls.is_none()
+    }
+}
+
 impl Default for ListenConfig {
     fn default() -> Self {
         ListenConfig {
@@ -247,6 +254,14 @@ impl HttpConfig {
         })?;
         let errors = config.problems();
         if errors.is_empty() {
+            if let Some(listen) = &config.listen
+                && config.sends_credentials_unsecured()
+            {
+                tracing::warn!(
+                    bind = %listen.bind,
+                    "HTTP bearer_token is configured on a non-loopback address without tls; the token is not encrypted"
+                );
+            }
             Ok(config)
         } else {
             Err(errors)
@@ -256,6 +271,16 @@ impl HttpConfig {
     /// The listen settings in effect: the configured block or the defaults.
     pub fn listen_settings(&self) -> ListenConfig {
         self.listen.clone().unwrap_or_default()
+    }
+
+    /// Whether `mode: listen` accepts a `bearer_token` on a non-loopback
+    /// address without `tls`.
+    pub(crate) fn sends_credentials_unsecured(&self) -> bool {
+        self.mode == HttpMode::Listen
+            && self
+                .listen
+                .as_ref()
+                .is_some_and(ListenConfig::sends_credentials_unsecured)
     }
 
     /// Every validation problem, empty when the configuration is sound.
@@ -330,11 +355,11 @@ fn listen_problems(listen: &ListenConfig) -> Vec<(&'static str, String)> {
         ));
     }
 
-    if !listen.bind.ip().is_loopback() && listen.bearer_token.is_none() && listen.tls.is_none() {
+    if !listen.bind.ip().is_loopback() && listen.bearer_token.is_none() {
         found.push((
             "bind",
             format!(
-                "binding to {} exposes the endpoint beyond loopback: set `bearer_token` or `tls`",
+                "binding to {} exposes the endpoint beyond loopback: set `bearer_token`",
                 listen.bind.ip()
             ),
         ));
@@ -445,7 +470,7 @@ pub fn config_schema() -> serde_json::Value {
                 "properties": {
                     "bind": {
                         "type": "string",
-                        "description": "Socket address, for example 127.0.0.1:8080. Non-loopback needs bearer_token or tls.",
+                        "description": "Socket address, for example 127.0.0.1:8080. Non-loopback needs bearer_token.",
                         "default": "127.0.0.1:8080"
                     },
                     "path": {
@@ -576,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    fn non_loopback_bind_requires_token_or_tls() {
+    fn non_loopback_bind_requires_token_and_flags_plaintext_token() {
         assert_eq!(
             fields(json!({"listen": {"bind": "0.0.0.0:8080"}})),
             vec!["bind".to_string()]
@@ -585,21 +610,37 @@ mod tests {
             fields(json!({"listen": {"bind": "[::]:8080"}})),
             vec!["bind".to_string()]
         );
-        assert!(
-            HttpConfig::from_value(&json!({
-                "listen": {"bind": "0.0.0.0:8080", "bearer_token": "s3cret"}
-            }))
-            .is_ok()
-        );
-        assert!(
-            HttpConfig::from_value(&json!({
+        assert_eq!(
+            fields(json!({
                 "listen": {
                     "bind": "[::]:8443",
                     "tls": {"cert": "/c.pem", "key": "/k.pem"}
                 }
-            }))
-            .is_ok()
+            })),
+            vec!["bind".to_string()],
+            "TLS without client auth does not authenticate callers"
         );
+        let plaintext = HttpConfig::from_value(&json!({
+            "listen": {"bind": "0.0.0.0:8080", "bearer_token": "s3cret"}
+        }))
+        .expect("valid");
+        assert!(plaintext.sends_credentials_unsecured());
+
+        let secured = HttpConfig::from_value(&json!({
+            "listen": {
+                "bind": "[::]:8443",
+                "bearer_token": "s3cret",
+                "tls": {"cert": "/c.pem", "key": "/k.pem"}
+            }
+        }))
+        .expect("valid");
+        assert!(!secured.sends_credentials_unsecured());
+
+        let loopback = HttpConfig::from_value(&json!({
+            "listen": {"bind": "127.0.0.1:8080", "bearer_token": "s3cret"}
+        }))
+        .expect("valid");
+        assert!(!loopback.sends_credentials_unsecured());
         assert!(HttpConfig::from_value(&json!({"listen": {"bind": "[::1]:8080"}})).is_ok());
     }
 
