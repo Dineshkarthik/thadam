@@ -1,6 +1,6 @@
 # Object storage sink
 
-**Status: Implemented (PR16).** The `object_store` kind ships finalized Parquet segments to S3-compatible object storage. It is configured as a `sinks:` entry and runs as a service (the shipper), consuming the segment catalog of a [`parquet`](parquet.md) sink. Targets: Amazon S3, MinIO, and S3-compatible private object stores over one generic transport (the cloud-provider principle: one transport, many stores — not a thin sink per vendor).
+**Status: Available.** The `object_store` kind ships finalized Parquet segments to S3-compatible object storage. It is configured as a `sinks:` entry and runs as a service (the shipper), consuming the segment catalog of a [`parquet`](parquet.md) sink. Targets: Amazon S3, MinIO, and S3-compatible private object stores over one generic transport (the cloud-provider principle: one transport, many stores — not a thin sink per vendor).
 
 ## How it works
 

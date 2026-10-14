@@ -1,6 +1,6 @@
 # CAN source
 
-The `can` source receives CAN and CAN FD frames from one Linux SocketCAN interface and emits one message per frame. In `raw` mode the payload is the frame's data bytes. In `decoded` mode a DBC file describes the messages and the payload is a JSON object of decoded signal values.
+**Status: Available.** The `can` source receives CAN and CAN FD frames from one Linux SocketCAN interface and emits one message per frame. In `raw` mode the payload is the frame's data bytes. In `decoded` mode a DBC file describes the messages and the payload is a JSON object of decoded signal values.
 
 Built as the `thadam-can` crate on `socketcan` 4 (`tokio` feature) and `can-dbc` 10 for DBC parsing.
 

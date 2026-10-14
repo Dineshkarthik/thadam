@@ -53,8 +53,8 @@ Edit files in `thadam-assets/brand/` (SVG sources in `svg/`, tokens in `tokens/t
 - The mdBook print page is disabled (`[output.html.print] enable = false` in `docs/book.toml`) to keep the output small.
 - Budget: the homepage HTML plus `site.css` must stay under 30 KB. `check.py` fails above that.
 - `check.py` also verifies JSON-LD parses, OG images and manifest icons exist, every `<img>` has `alt`, and the homepage and theme CSS use no hex colours outside the brand tokens.
-- Claim wording: `check.py` scans the built homepage and docs introduction for forbidden claim phrases ("zero data loss", "exactly-once", "is lost", "guaranteed", and similar). A phrase passes only when it is negated in the sentence before it ("does not claim exactly-once"). Allowed wording comes from the claims register in `docs/design/adr/0011-delivery-guarantees-and-claims-register.md`.
-- Status labels: every homepage status cell and pill must read Available, In progress, or Planned. The homepage must have exactly one `h1`.
+- Claim wording: `check.py` scans the built homepage and every docs page for forbidden claim phrases ("zero data loss", "loses nothing", "exactly-once", "is lost", "guaranteed", and similar). A phrase passes only when it is negated in the sentence before it ("does not claim exactly-once") or appears in a question. Allowed wording comes from the claims register in `docs/design/adr/0011-delivery-guarantees-and-claims-register.md`.
+- Status labels: every homepage status cell, homepage pill, and docs `Status:` line must read Available, In progress, or Planned. The homepage must have exactly one `h1`.
 - Contrast was measured for the text pairs: muted text is about 8:1 on warm white and about 10:1 on graphite. Orange on warm white is about 2.8:1, so it is used only for decorative icons and rules, never for informational graphics or text.
 
 ## Deployment

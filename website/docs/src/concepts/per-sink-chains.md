@@ -10,7 +10,7 @@ A chain is synchronous, pure, and owned by one task. It:
 2. routes records to datasets by `match` (source id and topic filter),
 3. decodes payloads (JSON today) into the declared shapes,
 4. runs the dataset pipeline and the `transforms:` list, and
-5. hands one `EventBatch` per dataset to its sink driver — the segment driver (Parquet) or the batch driver (ClickHouse, planned).
+5. hands one `EventBatch` per dataset to its sink driver — the segment driver (Parquet) or the batch driver (ClickHouse, Kafka, NATS, MQTT publish).
 
 Records no dataset matched are counted (`unmatched`) but are not rejects. Per-event errors become rejects with the raw bytes retained.
 
@@ -47,7 +47,7 @@ One chain is designated **primary** for reject and quarantine metrics, so severa
 
 Rejects go to a quarantine segment sink with a fixed schema: `_wal_epoch`, `_wal_pos`, `_ingest_time`, `source_id`, `topic`, `error_domain`, `error_code`, `reason`, and the raw bytes (`raw`, truncated at 64 KiB with a `raw_truncated` flag), under the dataset id `_quarantine`. Quarantine has its own disk budget ([`quarantine`](../configuration/wal.md#quarantine)) so a schema change or a poison flood cannot starve normal data. Format is `parquet`; `ndjson` is reserved and rejected by `thadam validate`.
 
-Quarantine never holds back the sink it belongs to. A reject is made durable in a small per-quarantine **staging file** (append-only, length-prefixed, CRC32C-protected, fsynced per batch) before the sink's WAL cursor may pass it; the quarantine Parquet segment is then built from staging and rotates on its own schedule (`quarantine.rotation`). So a single reject does not pause the sink's cursor, its uploads, or shipping while the quarantine segment is still open. After a crash, rejects that were staged but not yet in a durable quarantine segment are recovered from staging into the next quarantine segment, exactly once: rows are matched against the quarantine's durable WAL position, so a restart, a rewind, or a re-read of the same WAL frames never duplicates a reject. Staging bytes count toward the quarantine disk budget and are released when the covering segment is durable. Rejects the sink itself returns (a value its columns cannot hold) are staged before the sink makes the rows of that batch durable, so a crash in between cannot lose them.
+Quarantine never holds back the sink it belongs to. A reject is made durable in a small per-quarantine **staging file** (append-only, length-prefixed, CRC32C-protected, fsynced per batch) before the sink's WAL cursor may pass it; the quarantine Parquet segment is then built from staging and rotates on its own schedule (`quarantine.rotation`). So a single reject does not pause the sink's cursor, its uploads, or shipping while the quarantine segment is still open. After a crash, rejects that were staged but not yet in a durable quarantine segment are recovered from staging into the next quarantine segment without duplicating rows: rows are matched against the quarantine's durable WAL position, so a restart, a rewind, or a re-read of the same WAL frames never writes a staged reject twice. Staging bytes count toward the quarantine disk budget and are released when the covering segment is durable. Rejects the sink itself returns (a value its columns cannot hold) are staged before the sink makes the rows of that batch durable, so a crash in between cannot lose them.
 
 ## Limits
 

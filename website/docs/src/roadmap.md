@@ -24,7 +24,7 @@ The `thadam-clickhouse` sink is built, outside the M1 reliability gate: startup 
 
 | Phase | Contents | Maps to |
 |---|---|---|
-| 0 — Foundations | Repository, conventions, event model, connector traits, CLI skeleton, observability, benchmark harness, docs, CI | done (PR1–PR2) |
+| 0 — Foundations | Repository, conventions, event model, connector traits, CLI skeleton, observability, benchmark harness, docs, CI | available (workspace scaffold and design baseline) |
 | 1 — MVP runtime | MQTT, disk buffer, basic transforms, metrics; object store; HTTP; replay | M1 gate open; HTTP source is built, outside the MVP scope |
 | 2 — Robotics | ROS 2, DDS/Zenoh evaluation, trajectory/pose conventions, frame metadata, timestamps | M2: offline ROS 2 done; live source experimental |
 | 3 — Industrial | OPC UA, CAN, Modbus, Sparkplug B decode: available (OPC UA behind the off-by-default `opcua` feature). OPC UA PubSub: evaluated, deferred until a user needs it | available; OPC UA PubSub deferred |

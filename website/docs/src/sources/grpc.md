@@ -1,6 +1,6 @@
 # gRPC source
 
-The `grpc` source captures messages sent by gRPC clients to a Thadam ingest service. Each `Publish` call, or each message of a `PublishStream` call, becomes one Thadam message. The response is sent only after the message is durably committed, so an `OK` means the message is safe.
+**Status: Available.** The `grpc` source captures messages sent by gRPC clients to a Thadam ingest service. Each `Publish` call, or each message of a `PublishStream` call, becomes one Thadam message. The response is sent only after the message is durably committed, so an `OK` means the message is safe.
 
 Built as the `thadam-grpc` crate with `tonic` and `prost` (server only), `rustls` with the `ring` provider for TLS, and `protox` for compiling the proto at build time. No `protoc` binary is needed, and no `aws-lc-sys` or OpenSSL.
 

@@ -49,7 +49,7 @@ Current per-component status is tracked in [docs/design/readiness.md](docs/desig
 
 ## What Thadam does
 
-- **Capture first.** Every accepted message is written to a local durable WAL and fsynced *before* the source is acknowledged. A crash, a misconfigured filter, or a dead sink loses nothing that was acknowledged; replay is a cursor rewind.
+- **Capture first.** Every accepted message is written to a local durable WAL and fsynced *before* the source is acknowledged. With `fsync` enabled, acknowledged data survives a process crash, a misconfigured filter, or a dead sink within the configured disk budget; replay is a cursor rewind.
 - **One pipeline, one binary.** A single-process, single-binary Rust runtime runs on industrial PCs, ARM edge computers, factory servers, or a laptop. Target envelope: 1–4 cores, 256 MB–2 GB RAM.
 - **Robotics-aware model.** Typed events carry source and ingest time (never one overwriting the other), a time domain, event-level quality (`good`/`uncertain`/`bad` plus flags such as `OUT_OF_RANGE` and `CLOCK_SKEW`), and hierarchical identity (`site` → `robot` → `sensor`) as columns.
 - **Per-sink chains.** Each sink reads the WAL independently through its own decode → transform → deliver chain, so a slow or broken sink never blocks capture or its siblings.
@@ -77,7 +77,7 @@ flowchart LR
     sup["Supervisor, maintenance, admin HTTP"]
   end
   ship --> s3[("S3-compatible store")]
-  bdrv --> chdb[("ClickHouse (planned, P1)")]
+  bdrv --> chdb[("ClickHouse (P1)")]
 ```
 
 The full architecture is documented in [ARCHITECTURE.md](ARCHITECTURE.md); design decisions live as ADRs in [docs/design/adr/](docs/design/adr/).
@@ -207,7 +207,7 @@ The product.md phases map onto these: Phase 0 foundations and Phase 1 MVP runtim
 - [docs/design/adr/](docs/design/adr/) — architecture decision records, including the delivery guarantees and claims register.
 - [docs/design/spikes/](docs/design/spikes/) — spike reports (S1 WAL, S2 MQTT, D8 record representation, config YAML, filter language).
 - [The Thadam book](website/docs/src/SUMMARY.md) — the full user documentation (concepts, configuration, operations, CLI), published at `/docs/` on the site. Build the whole site with `website/scripts/build.sh` (needs mdBook 0.5.x: `cargo install mdbook --locked`), preview it with `website/scripts/preview.sh`, and check it with `python3 website/scripts/check.py`. Output goes to `website/dist/`. The folder layout is in [website/README.md](website/README.md). Deployment is configured separately from this repository.
-- [docs/design/readiness.md](docs/design/readiness.md) — implementation status per PR.
+- [docs/design/readiness.md](docs/design/readiness.md) — implementation status by component and milestone.
 
 ## Contributing
 

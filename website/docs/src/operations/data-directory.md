@@ -14,14 +14,14 @@ data_dir/
 │   └── cursors/         # <name>.cur — one durable cursor per consumer (sink.<id>)
 ├── sinks/<id>/          # state of each segment or batch sink
 │   ├── staging/         # *.inprogress — open segment files (deleted on startup)
-│   ├── ready/           # finalized, catalog-recorded segment files     (planned)
-│   └── catalog.log      # append-only segment catalog (CRC-checked)     (planned)
+│   ├── ready/           # finalized, catalog-recorded segment files
+│   └── catalog.log      # append-only segment catalog (CRC-checked)
 ├── quarantine/<sink>/   # each sink's quarantine instance (own budget); rejects.staging holds rejects until their segment is durable
 ├── schemas/             # the schema store: <sha-256 hash>.schema, content-addressed (see below)
 ├── sparkplug/births/<sink>/  # Sparkplug birth store: latest BIRTH per node/device, one directory per sink chain (see below)
 ├── sources/<id>/        # source state (connectors decide; an `mcap` source keeps resume.json, its per-file resume positions)
 ├── services/<id>/       # service state (e.g. the shipper)
-└── replays/<id>/        # replay output — never the production directories (planned)
+└── replays/<id>/        # replay output — never the production directories
 ```
 
 ## `thadam.json`
@@ -70,5 +70,5 @@ WAL segment headers, `wal.json`, and cursor files carry format versions, and a b
 
 - Process logs: stderr ([logging](logging.md)).
 - Metrics: computed in memory, served on `/metrics` ([metrics](metrics.md)).
-- Segment upload queue: on disk in `catalog.log` (planned), not in memory.
+- Segment upload queue: on disk in `catalog.log`, not in memory.
 - The backups story: there is none built in — a data directory is rebuilt by re-capturing from the source (within broker session limits) plus whatever segments were shipped to object storage.

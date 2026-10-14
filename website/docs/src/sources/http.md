@@ -1,6 +1,6 @@
 # HTTP source
 
-The `http` source captures one message per HTTP exchange. It runs in one of two modes:
+**Status: Available.** The `http` source captures one message per HTTP exchange. It runs in one of two modes:
 
 - **`listen`** (default): serves `POST {path}`; each request body is one message. The response is sent only after the message is durably committed, so a `204` means the message is safe.
 - **`poll`**: periodically fetches one or more URLs; each successful response body is one message.

@@ -57,12 +57,13 @@ FORBIDDEN_CLAIMS = [
     "production ready",
     "never lost",
     "never lose",
+    "loses nothing",
     "is lost",
     "guaranteed",
 ]
 NEGATION_CUES = ("not ", "cannot", "can't", "refuse", "rather than", "without ", "no claim")
 STATUS_WORDS = ("Available", "In progress", "Planned")
-CLAIM_LINT_PAGES = {"index.html": "homepage", "docs/index.html": "docs introduction"}
+STATUS_LINE_RE = re.compile(r"\bStatus:\s*([^.\n]+)")
 HEX_RE = re.compile(r"#(?:[0-9A-Fa-f]{3}){1,2}\b")
 FRAGMENT_PAGES = {"docs/toc.html"}
 FAVICON_GUARDS = {
@@ -97,6 +98,9 @@ def lint_claims(label, text, errors):
     lowered = text.lower()
     for phrase in FORBIDDEN_CLAIMS:
         for match in re.finditer(re.escape(phrase), lowered):
+            end = re.search(r"[.?!]", lowered[match.end():])
+            if end and end.group(0) == "?":
+                continue
             before = lowered[max(0, match.start() - 80):match.start()]
             if not any(cue in before for cue in NEGATION_CUES):
                 snippet = text[max(0, match.start() - 40):match.end() + 20]
@@ -119,6 +123,18 @@ def lint_status(html_text, errors):
     for label in re.findall(r'class="pill[^"]*">([^<]+)</span>', html_text):
         if label not in STATUS_WORDS:
             errors.append(f"index.html: pill label must be Available, In progress, or Planned: '{label}'")
+
+
+def lint_docs_status(label, text, errors):
+    for match in STATUS_LINE_RE.finditer(text):
+        value = match.group(1).strip()
+        if not any(
+            value == word or value.startswith((word + " ", word + "(", word + ",", word + ";"))
+            for word in STATUS_WORDS
+        ):
+            errors.append(
+                f"{label}: Status: line must start with Available, In progress, or Planned: 'Status: {value}'"
+            )
 
 
 class PageParser(HTMLParser):
@@ -245,10 +261,14 @@ def main():
                 json.loads(block)
             except json.JSONDecodeError as exc:
                 errors.append(f"{rel}: JSON-LD does not parse: {exc}")
-        if rel in CLAIM_LINT_PAGES:
+        is_docs_page = rel.startswith("docs/") and rel not in NOINDEX_PAGES
+        if rel == "index.html" or is_docs_page:
             visible = VisibleText()
             visible.feed(text)
-            lint_claims(CLAIM_LINT_PAGES[rel], visible.text(), errors)
+            visible_text = visible.text()
+            lint_claims("homepage" if rel == "index.html" else rel, visible_text, errors)
+            if is_docs_page:
+                lint_docs_status(rel, visible_text, errors)
         if rel == "index.html":
             if text.count("<h1") != 1:
                 errors.append(f"index.html: expected exactly one <h1>, found {text.count('<h1')}")
