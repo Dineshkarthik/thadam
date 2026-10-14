@@ -819,7 +819,7 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
         },
         {
           "const": "ndjson",
-          "description": "Newline-delimited JSON.",
+          "description": "Newline-delimited JSON. Reserved: `thadam validate` rejects it.",
           "type": "string"
         }
       ]
