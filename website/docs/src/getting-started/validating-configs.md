@@ -29,13 +29,13 @@ Every struct rejects unknown keys (`deny_unknown_fields`), so typos in keys are 
 `thadam validate` computes an upper bound of the buffers Thadam owns and warns when it exceeds `runtime.memory_target`:
 
 ```text
-estimated Thadam-owned memory: 234.6 MiB (runtime.memory_target: 256.0 MiB)
+estimated Thadam-owned memory: 239.1 MiB (runtime.memory_target: 256.0 MiB)
   source `fleet-mqtt` broker window    20.0 MiB  window 20 x message 1.0 MiB
-  wal.max_pending_bytes                 8.0 MiB
-  sink `local` read and batch           3.0 MiB
+  wal.max_pending_bytes                 8.0 MiB  8.0 MiB
+  sink `local` read and batch           3.0 MiB  read chunk 1.0 MiB (default) + 2 x batch 1.0 MiB (default)
   sink `local` open files              96.0 MiB  max_open_files 6 x 2 x row group 8.0 MiB
   sink `s3` uploads                    16.0 MiB  upload_concurrency 2 x part 8.0 MiB
-  dedup windows                        91.6 MiB  2000000 keys x 48 B (upper bound)
+  dedup windows                        96.1 MiB  2100000 keys x 48 B (upper bound)
 ```
 
 This is the "bounded by configuration" half of the memory model: Thadam-owned buffers are bounded by configuration, while total RSS (which includes `rumqttc`, `hyper`, compression, and allocator fragmentation) is measured per workload and published with benchmarks. The largest lever is usually `wal.max_pending_bytes`, `max_open_files` times `row_group_bytes`, and the dedup window (`max_keys`).
@@ -47,7 +47,10 @@ A configuration interpolates `${env:NAME}` and `${file:/absolute/path}` at load 
 ```text
 $ thadam validate --allow-unresolved examples/edge-capture/thadam/pipeline.yaml
 warning[config.missing]: cannot read `/run/secrets/minio_uploader_key`: No such file or directory (os error 2)
-  --> examples/edge-capture/thadam/pipeline.yaml:167:22 (sinks[1].config.access_key_id)
+  --> examples/edge-capture/thadam/pipeline.yaml:178:22 (sinks[1].config.access_key_id)
+  = hint: check that the file exists and thadam can read it
+warning[config.missing]: cannot read `/run/secrets/minio_uploader_secret`: No such file or directory (os error 2)
+  --> examples/edge-capture/thadam/pipeline.yaml:179:26 (sinks[1].config.secret_access_key)
   = hint: check that the file exists and thadam can read it
 0 errors, 2 warnings
 ```

@@ -26,7 +26,7 @@ Two broker defaults are worth knowing even in a demo: Mosquitto's inflight windo
 
 ## 2. Write the pipeline configuration
 
-Save this as `pipeline.yaml`:
+Save this as `pipeline.yaml` (or run `thadam init` to write a commented starter file):
 
 ```yaml
 version: 1
@@ -89,12 +89,12 @@ A few things to notice, because each is a deliberate design rule:
 $ thadam validate pipeline.yaml
 pipeline.yaml: configuration is valid
   pipeline `first-pipeline` (node `node-01`): 1 source, 1 dataset, 0 transforms, 1 sink
-  config hash: 8bbf3e03… (hash version 1)
+  config hash: 36c4a936c40dfa06390d99e767f7b286 (hash version 1)
 estimated Thadam-owned memory: 175.5 MiB (runtime.memory_target: 256.0 MiB)
   source `broker` broker window   100.0 MiB  window 100 (default) x message 1.0 MiB (default)
-  wal.max_pending_bytes             8.0 MiB
-  sink `local` read and batch       3.0 MiB
-  sink `local` open files          64.0 MiB  max_open_files 4 (default) x 2 x row group 8.0 MiB
+  wal.max_pending_bytes             8.0 MiB  8.0 MiB
+  sink `local` read and batch       3.0 MiB  read chunk 1.0 MiB (default) + 2 x batch 1.0 MiB (default)
+  sink `local` open files          64.0 MiB  max_open_files 4 (default) x 2 x row group 8.0 MiB (default)
   dedup windows                   468.8 KiB  10000 keys x 48 B (upper bound)
 ```
 
@@ -121,7 +121,7 @@ docker exec thadam-mosquitto mosquitto_pub -t robots/robot42/telemetry -q 1 \
   -m '{"seq": 1, "ts_us": 1760000000000000, "temp_c": 41.2}'
 ```
 
-Stop Thadam with Ctrl-C (SIGINT) or SIGTERM: it drains the source queue into the WAL, finalizes open files, commits cursors, and exits 0. A second signal forces an immediate exit; the WAL recover the rest on the next start.
+Stop Thadam with Ctrl-C (SIGINT) or SIGTERM: it drains the source queue into the WAL, finalizes open files, commits cursors, and exits 0. A second signal forces an immediate exit; the WAL recovers the rest on the next start.
 
 ### What lands next
 

@@ -133,7 +133,7 @@ Tests: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `min`, `max`, and `null` (`null
 
 ## `window` — tumbling and sliding windows (experimental)
 
-**Config: accepted. Status: In progress (experimental).** Aggregates (`count`, `sum`, `min`, `max`, `mean`, `first`, `last`, `stddev`, `range`, `delta`, `rms`) per asset over tumbling or sliding windows (`size`, optional `slide`) of **ingest time** (`time: ingest`, default) or **event time** (`time: event`, with per-asset watermarks and `allowed_lateness`), emitting one event per asset and window when the window closes (or on `idle_close`). It is the only step that keeps state across events that a restart cannot rebuild by warm-up, so the sink's WAL cursor is held back behind open windows and a restart re-reads from there. Segment sinks only. Full key table, limits, and the retention cost: [`kind: window`](../configuration/transforms.md#window).
+**Config: accepted. Status: Available (experimental).** Aggregates (`count`, `sum`, `min`, `max`, `mean`, `first`, `last`, `stddev`, `range`, `delta`, `rms`) per asset over tumbling or sliding windows (`size`, optional `slide`) of **ingest time** (`time: ingest`, default) or **event time** (`time: event`, with per-asset watermarks and `allowed_lateness`), emitting one event per asset and window when the window closes (or on `idle_close`). It is the only step that keeps state across events that a restart cannot rebuild by warm-up, so the sink's WAL cursor is held back behind open windows and a restart re-reads from there. Segment sinks only. Full key table, limits, and the retention cost: [`kind: window`](../configuration/transforms.md#window).
 
 ```yaml
 - kind: window
@@ -151,7 +151,7 @@ These dataset-shaping behaviors are configured on the dataset, not in `transform
 | Behavior | Config | Runs |
 |---|---|---|
 | Router / match | [`match`](../configuration/datasets.md#match) | first |
-| Decode (JSON) | [`decode`](../configuration/datasets.md) | message level |
+| Decode (`json`, `ros2`, `sparkplug_b`) | [`decode`](../configuration/datasets.md) | message level |
 | Event IDs | [`event_id.key`](../configuration/datasets.md#event_id) | message level |
 | Deduplication | [`dedup`](../configuration/datasets.md#dedup) | message level, before explode |
 | Array splitting | [`explode`](../configuration/datasets.md#explode) | then |

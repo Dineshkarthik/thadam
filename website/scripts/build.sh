@@ -34,6 +34,8 @@ mdbook build "$website/docs" --dest-dir "$dist/docs"
 brand_files=(
   svg/thadam-logo-light.svg
   svg/thadam-logo-dark.svg
+  svg/thadam-wordmark-light.svg
+  svg/thadam-wordmark-dark.svg
   svg/thadam-icon-light.svg
   svg/thadam-mark-light.svg
   svg/thadam-mark-dark.svg

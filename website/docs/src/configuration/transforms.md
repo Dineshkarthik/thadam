@@ -314,7 +314,7 @@ Several violations at once settle on the first reason in this order; flags accum
 
 ## `kind: window` {#window}
 
-**Status: In progress (experimental).** Tumbling or sliding windows on **ingest time** (`time: ingest`, the default) or **event time** (`time: event`, with per-asset watermarks and `allowed_lateness`), one aggregate event per asset and window. The design is in `docs/design/advanced-processing.md`.
+**Status: Available (experimental).** Tumbling or sliding windows on **ingest time** (`time: ingest`, the default) or **event time** (`time: event`, with per-asset watermarks and `allowed_lateness`), one aggregate event per asset and window. The design is in `docs/design/advanced-processing.md`.
 
 ```yaml
 datasets:

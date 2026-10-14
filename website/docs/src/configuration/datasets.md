@@ -26,7 +26,7 @@ datasets:
 |---|---|---|---|
 | `id` | string | yes | Unique. Used in paths, object keys, and metric labels. Same character rules as connector ids. |
 | `match` | mapping | yes | Which messages feed the dataset. |
-| `decode` | `json`, `ros2`, or `sparkplug_b` | yes | The payload decoder. `ros2` decodes ROS 2 CDR payloads from an [MCAP source](../sources/ros2.md) through the schema store; its flattened dotted field names become the payload keys. `sparkplug_b` decodes Sparkplug B protobuf from an [MQTT source](../sources/mqtt.md), resolving aliases through BIRTH messages and the birth store; see [Sparkplug B decoding](../sources/sparkplug-b.md). |
+| `decode` | `json`, `ros2`, or `sparkplug_b` | yes | The payload decoder. `ros2` decodes ROS 2 CDR payloads from an [MCAP](../sources/ros2.md) or [live ROS 2](../sources/ros2-live.md) source through the schema store; its flattened dotted field names become the payload keys. `sparkplug_b` decodes Sparkplug B protobuf from an [MQTT source](../sources/mqtt.md), resolving aliases through BIRTH messages and the birth store; see [Sparkplug B decoding](../sources/sparkplug-b.md). |
 | `identity` | mapping | no | The asset-path levels, **in the order written**. Order matters: it is the hierarchy and part of the config hash. |
 | `event_id` | mapping | no | Content-derived event IDs; see [below](#event_id). |
 | `dedup` | mapping | no | Message-level deduplication; see [below](#dedup). |
@@ -162,7 +162,7 @@ Every column carries a stable Parquet `field_id` from the first release, allocat
 | 1000–4,194,303 | Declared top-level fields — explicit in config |
 | ≥ 8,388,608 | Nested (list elements, record children) — derived from the parent ID, never assigned |
 
-Rules: IDs are unique per dataset, ranges are enforced per kind, and **an ID is never reused** for a different column — even after the column is removed. Thadam cannot see history; retiring IDs is the configuration owner's job. This is what keeps a later Iceberg `fast_append` path cheap (no rewrite) and makes schema evolution (add optional columns, widen `int`→`long`, `float`→`double`; never rename or narrow) safe.
+Rules: IDs are unique per dataset, ranges are enforced per kind, and **an ID is never reused** for a different column — even after the column is removed. Thadam cannot see history; retiring IDs is the configuration owner's job. This is what keeps the [Iceberg `fast_append` path](../sinks/iceberg.md) cheap (no rewrite) and makes schema evolution by field ID (add optional columns, widen `int`→`long`, `float`→`double`, or rename a known ID; never narrow or reuse an ID) safe.
 
 ## Complete example
 

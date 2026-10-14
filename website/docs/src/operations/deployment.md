@@ -175,7 +175,7 @@ Every apply stops intake, drains (up to 10 seconds for chains, 30 seconds overal
 | `modbus`, `poll` | At-most-once per poll (`ack_mode: none`) | Polls during the gap are not made up. Register values cannot be replayed, so readings in the gap are missing, and the next poll reads the current value. See [Modbus](../sources/modbus.md). | Available |
 | `opcua`, `subscribe` or `poll` | At-most-once (`ack_mode: none`) | Subscribe: values published during the gap are not replayed, and the first response after the restart carries the current values. Poll: the next poll reads the current values. Behind the opt-in `opcua` build feature. See [OPC UA](../sources/opcua.md). | Available (opt-in `opcua` build feature) |
 | `can`, SocketCAN (Linux) | At-most-once, no acknowledgement | CAN has no store. Frames sent while Thadam is not reading the socket are gone. See [CAN](../sources/can.md). | Available |
-| `ros2_live` | At-most-once (`ack_mode: none`), no re-read | Everything published while the source is down is gone, and capture restarts live. Sequence gaps on reconnect are counted in `ros2.dropped`. See [ROS 2 live](../sources/ros2-live.md). | In progress (experimental) |
+| `ros2_live` | At-most-once (`ack_mode: none`), no re-read | Everything published while the source is down is gone, and capture restarts live. Sequence gaps on reconnect are counted in `ros2.dropped`. Behind the opt-in `ros2-live` build feature. See [ROS 2 live](../sources/ros2-live.md). | Available (experimental, opt-in `ros2-live` build feature) |
 
 ### Measured restart time {#measured-restart-time}
 

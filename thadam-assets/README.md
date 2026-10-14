@@ -7,10 +7,9 @@
 
 ## Files
 - `brand/brand-guidelines.md`: merged usage rules, palette, and naming note.
-- `brand/svg/`: editable SVG sources. `thadam-logo-light.svg` / `thadam-logo-dark.svg` are the horizontal logos; `thadam-mark-*.svg` the standalone geometric `T` mark; `thadam-icon-*.svg` the app icon.
+- `brand/svg/`: editable SVG sources. `thadam-logo-light.svg` / `thadam-logo-dark.svg` are the horizontal logos (`500×82`); `thadam-wordmark-light.svg` / `thadam-wordmark-dark.svg` are the wordmarks without the tagline (`500×58`); `thadam-mark-*.svg` the standalone geometric `T` mark (`64×64`); `thadam-icon-*.svg` the app icon (`64×64`).
 - `brand/png/`: PNG exports and favicon sizes.
 - `brand/tokens/thadam.css`, `brand/tokens/colors.json`: colour tokens.
-- `brand/reference/`: design board and favicon preview. Maintainer-only, never published.
 - `docs/project-identity.md`: project identity and README copy.
 
 ## Naming / legal note

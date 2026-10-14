@@ -17,7 +17,7 @@ Frames form a tree of rigid transforms, conventionally rooted at `map` (the worl
 
 ## How ROS 2 messages flatten
 
-The `thadam-ros2-msg` compiler builds one Thadam `Shape` per message type. Nested scalar messages flatten to **dotted field names**, so `geometry_msgs/PoseStamped` becomes `header.stamp` (a `Ts`), `header.frame_id` (`str`), `pose.position.x/y/z` (`f64`), and `pose.orientation.x/y/z/w` (`f64`); `sensor_msgs/JointState` becomes `header.stamp`, `header.frame_id`, `name` (`list<str>`), and `position`/`velocity`/`effort` (`list<f64>` typed arrays). The full type mapping — scalar widening, array bound forms, the `builtin_interfaces/Time` triple — is documented in the [type-mapping section of `crates/thadam-ros2-msg/src/lib.rs`](https://docs.rs/thadam-ros2-msg) and mirrored on the [ROS 2 source page](../sources/ros2.md#type-mapping).
+The `thadam-ros2-msg` compiler builds one Thadam `Shape` per message type. Nested scalar messages flatten to **dotted field names**, so `geometry_msgs/PoseStamped` becomes `header.stamp` (a `Ts`), `header.frame_id` (`str`), `pose.position.x/y/z` (`f64`), and `pose.orientation.x/y/z/w` (`f64`); `sensor_msgs/JointState` becomes `header.stamp`, `header.frame_id`, `name` (`list<str>`), and `position`/`velocity`/`effort` (`list<f64>` typed arrays). The full type mapping — scalar widening, array bound forms, the `builtin_interfaces/Time` triple — is documented in [`crates/thadam-ros2-msg/src/lib.rs`](https://github.com/Dineshkarthik/thadam/blob/main/crates/thadam-ros2-msg/src/lib.rs) and mirrored on the [ROS 2 source page](../sources/ros2.md#type-mapping).
 
 ### Declaring one as a dataset {#declaring-one-as-a-dataset}
 

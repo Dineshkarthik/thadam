@@ -40,10 +40,10 @@ Each row below shows the component or milestone, its governing ADR or milestone,
 | HTTP (`thadam-http`), gRPC (`thadam-grpc`), Modbus TCP (`thadam-modbus`), SocketCAN (`thadam-can`), OPC UA (`thadam-opcua`, feature `opcua`) sources | Phase 1 / Phase 3 | **Done** (`vcan` tests run in the `can-vcan` CI job). |
 | Sparkplug B decoder and birth store (`thadam-sparkplug`, `BirthStore`, `decode: sparkplug_b`) | Phase 3 | **Done.** Not covered: Template and DataSet metrics, a `seq` gap that spans a restart, tests against real edge devices, throughput benchmarks. |
 | Offline ROS 2 (`thadam-ros2-msg`, `thadam-mcap`, `thadam export --mcap`, `examples/ros2-mcap-to-parquet`, fuzz targets) | ADR-0007, ADR-0015 (Draft), M2 | **Done.** The Foxglove check in ADR-0015 is still open. |
-| Live ROS 2 source (`kind: ros2_live` over `rmw_zenoh`, feature `ros2-live`) | ADR-0007 stage 4, Spike S3 | **In progress** (experimental; `zenoh-bridge-ros2dds` sidecar, liveliness discovery, and ARM numbers open). |
+| Live ROS 2 source (`kind: ros2_live` over `rmw_zenoh`, feature `ros2-live`) | ADR-0007 stage 4, Spike S3 | **Done** (experimental; `zenoh-bridge-ros2dds` sidecar, liveliness discovery, and ARM numbers open). |
 | NATS JetStream (`thadam-nats`) and Apache Kafka (`thadam-kafka`) batch sinks | Phase 4 / P1 | **Done.** |
 | ClickHouse batch sink (`thadam-clickhouse`) | ADR-0008 (Draft), M3 / P1 | **Done** (B8 benchmark and `examples/edge-analytics` open). |
-| Apache Iceberg registrar (`kind: iceberg`, feature `iceberg`, P2): `fast_append`, schema evolution by field ID, catalog auth and mTLS | Phase 4 / P2 | **In progress** (experimental; compaction and partitioning open). |
+| Apache Iceberg registrar (`kind: iceberg`, feature `iceberg`, P2): `fast_append`, schema evolution by field ID, catalog auth and mTLS | Phase 4 / P2 | **Done** (experimental; compaction and partitioning open). |
 | Deployment tooling (`deploy/docker/Dockerfile`, `deploy/systemd/thadam.service`, `deploy/apply-config.sh`), pipeline versioning | `docs/design/fleet-config-and-versioning.md` | **Done.** |
 | Python SDK (`sdk/python`) | Post-MVP | **Done.** |
 

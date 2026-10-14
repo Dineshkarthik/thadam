@@ -57,7 +57,7 @@ A topic whose messages disagree on message encoding or schema is an error, not a
 
 The WAL does not hold schema text, only names and encodings. Schema text is resolved in this order:
 
-1. **The schema store** in the data directory (`<data_dir>/schemas`). An `mcap` source writes each ROS 2 schema there when it ingests a message, and tags the message with `mcap.schema_hash`, the schema's content hash. The export looks the hash up in the store, so a capture stays exportable after its original MCAP files are gone. If the stored schema's name or encoding disagrees with the message's `mcap.schema_name` or `mcap.schema_encoding`, the export fails and names the source and topic.
+1. **The schema store** in the data directory (`<data_dir>/schemas`). An `mcap` or `ros2_live` source writes each ROS 2 schema there when it ingests a message, and tags the message with `mcap.schema_hash`, the schema's content hash. The export looks the hash up in the store, so a capture stays exportable after its original MCAP files are gone. If the stored schema's name or encoding disagrees with the message's `mcap.schema_name` or `mcap.schema_encoding`, the export fails and names the source and topic.
 2. **The MCAP files** that the configuration's `mcap` sources list in `paths` (directories are scanned one level deep for `*.mcap`, as the source does). A configured file that is missing or unreadable is skipped with a warning on stderr.
 3. **`--schemas`** files. They are read first, so they win over a configured file that defines the same schema.
 

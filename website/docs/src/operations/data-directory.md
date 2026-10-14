@@ -48,7 +48,7 @@ Identity lives once, here — `thadam.json` only *references* the epoch. Reason:
 
 ## The schema store (`schemas/`)
 
-Content-addressed store of message schemas, owned by `thadam-core`'s `SchemaStore` and shared pipeline-wide. Sources whose messages reference stored schema text — today the MCAP source for `ros2msg` channels — write each schema here the first time its channel is seen, *before the first message referencing it can be committed to the WAL*, and stamp the affected messages with the schema's hash (for MCAP, `mcap.schema_hash`). Chain decoders (dataset `decode: ros2`) and exports resolve the schema text by hash, so the WAL never has to carry schema text on every message.
+Content-addressed store of message schemas, owned by `thadam-core`'s `SchemaStore` and shared pipeline-wide. Sources whose messages reference stored schema text — today the MCAP and live ROS 2 sources for `ros2msg` channels — write each schema here the first time its channel is seen, *before the first message referencing it can be committed to the WAL*, and stamp the affected messages with the schema's hash (`mcap.schema_hash`). Chain decoders (dataset `decode: ros2`) and exports resolve the schema text by hash, so the WAL never has to carry schema text on every message.
 
 ```text
 schemas/

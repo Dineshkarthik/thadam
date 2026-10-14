@@ -1,6 +1,6 @@
 # ROS 2 live source
 
-**Status: In progress (experimental).** ADR-0007 stage 4. The `ros2_live` source subscribes to ROS 2 topics through a [`rmw_zenohd`](https://github.com/ros2/rmw_zenoh) router and captures raw CDR payloads; datasets decode them with [`decode: ros2`](ros2.md#the-schema-store-and-decode-ros2-on-a-dataset). The mapping is the one the ROS 2 live spike verified on Jazzy **and** Lyrical (byte-identical between them): data key expressions, the 33-byte publisher attachment (sequence, source timestamp, GID), and the `transient_local` late-join query.
+**Status: Available (experimental, behind the opt-in `ros2-live` Cargo feature).** ADR-0007 stage 4. The `ros2_live` source subscribes to ROS 2 topics through a [`rmw_zenohd`](https://github.com/ros2/rmw_zenoh) router and captures raw CDR payloads; datasets decode them with [`decode: ros2`](ros2.md#the-schema-store-and-decode-ros2-on-a-dataset). The mapping is the one the ROS 2 live spike verified on Jazzy **and** Lyrical (byte-identical between them): data key expressions, the 33-byte publisher attachment (sequence, source timestamp, GID), and the `transient_local` late-join query.
 
 **Only the `rmw_zenoh` transport exists in this step.** Your ROS 2 nodes must use `RMW_IMPLEMENTATION=rmw_zenoh_cpp` (Jazzy/Lyrical package `ros-<distro>-rmw-zenoh-cpp`) and reach the same router. A `zenoh-bridge-ros2dds` sidecar mode — for nodes on their stock DDS — is a later step, and only if it turns out to be needed (the ROS 2 live spike report has the trade-offs).
 

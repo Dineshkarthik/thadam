@@ -14,7 +14,7 @@ Where it stands today: config, WAL, transforms, MQTT, the runtime, the CLI, Parq
 
 Outside v0.1. Order: `thadam-ros2-msg` (schema-driven CDR decode) → **MCAP/rosbag2 offline ingestion** and `thadam export --mcap` (both done) → live-transport spike (rmw_zenoh over Zenoh, with a `zenoh-bridge-ros2dds` sidecar only if needed; pure-Rust DDS deferred) → live ROS 2 source.
 
-Where it stands today: the `thadam-ros2-msg` decoder (`decode: ros2` in chains, schema store) and the MCAP source (`thadam export --mcap`, `examples/ros2-mcap-to-parquet`) are done, and the ROS 2 fuzz targets run in the `fuzz-smoke` CI job. The live-transport spike is complete. The live source (`kind: ros2_live`, rmw_zenoh transport) is experimental behind the opt-in `ros2-live` feature, with no discovery and no ARM numbers yet.
+Where it stands today: the `thadam-ros2-msg` decoder (`decode: ros2` in chains, schema store) and the MCAP source (`thadam export --mcap`, `examples/ros2-mcap-to-parquet`) are done, and the ROS 2 fuzz targets run in the `fuzz-smoke` CI job. The live-transport spike is complete. The live source (`kind: ros2_live`, rmw_zenoh transport) is available (experimental, behind the opt-in `ros2-live` feature); `zenoh-bridge-ros2dds` sidecar, liveliness discovery, and ARM reference-hardware numbers remain open.
 
 ### M3 — ClickHouse (P1)
 
@@ -26,11 +26,11 @@ The `thadam-clickhouse` sink is built, outside the M1 reliability gate: startup 
 |---|---|---|
 | 0 — Foundations | Repository, conventions, event model, connector traits, CLI skeleton, observability, benchmark harness, docs, CI | available (workspace scaffold and design baseline) |
 | 1 — MVP runtime | MQTT, disk buffer, basic transforms, metrics; object store; HTTP; replay | M1 gate open; HTTP source is built, outside the MVP scope |
-| 2 — Robotics | ROS 2, DDS/Zenoh evaluation, trajectory/pose conventions, frame metadata, timestamps | M2: offline ROS 2 done; live source experimental |
+| 2 — Robotics | ROS 2, DDS/Zenoh evaluation, trajectory/pose conventions, frame metadata, timestamps | M2: offline ROS 2 and live source (`ros2-live` feature, experimental) available; discovery and ARM numbers open |
 | 3 — Industrial | OPC UA, CAN, Modbus, Sparkplug B decode: available (OPC UA behind the off-by-default `opcua` feature). OPC UA PubSub: evaluated, deferred until a user needs it | available; OPC UA PubSub deferred |
-| 4 — Lakehouse | Iceberg, Parquet optimization, schema evolution, catalog integration | experimental: registrar, schema evolution, catalog auth and mTLS (`iceberg` feature); token refresh, compaction, partitioning open |
+| 4 — Lakehouse | Iceberg, Parquet optimization, schema evolution, catalog integration | available (experimental, `iceberg` feature): registrar, schema evolution, catalog auth (with OAuth2 401 refresh) and mTLS; compaction and partitioning open |
 | 5 — Fleet / platform | Remote configuration, fleet management, pipeline versioning, deployment tooling, centralized observability | partly done: pipeline versioning, deployment tooling, config apply with rollback; remote configuration and fleet management open |
-| 6 — Advanced processing | Stateful windows, WASM operators, anomaly detection, lightweight inference, feature extraction | windows experimental; WASM and inference deferred until a user needs them |
+| 6 — Advanced processing | Stateful windows, WASM operators, anomaly detection, lightweight inference, feature extraction | windows available (experimental); WASM and inference deferred until a user needs them |
 
 ## Deliberately not on the roadmap
 

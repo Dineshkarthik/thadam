@@ -1,63 +1,431 @@
 /*
- * Thadam docs accents. Colour values come from thadam-assets/brand/tokens/thadam.css,
+ * Thadam docs design system. Colour values come from thadam-assets/brand/tokens/thadam.css,
  * which theme/head.hbs loads. Do not add hex values here.
  */
 
+:root {
+  font-size: 100%;
+  --sidebar-target-width: 17.5rem;
+  --page-padding: 1.5rem;
+  --content-max-width: 48rem;
+  --menu-bar-height: 2.5rem;
+  --mono-font: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --code-font-size: 0.9em;
+}
+
+html {
+  font-family: var(--thadam-font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.light,
+.rust,
+html:not(.js) {
+  --bg: var(--thadam-warm-white);
+  --fg: var(--thadam-graphite);
+  --sidebar-bg: color-mix(in srgb, var(--thadam-graphite) 4%, var(--thadam-warm-white));
+  --sidebar-fg: var(--thadam-graphite);
+  --sidebar-non-existant: color-mix(in srgb, var(--thadam-graphite) 55%, var(--thadam-warm-white));
+  --sidebar-active: var(--thadam-graphite);
+  --sidebar-spacer: color-mix(in srgb, var(--thadam-graphite) 14%, var(--thadam-warm-white));
+  --scrollbar: color-mix(in srgb, var(--thadam-graphite) 35%, var(--thadam-warm-white));
+  --icons: color-mix(in srgb, var(--thadam-graphite) 72%, var(--thadam-warm-white));
+  --icons-hover: var(--thadam-graphite);
+  --links: var(--thadam-graphite);
+  --inline-code-color: var(--thadam-graphite);
+  --theme-popup-bg: var(--thadam-warm-white);
+  --theme-popup-border: color-mix(in srgb, var(--thadam-graphite) 20%, var(--thadam-warm-white));
+  --theme-hover: color-mix(in srgb, var(--thadam-graphite) 8%, var(--thadam-warm-white));
+  --quote-bg: color-mix(in srgb, var(--thadam-graphite) 4.5%, var(--thadam-warm-white));
+  --quote-border: color-mix(in srgb, var(--thadam-graphite) 16%, var(--thadam-warm-white));
+  --table-border-color: color-mix(in srgb, var(--thadam-graphite) 15%, var(--thadam-warm-white));
+  --table-header-bg: color-mix(in srgb, var(--thadam-graphite) 5%, var(--thadam-warm-white));
+  --table-alternate-bg: transparent;
+  --searchbar-border-color: color-mix(in srgb, var(--thadam-graphite) 22%, var(--thadam-warm-white));
+  --searchbar-bg: color-mix(in srgb, var(--thadam-graphite) 5%, var(--thadam-warm-white));
+  --searchbar-fg: var(--thadam-graphite);
+  --searchbar-shadow-color: transparent;
+  --searchresults-header-fg: color-mix(in srgb, var(--thadam-graphite) 72%, var(--thadam-warm-white));
+  --searchresults-border-color: color-mix(in srgb, var(--thadam-graphite) 18%, var(--thadam-warm-white));
+  --searchresults-li-bg: color-mix(in srgb, var(--thadam-graphite) 7%, var(--thadam-warm-white));
+  --search-mark-bg: color-mix(in srgb, var(--thadam-signal-orange) 35%, var(--thadam-warm-white));
+  --sidebar-header-border-color: var(--thadam-signal-orange);
+}
+
+.navy,
+.coal,
+.ayu {
+  --bg: var(--thadam-graphite);
+  --fg: var(--thadam-warm-white);
+  --sidebar-bg: color-mix(in srgb, var(--thadam-warm-white) 4%, var(--thadam-graphite));
+  --sidebar-fg: var(--thadam-warm-white);
+  --sidebar-non-existant: color-mix(in srgb, var(--thadam-warm-white) 50%, var(--thadam-graphite));
+  --sidebar-active: var(--thadam-warm-white);
+  --sidebar-spacer: color-mix(in srgb, var(--thadam-warm-white) 14%, var(--thadam-graphite));
+  --scrollbar: color-mix(in srgb, var(--thadam-warm-white) 35%, var(--thadam-graphite));
+  --icons: color-mix(in srgb, var(--thadam-warm-white) 74%, var(--thadam-graphite));
+  --icons-hover: var(--thadam-warm-white);
+  --links: var(--thadam-warm-white);
+  --inline-code-color: var(--thadam-warm-white);
+  --theme-popup-bg: var(--thadam-graphite);
+  --theme-popup-border: color-mix(in srgb, var(--thadam-warm-white) 22%, var(--thadam-graphite));
+  --theme-hover: color-mix(in srgb, var(--thadam-warm-white) 8%, var(--thadam-graphite));
+  --quote-bg: color-mix(in srgb, var(--thadam-warm-white) 5.5%, var(--thadam-graphite));
+  --quote-border: color-mix(in srgb, var(--thadam-warm-white) 18%, var(--thadam-graphite));
+  --table-border-color: color-mix(in srgb, var(--thadam-warm-white) 16%, var(--thadam-graphite));
+  --table-header-bg: color-mix(in srgb, var(--thadam-warm-white) 6%, var(--thadam-graphite));
+  --table-alternate-bg: transparent;
+  --searchbar-border-color: color-mix(in srgb, var(--thadam-warm-white) 24%, var(--thadam-graphite));
+  --searchbar-bg: color-mix(in srgb, var(--thadam-warm-white) 7%, var(--thadam-graphite));
+  --searchbar-fg: var(--thadam-warm-white);
+  --searchbar-shadow-color: transparent;
+  --searchresults-header-fg: color-mix(in srgb, var(--thadam-warm-white) 74%, var(--thadam-graphite));
+  --searchresults-border-color: color-mix(in srgb, var(--thadam-warm-white) 18%, var(--thadam-graphite));
+  --searchresults-li-bg: color-mix(in srgb, var(--thadam-warm-white) 8%, var(--thadam-graphite));
+  --search-mark-bg: color-mix(in srgb, var(--thadam-signal-orange) 45%, var(--thadam-graphite));
+  --sidebar-header-border-color: var(--thadam-signal-orange);
+}
+
+.page {
+  margin-block-start: 0;
+}
+
+#mdbook-menu-bar-hover-placeholder {
+  display: none;
+}
+
 .thadam-site-header {
-  margin-block-start: var(--menu-bar-height);
+  position: sticky;
+  top: 0;
+  z-index: 102;
+  margin-block-start: 0;
+  margin-inline: calc(0px - var(--page-padding));
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 1rem;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--thadam-steel-grey);
+  gap: 0.65rem 0.9rem;
+  padding: 0.85rem var(--page-padding);
+  border-bottom: 1px solid var(--table-border-color);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   font-size: 0.95rem;
 }
 
 .thadam-home {
   display: inline-flex;
+  align-items: center;
   line-height: 0;
+  text-decoration: none;
+}
+
+.thadam-logo {
+  display: block;
+  height: auto;
+  max-width: 100%;
+}
+
+.thadam-logo--dark {
+  display: none;
+}
+
+.coal .thadam-logo--light,
+.navy .thadam-logo--light,
+.ayu .thadam-logo--light {
+  display: none;
+}
+
+.coal .thadam-logo--dark,
+.navy .thadam-logo--dark,
+.ayu .thadam-logo--dark {
+  display: block;
 }
 
 .thadam-site-section {
-  color: var(--thadam-graphite);
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--table-border-color);
+  border-radius: 999px;
+  background: var(--quote-bg);
+  color: var(--icons);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  text-transform: uppercase;
 }
 
-.navy .thadam-site-section,
-.coal .thadam-site-section {
-  color: var(--thadam-warm-white);
+.thadam-site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.4rem;
+  margin-inline-start: auto;
 }
 
-.light {
-  --bg: var(--thadam-warm-white);
-  --fg: var(--thadam-graphite);
-  --sidebar-bg: color-mix(in srgb, var(--thadam-graphite) 4%, var(--thadam-warm-white));
-  --sidebar-fg: var(--thadam-graphite);
-  --sidebar-non-existant: color-mix(in srgb, var(--thadam-graphite) 60%, var(--thadam-warm-white));
-  --icons: color-mix(in srgb, var(--thadam-graphite) 70%, var(--thadam-warm-white));
-  --icons-hover: var(--thadam-graphite);
-  --links: var(--thadam-graphite);
-  --inline-code-color: var(--thadam-graphite);
-  --theme-popup-bg: var(--thadam-warm-white);
-  --quote-bg: color-mix(in srgb, var(--thadam-graphite) 5%, var(--thadam-warm-white));
-  --table-border-color: color-mix(in srgb, var(--thadam-graphite) 15%, var(--thadam-warm-white));
-  --searchbar-bg: color-mix(in srgb, var(--thadam-graphite) 8%, var(--thadam-warm-white));
+.thadam-site-nav a {
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.4rem;
+  color: var(--icons);
+  font-size: 0.92rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
-.navy,
-.coal {
-  --bg: var(--thadam-graphite);
-  --fg: var(--thadam-warm-white);
-  --sidebar-bg: color-mix(in srgb, var(--thadam-warm-white) 6%, var(--thadam-graphite));
-  --sidebar-fg: var(--thadam-warm-white);
-  --sidebar-non-existant: color-mix(in srgb, var(--thadam-warm-white) 45%, var(--thadam-graphite));
-  --icons: color-mix(in srgb, var(--thadam-warm-white) 65%, var(--thadam-graphite));
-  --icons-hover: var(--thadam-warm-white);
-  --links: var(--thadam-warm-white);
-  --inline-code-color: var(--thadam-warm-white);
-  --theme-popup-bg: var(--thadam-graphite);
-  --quote-bg: color-mix(in srgb, var(--thadam-warm-white) 7%, var(--thadam-graphite));
-  --table-border-color: color-mix(in srgb, var(--thadam-warm-white) 18%, var(--thadam-graphite));
-  --searchbar-bg: color-mix(in srgb, var(--thadam-warm-white) 12%, var(--thadam-graphite));
+.thadam-site-nav a:hover,
+.thadam-site-nav a[aria-current="page"] {
+  background: var(--quote-bg);
+  color: var(--fg);
+  text-decoration: none;
+}
+
+#mdbook-menu-bar {
+  position: sticky;
+  top: 3.45rem !important;
+  z-index: 101;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--menu-bar-height);
+  padding-inline: 0.75rem;
+  border-block-end: 1px solid var(--table-border-color);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+#mdbook-theme-toggle,
+#mdbook-theme-list,
+#mdbook-menu-bar .menu-title,
+#mdbook-menu-bar .right-buttons a[href="https://github.com/Dineshkarthik/thadam"] {
+  display: none !important;
+}
+
+#mdbook-sidebar {
+  border-inline-end: 1px solid var(--table-border-color);
+  font-size: 0.9rem;
+}
+
+.sidebar .sidebar-scrollbox {
+  padding: 1.1rem 0.9rem 2.5rem;
+}
+
+.chapter {
+  line-height: 1.5;
+}
+
+.chapter li.part-title {
+  margin: 1.25rem 0 0.35rem;
+  padding-inline: 0.55rem;
+  color: var(--icons);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.chapter li.part-title:first-child {
+  margin-top: 0.25rem;
+}
+
+.chapter li.chapter-item {
+  margin-block-start: 0.15rem;
+  line-height: 1.45;
+}
+
+.chapter li a {
+  display: block;
+  padding: 0.3rem 0.55rem;
+  border-radius: 0.35rem;
+  color: var(--sidebar-fg);
+  text-decoration: none;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.chapter li a:hover {
+  background: var(--theme-hover);
+  color: var(--fg);
+}
+
+.chapter li a.active {
+  border-inline-start: 2px solid var(--thadam-signal-orange);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  background: color-mix(in srgb, var(--thadam-signal-orange) 12%, transparent);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.chapter .spacer {
+  height: 1px;
+  margin: 0.75rem 0;
+  background: var(--table-border-color);
+}
+
+.section {
+  padding-inline-start: 0.95rem;
+}
+
+.content {
+  padding: 1.25rem 0.5rem 4rem;
+}
+
+.content p,
+.content ul,
+.content ol {
+  line-height: 1.65;
+}
+
+.content li + li {
+  margin-top: 0.25rem;
+}
+
+.content h1,
+.content h2,
+.content h3,
+.content h4 {
+  color: var(--fg);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.content h1 {
+  margin-block: 0.5rem 1rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--table-border-color);
+  font-size: clamp(1.85rem, 3vw, 2.35rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.content h2 {
+  margin-block: 2.25rem 0.75rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--table-border-color);
+  font-size: clamp(1.35rem, 2vw, 1.6rem);
+}
+
+.content h3 {
+  margin-block: 1.75rem 0.5rem;
+  font-size: 1.15rem;
+}
+
+.content h4 {
+  margin-block: 1.35rem 0.4rem;
+  font-size: 1rem;
+}
+
+:target {
+  scroll-margin-top: 6.5rem;
+}
+
+.content main a:not(.header) {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--thadam-signal-orange);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+}
+
+.content main a:not(.header):hover {
+  text-decoration-thickness: 3px;
+}
+
+:not(pre) > code,
+:not(pre) > .hljs {
+  padding: 0.15em 0.38em;
+  border: 1px solid var(--table-border-color);
+  border-radius: 0.3rem;
+  background: var(--quote-bg);
+  color: var(--fg);
+}
+
+pre {
+  margin: 1rem 0;
+  border: 1px solid var(--table-border-color);
+  border-radius: 0.65rem;
+  background: var(--quote-bg);
+  overflow-x: auto;
+}
+
+pre > code,
+pre > .hljs {
+  padding: 1rem 1.15rem;
+  background: transparent !important;
+  color: var(--fg);
+  line-height: 1.55;
+}
+
+table {
+  width: 100%;
+  margin: 1.25rem 0;
+  border-collapse: collapse;
+  font-size: 0.94rem;
+}
+
+table th,
+table td {
+  padding: 0.7rem 0.9rem;
+  border: 0;
+  border-bottom: 1px solid var(--table-border-color);
+  text-align: left;
+  vertical-align: top;
+}
+
+table thead,
+table thead tr {
+  border: 0;
+  background: var(--quote-bg);
+}
+
+table thead th {
+  border-bottom: 2px solid var(--thadam-signal-orange);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+table tbody tr:nth-child(2n) {
+  background: transparent;
+}
+
+table tbody tr:hover td {
+  background: var(--quote-bg);
+}
+
+.light blockquote,
+.rust blockquote,
+.coal blockquote,
+.navy blockquote,
+.ayu blockquote {
+  margin: 1.25rem 0;
+  padding: 0.75rem 1.1rem;
+  border-block: 0;
+  border-inline-start: 3px solid var(--thadam-signal-orange);
+  border-radius: 0 0.5rem 0.5rem 0;
+  background: var(--quote-bg);
+}
+
+#mdbook-searchbar {
+  padding: 0.6rem 0.95rem;
+  border: 1px solid var(--searchbar-border-color);
+  border-radius: 0.5rem;
+  background: var(--searchbar-bg);
+  color: var(--searchbar-fg);
+  font-family: var(--thadam-font-sans);
+  font-size: 0.95rem;
+}
+
+#mdbook-searchbar:focus,
+#mdbook-searchbar.active {
+  outline: 2px solid var(--thadam-signal-orange);
+  outline-offset: 1px;
+  box-shadow: none;
 }
 
 .theme-toggle {
@@ -132,44 +500,27 @@
 .light .theme-toggle .icon-sun,
 .rust .theme-toggle .icon-sun,
 .navy .theme-toggle .icon-moon,
-.coal .theme-toggle .icon-moon {
+.coal .theme-toggle .icon-moon,
+.ayu .theme-toggle .icon-moon {
   opacity: 1;
   color: var(--bg);
 }
 
 .navy .theme-toggle::after,
-.coal .theme-toggle::after {
+.coal .theme-toggle::after,
+.ayu .theme-toggle::after {
   transform: translateX(1.75rem);
-}
-
-
-.thadam-site-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1rem;
-  margin-inline-start: auto;
-}
-
-.thadam-site-nav a {
-  padding: 0.35rem 0.6rem;
-  border-radius: 0.4rem;
-  text-decoration: none;
-}
-
-.thadam-site-nav a:hover {
-  background: color-mix(in srgb, currentColor 8%, transparent);
-  text-decoration: underline;
-  text-decoration-color: var(--thadam-signal-orange);
 }
 
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.1rem 0.6rem 0.1rem 0.5rem;
-  border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
+  gap: 0.35rem;
+  padding: 0.12rem 0.6rem 0.12rem 0.45rem;
+  border: 1px solid color-mix(in srgb, currentColor 38%, transparent);
   border-radius: 999px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 500;
   line-height: 1.4;
   white-space: nowrap;
 }
@@ -177,8 +528,8 @@
 .pill::before {
   content: "";
   flex: none;
-  width: 0.5rem;
-  height: 0.5rem;
+  width: 0.45rem;
+  height: 0.45rem;
   border-radius: 50%;
   background: currentColor;
 }
@@ -202,75 +553,8 @@
   border: 1.5px dotted currentColor;
 }
 
-.thadam-logo--dark {
-  display: none;
-}
-
-.coal .thadam-logo--light,
-.navy .thadam-logo--light,
-.ayu .thadam-logo--light {
-  display: none;
-}
-
-.coal .thadam-logo--dark,
-.navy .thadam-logo--dark,
-.ayu .thadam-logo--dark {
-  display: inline;
-}
-
-.light a,
-.rust a {
-  color: var(--thadam-graphite);
-  text-decoration-color: var(--thadam-signal-orange);
-}
-
-.coal a,
-.navy a,
-.ayu a {
-  color: var(--thadam-warm-white);
-  text-decoration-color: var(--thadam-signal-orange);
-}
-
-.light h1,
-.light h2,
-.light h3,
-.rust h1,
-.rust h2,
-.rust h3 {
-  color: var(--thadam-graphite);
-}
-
-.light h1,
-.light h2,
-.rust h1,
-.rust h2,
-.coal h1,
-.coal h2,
-.navy h1,
-.navy h2,
-.ayu h1,
-.ayu h2 {
-  border-bottom: 2px solid var(--thadam-signal-orange);
-}
-
-table thead tr {
-  border-bottom: 2px solid var(--thadam-signal-orange);
-}
-
-.light blockquote,
-.rust blockquote,
-.coal blockquote,
-.navy blockquote,
-.ayu blockquote {
-  border-inline-start: 0.25em solid var(--thadam-signal-orange);
-}
-
 .light ::selection,
-.rust ::selection {
-  background: var(--thadam-signal-orange);
-  color: var(--thadam-graphite);
-}
-
+.rust ::selection,
 .coal ::selection,
 .navy ::selection,
 .ayu ::selection {
