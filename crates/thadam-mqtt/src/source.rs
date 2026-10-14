@@ -238,6 +238,7 @@ impl MqttSource {
             if let Err(e) = poll_handle.await
                 && e.is_panic()
             {
+                tracing::error!(error = %e, "MQTT source poll task panicked");
                 shared.fail(MqttError::Panic.into());
             }
             done_tx.send_replace(true);

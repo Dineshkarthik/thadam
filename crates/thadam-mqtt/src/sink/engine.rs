@@ -367,7 +367,12 @@ pub(crate) fn start(link: Link, client: ClientHandle, options: EngineOptions) ->
     let (commands, queue) = mpsc::unbounded_channel();
     let collision = Arc::new(AtomicBool::new(false));
     tokio::spawn(drive(client, queue, Arc::clone(&collision)));
-    tokio::spawn(poll_loop(link, commands.clone(), stop.clone()));
+    tokio::spawn(poll_loop(
+        link,
+        commands.clone(),
+        stop.clone(),
+        Arc::clone(&collision),
+    ));
     Publisher {
         commands,
         permits: Arc::new(Semaphore::new(options.max_in_flight)),
@@ -377,11 +382,34 @@ pub(crate) fn start(link: Link, client: ClientHandle, options: EngineOptions) ->
     }
 }
 
+struct PanicGuard<F: FnOnce()>(Option<F>);
+
+impl<F: FnOnce()> PanicGuard<F> {
+    fn new(on_panic: F) -> Self {
+        Self(Some(on_panic))
+    }
+}
+
+impl<F: FnOnce()> Drop for PanicGuard<F> {
+    fn drop(&mut self) {
+        if std::thread::panicking()
+            && let Some(on_panic) = self.0.take()
+        {
+            on_panic();
+        }
+    }
+}
+
 async fn drive(
     client: ClientHandle,
     mut queue: mpsc::UnboundedReceiver<Command>,
     collision: Arc<AtomicBool>,
 ) {
+    let panic_collision = Arc::clone(&collision);
+    let _guard = PanicGuard::new(move || {
+        panic_collision.store(true, Ordering::Release);
+        tracing::error!("MQTT sink driver task panicked");
+    });
     let mut tracker = InflightTracker::default();
     while let Some(command) = queue.recv().await {
         match command {
@@ -428,7 +456,14 @@ async fn poll_loop(
     mut link: Link,
     events: mpsc::UnboundedSender<Command>,
     stop: CancellationToken,
+    collision: Arc<AtomicBool>,
 ) {
+    let panic_events = events.clone();
+    let _guard = PanicGuard::new(move || {
+        collision.store(true, Ordering::Release);
+        let _ = panic_events.send(Command::Lost("MQTT sink poll task panicked".into()));
+        tracing::error!("MQTT sink poll task panicked");
+    });
     let mut backoff = RECONNECT_MIN;
     loop {
         if stop.is_cancelled() {

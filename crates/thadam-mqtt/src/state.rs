@@ -18,6 +18,8 @@ use tokio::sync::{Notify, mpsc, watch};
 
 use crate::stats::MqttStats;
 
+const WARN_EVERY: u64 = 1_000;
+
 /// Commands for the ack task, executed strictly in order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AckCmd {
@@ -230,12 +232,27 @@ impl Shared {
     fn send_ack(&self, epoch: ConnectionEpoch, pkid: u16, qos: u8) {
         if qos > 0 {
             self.stats.acks_requested.fetch_add(1, Ordering::Relaxed);
-            let _ = self.ack_tx.send(AckCmd::Ack { epoch, pkid, qos });
+            if self.ack_tx.send(AckCmd::Ack { epoch, pkid, qos }).is_err() {
+                self.note_ack_send_drop("ack");
+            }
         }
     }
 
     pub fn request_subscribe(&self) {
-        let _ = self.ack_tx.send(AckCmd::Subscribe);
+        if self.ack_tx.send(AckCmd::Subscribe).is_err() {
+            self.note_ack_send_drop("subscribe");
+        }
+    }
+
+    fn note_ack_send_drop(&self, command: &'static str) {
+        let dropped = self.stats.acks_dropped.fetch_add(1, Ordering::Relaxed) + 1;
+        if dropped == 1 || dropped.is_multiple_of(WARN_EVERY) {
+            tracing::warn!(
+                command,
+                dropped,
+                "MQTT ack channel closed; dropping command"
+            );
+        }
     }
 
     /// Queues one received message. Never blocks.
@@ -925,5 +942,19 @@ mod tests {
         }
         .write_attributes(&mut attrs);
         assert_eq!(attrs.get("mqtt.gap_dropped"), None);
+    }
+
+    #[test]
+    fn closed_ack_channel_counts_dropped_acks_and_subscribes() {
+        let (shared, rx) = shared_with(limits());
+        drop(rx);
+        shared.push(msg(4), 1, 1);
+        let batch = shared.drain(&batch_limits(10)).unwrap();
+        assert_eq!(complete(&shared, &batch), AckStatus::Delivered);
+        assert_eq!(shared.stats.acks_requested.load(Ordering::Relaxed), 1);
+        assert_eq!(shared.stats.acks_dropped.load(Ordering::Relaxed), 1);
+
+        shared.request_subscribe();
+        assert_eq!(shared.stats.acks_dropped.load(Ordering::Relaxed), 2);
     }
 }

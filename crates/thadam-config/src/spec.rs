@@ -539,9 +539,9 @@ fn default_quarantine_disk() -> SizeSpec {
 /// Parquet sink's `rotation` block. Keys left out use the sink's defaults
 /// (128 MiB or 300 seconds, whichever first).
 ///
-/// A quarantined reject caps the owning sink's durable cursor until the
-/// quarantine segment holding it finalizes, so `max_age` bounds the shipping
-/// pause after any quarantined record.
+/// A reject releases its owning sink's durable cursor as soon as it is
+/// fsynced into the quarantine staging file; quarantine segments rotate on
+/// their own cadence without delaying the sink's cursor or uploads.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, default)]
 #[non_exhaustive]

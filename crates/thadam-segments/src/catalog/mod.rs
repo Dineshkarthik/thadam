@@ -1057,7 +1057,7 @@ fn delete_one(inner: &Arc<Inner>, id: &SegmentId) -> Result<u64, SegmentError> {
         Err(e) => return Err(SegmentError::io("unlink uploaded", &abs, e)),
     }
     if let Some(parent) = abs.parent() {
-        let _ = log::fsync_dir(parent);
+        log::fsync_dir(parent).map_err(|e| SegmentError::io("fsync uploaded dir", parent, e))?;
     }
     append_apply(
         inner,
@@ -1068,4 +1068,84 @@ fn delete_one(inner: &Arc<Inner>, id: &SegmentId) -> Result<u64, SegmentError> {
         })],
     )?;
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::catalog::record::FinalizedRecord;
+
+    #[tokio::test]
+    async fn delete_one_propagates_fsync_dir_failure_and_retries() {
+        let dir = tempfile::tempdir().unwrap();
+        let datasets = vec!["d".to_owned()];
+        let (catalog, _) = SegmentCatalog::open(
+            dir.path(),
+            "edge01",
+            None,
+            BudgetCategory::Segments,
+            &datasets,
+        )
+        .unwrap();
+
+        let id = "edge01_0000000000000001_00000000000000000001_00000000000000000002.parquet";
+        let rel = PathBuf::from("ready/d").join(id);
+        catalog
+            .append_records_now(vec![
+                CatalogRecord::Finalized(FinalizedRecord {
+                    id: id.to_owned(),
+                    dataset: "d".into(),
+                    path: Some(rel),
+                    epoch: 1,
+                    first: 1,
+                    last: 2,
+                    rows: 10,
+                    bytes: 100,
+                    sha256: String::new(),
+                    min_event_nanos: None,
+                    max_event_nanos: None,
+                    clock_synced: true,
+                }),
+                CatalogRecord::Eligible(EligibleRecord {
+                    id: id.to_owned(),
+                    pos: 2,
+                }),
+                CatalogRecord::Uploaded(UploadedRecord {
+                    id: id.to_owned(),
+                    key: "k/a".into(),
+                    etag: None,
+                    uploaded_unix: 0,
+                }),
+            ])
+            .unwrap();
+
+        let policy = LocalRetention::delete_after_upload();
+        // `ready/d` does not exist yet: unlink sees NotFound, then `fsync_dir`
+        // on the missing parent fails and must not record `Deleted`.
+        let err = catalog.release_local(&policy).await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                SegmentError::Io {
+                    op: "fsync uploaded dir",
+                    ..
+                }
+            ),
+            "unexpected error: {err:?}"
+        );
+        let totals = catalog.state_totals();
+        assert_eq!(totals.uploaded.files, 1);
+        assert_eq!(totals.deleted.files, 0);
+
+        // Once the parent directory can be fsynced, retrying completes the delete.
+        std::fs::create_dir_all(dir.path().join("ready/d")).unwrap();
+        let report = catalog.release_local(&policy).await.unwrap();
+        assert_eq!(report.deleted_files, 1);
+        assert_eq!(report.deleted_bytes, 100);
+        let totals = catalog.state_totals();
+        assert_eq!(totals.uploaded.files, 0);
+        assert_eq!(totals.deleted.files, 1);
+    }
 }

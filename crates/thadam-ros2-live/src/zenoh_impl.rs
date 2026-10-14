@@ -160,7 +160,12 @@ impl LiveRos2Transport for ZenohTransport {
         // router-side drops that produces are counted as sequence gaps.
         {
             let tx = tx.clone();
+            let topic_name = topic.to_string();
             tokio::spawn(async move {
+                let _guard = TaskPanicGuard {
+                    topic: &topic_name,
+                    task: "live_subscribe",
+                };
                 while let Ok(sample) = subscriber.recv_async().await {
                     if sample.kind() != zenoh::sample::SampleKind::Put {
                         continue;
@@ -171,6 +176,7 @@ impl LiveRos2Transport for ZenohTransport {
                         return;
                     }
                 }
+                tracing::debug!(topic = %topic_name, "zenoh live subscription stream ended");
             });
         }
 
@@ -180,7 +186,12 @@ impl LiveRos2Transport for ZenohTransport {
         if transient_local {
             let session = self.session.clone();
             let ke = format!("{ke}/@adv/**");
+            let topic_name = topic.to_string();
             tokio::spawn(async move {
+                let _guard = TaskPanicGuard {
+                    topic: &topic_name,
+                    task: "late_join_query",
+                };
                 let replies = session
                     .get(ke.as_str())
                     .target(zenoh::query::QueryTarget::All)
@@ -188,8 +199,16 @@ impl LiveRos2Transport for ZenohTransport {
                     .accept_replies(zenoh::query::ReplyKeyExpr::Any)
                     .timeout(LATE_JOIN_TIMEOUT)
                     .await;
-                let Ok(replies) = replies else {
-                    return;
+                let replies = match replies {
+                    Ok(replies) => replies,
+                    Err(error) => {
+                        tracing::warn!(
+                            topic = %topic_name,
+                            %error,
+                            "zenoh transient_local late-join query failed"
+                        );
+                        return;
+                    }
                 };
                 while let Ok(reply) = replies.recv_async().await {
                     if let Ok(sample) = reply.into_result()
@@ -203,6 +222,23 @@ impl LiveRos2Transport for ZenohTransport {
         }
 
         Ok(rx)
+    }
+}
+
+struct TaskPanicGuard<'a> {
+    topic: &'a str,
+    task: &'static str,
+}
+
+impl Drop for TaskPanicGuard<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            tracing::error!(
+                topic = %self.topic,
+                task = self.task,
+                "ROS 2 zenoh task panicked"
+            );
+        }
     }
 }
 

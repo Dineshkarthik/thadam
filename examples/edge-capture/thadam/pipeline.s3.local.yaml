@@ -8,7 +8,7 @@
 #   thadam validate --allow-unresolved examples/edge-capture/thadam/pipeline.s3.local.yaml
 #
 # `make run-native` exports THADAM_DEMO_S3_AK / THADAM_DEMO_S3_SK from
-# secrets/ (created by `make up`). Identical datasets and transforms to the
+# secrets/ (created by `make up-s3`, or by `make run-native` when missing). Identical datasets and transforms to the
 # level-1 file; the same data dir, so S3 picks up where level 1 stopped.
 version: 1
 
@@ -38,8 +38,8 @@ wal:
   on_full: block                          # explicit; see scenario F7 for drop_oldest
   retain_for: 1h                          # replay window, bounded by max_disk
 
-# The quarantine sink's rotation bounds the shipping pause after a rejected
-# record: the owning sink's durable cursor waits on the quarantine segment.
+# A reject releases the owning sink's durable cursor once fsynced to the
+# quarantine staging file; `rotation` sets the quarantine segment cadence.
 quarantine: { format: parquet, max_disk: 268435456, rotation: { max_age: 15 } }   # 256 MiB
 
 datasets:
