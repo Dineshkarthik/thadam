@@ -37,6 +37,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cargo clippy --workspace --exclude thadam-python --all-targets --locked -- -D warnings
+      - run: cargo clippy -p thadam-cli --all-features --all-targets --locked -- -D warnings
+      - run: cargo clippy -p thadam-mqtt --features v5 --all-targets --locked -- -D warnings
 
   build:
     strategy:
@@ -48,6 +50,13 @@ jobs:
       - uses: actions/checkout@v4
       - run: cargo build --workspace --exclude thadam-python --locked
       - run: cargo run --locked -p thadam-cli -- --version
+
+  msrv:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install 1.89 --profile minimal
+      - run: cargo +1.89 check --workspace --exclude thadam-python --exclude thadam-iceberg --locked
 
   test:
     strategy:
@@ -61,6 +70,7 @@ jobs:
         with:
           tool: cargo-nextest@0.9.146
       - run: cargo nextest run --workspace --exclude thadam-python --locked --profile ci
+      - run: cargo nextest run -p thadam-cli --all-features --locked
 
   python-sdk:
     runs-on: ubuntu-24.04
@@ -129,6 +139,13 @@ jobs:
       - uses: actions/checkout@v4
       - run: scripts/check-deps.sh --self-test
       - run: scripts/check-deps.sh
+
+  shellcheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # The three info notes in wal-hw-bench.sh (SC1091, SC2016) are intentional.
+      - run: shellcheck --severity=warning scripts/*.sh deploy/*.sh
 
   fuzz-smoke:
     runs-on: ubuntu-24.04
