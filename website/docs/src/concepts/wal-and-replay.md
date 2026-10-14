@@ -20,7 +20,7 @@ One dedicated OS thread owns all writable files. Submissions are grouped: one `w
 - Power-loss survival additionally requires storage that honors flush and is claimed only on flush-honoring industrial SSD or eMMC on Linux — and only once a hardware power-cut rig (500 cycles) has produced evidence. **No power-loss claim is published yet.** `fsync: never` survives a process crash only.
 - After a failed fsync the segment is sealed and the writer stops rather than trusting the page cache ("fsyncgate" rule). No ticket resolves `Ok` after a failed fsync; recovery re-verifies.
 
-> **Format status.** ADR-0004 is still **Draft**. The WAL format is versioned (segment headers, `wal.json`, and cursor files all carry versions, and a binary refuses unknown versions) but **not frozen**: a spike re-run on x86 NVMe and ARM eMMC reference hardware must finish before it is frozen. The provisional defaults — `interval(10ms)`, segment size, Linux preallocation — can change before the freeze.
+> **Format status.** ADR-0004 is still **Draft**. The WAL format is versioned (segment headers, `wal.json`, and cursor files all carry versions, and a binary refuses unknown versions) but **not frozen**: a spike re-run on x86 NVMe and ARM eMMC reference hardware must finish first; the format freezes at the v0.1.0 tag after that run. The provisional defaults — `interval(10ms)`, segment size, Linux preallocation — can change before the freeze.
 
 ## Readers, cursors, and gaps
 

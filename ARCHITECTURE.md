@@ -256,7 +256,7 @@ Clauses every source implementation must satisfy, each tested by the conformance
 
 ## 6. The capture WAL
 
-Owner ADRs: ADR-0003 (placement) and ADR-0004 (engine and format, Draft). Crate: `thadam-wal`. Spike S1 has reported, and the layout below is its recommendation adopted as built. **The format is frozen only when ADR-0004 is accepted, and ADR-0004 stays Draft until the S1 re-run on x86 NVMe and ARM eMMC is done**, because the format becomes permanent once released and S1 ran without reference hardware. The owner decided to build the WAL now and re-validate on reference hardware later, so `thadam-wal` is implemented with a versioned but not frozen format v1.
+Owner ADRs: ADR-0003 (placement) and ADR-0004 (engine and format, Draft). Crate: `thadam-wal`. Spike S1 has reported, and the layout below is its recommendation adopted as built. **The format freezes at the v0.1.0 tag, after the S1 re-run on x86 NVMe and ARM eMMC, and ADR-0004 stays Draft until that re-run is done**, because the format becomes permanent once released and S1 ran without reference hardware. The owner decided to build the WAL now and re-validate on reference hardware later, so `thadam-wal` is implemented with a versioned but not frozen format v1.
 
 ### Contents and format (S1 recommendation; not frozen)
 
@@ -794,7 +794,7 @@ Places where the current plans disagreed and how this document resolves them.
 - **Metric labels and names.** Merged in section 14.
 - **Config sink binding for transforms.** Unspecified in both; tracked as O2.
 - **`on_full`.** The implementation plan's example sets `on_full: block` and tags it OPEN; the demo's YAML does the same; both agree it must be explicit, and the owner confirmed on 2026-10-07 that there is no default. `thadam init` writes `block`.
-- **WAL frame header size.** Stated as 24 bytes but the listed fields total 20. Resolved by S1 and recorded in ADR-0004: 24 bytes, with a reserved word that must be zero (O9 closed; the format is frozen when ADR-0004 is accepted).
+- **WAL frame header size.** Stated as 24 bytes but the listed fields total 20. Resolved by S1 and recorded in ADR-0004: 24 bytes, with a reserved word that must be zero (O9 closed; the format freezes at the v0.1.0 tag, after the ADR-0004 reference-hardware run).
 - **MSRV.** "Stable minus two" (implementation plan) and "1.88 or later" (maturity review and readiness gate) agreed on 1.88 as the floor until the owner chose `serde-saphyr` (Rust 1.89) for ADR-0012 on 2026-10-07. The declared `rust-version` is now 1.89 and is the floor (ADR-0020).
 - **PR numbering across documents.** The readiness gate refers to implementation-plan numbering; this document uses it.
 - **Example directory names.** The original and implementation plans name `examples/mqtt-to-parquet`, `mqtt-to-s3`, and `offline-replay`; the demo plan consolidates them into one example, `examples/edge-capture`, with levels 1 to 4, and names the P1 follow-on `examples/edge-analytics`. The demo plan's names are used.

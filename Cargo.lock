@@ -5062,7 +5062,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-arrow"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "arrow-array 60.0.0",
  "arrow-buffer 60.0.0",
@@ -5080,7 +5080,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-bench"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "clap",
  "humantime",
@@ -5092,7 +5092,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-can"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5109,7 +5109,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-cli"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "axum",
@@ -5148,7 +5148,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-clickhouse"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "arrow-array 60.0.0",
  "arrow-schema 60.0.0",
@@ -5169,7 +5169,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-config"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
  "bytesize",
@@ -5189,7 +5189,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bitflags 2.13.2",
@@ -5209,7 +5209,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-grpc"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5234,7 +5234,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-http"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -5256,7 +5256,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-iceberg"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "arrow-array 58.4.0",
  "arrow-array 60.0.0",
@@ -5292,7 +5292,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-kafka"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5316,7 +5316,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-mcap"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5335,7 +5335,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-modbus"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5350,7 +5350,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-mqtt"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5373,7 +5373,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-nats"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-nats",
  "async-trait",
@@ -5395,7 +5395,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-object-store"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5419,7 +5419,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-opcua"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-opcua",
  "async-trait",
@@ -5440,7 +5440,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-python"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.0",
  "arrow-schema 59.3.0",
@@ -5461,7 +5461,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-ros2-live"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5478,7 +5478,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-ros2-msg"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bytes",
  "criterion",
@@ -5488,7 +5488,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-runtime"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -5519,7 +5519,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-segments"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "arrow-array 60.0.0",
  "arrow-buffer 60.0.0",
@@ -5545,7 +5545,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-simulator"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "arrow-array 60.0.0",
  "arrow-schema 60.0.0",
@@ -5568,7 +5568,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-sparkplug"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "prost",
  "prost-build",
@@ -5579,7 +5579,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-testkit"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5590,7 +5590,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-transform"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bytes",
  "criterion",
@@ -5612,7 +5612,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-wal"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bytes",
  "crc32c",

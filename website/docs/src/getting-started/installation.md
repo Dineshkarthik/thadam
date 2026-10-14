@@ -35,7 +35,7 @@ The binary is `target/release/thadam`. Every crate builds with `#![forbid(unsafe
 
 ```text
 $ thadam version
-thadam 0.0.0
+thadam 0.1.0
 config version: 1
 config hash version: 1
 ```
