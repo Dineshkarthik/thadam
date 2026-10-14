@@ -14,8 +14,8 @@
 sinks:
   - id: mqtt-out
     kind: mqtt_publish
-    datasets: [imu]                          # exactly one dataset per sink entry
     config:
+      datasets: [imu]                        # exactly one dataset per sink entry
       url: mqtts://broker.internal:8883      # mqtt://host[:1883] or mqtts://host[:8883]
       client_id: thadam-edge-01               # stable identifier of this publisher (1-256 chars)
       topic: thadam/{dataset}/{robot}         # template; {dataset} + identity level names
@@ -37,6 +37,7 @@ sinks:
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
+| `datasets` | list of one id | every dataset | the one dataset this sink publishes; required when the pipeline declares two or more datasets |
 | `url` | string | required | `mqtt://` or `mqtts://` only; no path, userinfo, query, or fragment |
 | `client_id` | string | required | 1-256 characters; one publisher per id on a broker |
 | `topic` | string | required | see [topic templates](#topic-templates) |
