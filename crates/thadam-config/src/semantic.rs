@@ -21,7 +21,7 @@ use crate::spans::Anchor;
 use crate::spec::{
     AggregateFn, AggregateSpec, ConnectorSpec, DECLARED_FIELD_ID_RANGE, DatasetSpec,
     EnrichFieldSpec, EnrichFormat, EnrichKeySpec, FieldSpec, IDENTITY_LEVEL_ID_RANGE, MaxLagSpec,
-    SinkSpec, TimeUnit, TransformSpec, WalSpec, WatchField, WindowTime,
+    QuarantineFormat, SinkSpec, TimeUnit, TransformSpec, WalSpec, WatchField, WindowTime,
 };
 
 /// What the connector checks read from a source or a sink.
@@ -451,6 +451,16 @@ impl<'p> Checker<'p, '_, '_> {
                 &Vec::new().key("quarantine").key("max_disk"),
                 Anchor::Value,
                 "`max_disk` must be greater than zero",
+            );
+        }
+        if let Some(q) = &self.parsed.quarantine
+            && q.format == QuarantineFormat::Ndjson
+        {
+            self.ctx.invalid_hint(
+                &Vec::new().key("quarantine").key("format"),
+                Anchor::Value,
+                "ndjson quarantine segments are reserved; this build supports parquet only",
+                "use `format: parquet`",
             );
         }
     }
