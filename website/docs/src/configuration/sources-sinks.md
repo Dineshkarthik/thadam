@@ -28,14 +28,23 @@ sinks:
 
 ### Registered kinds
 
-| Kind | Role | Status |
-|---|---|---|
-| `mqtt` | source | Implemented ([MQTT source](../sources/mqtt.md)) |
-| `http` | source | Implemented ([HTTP source](../sources/http.md)) |
-| `parquet` | segment sink | Implemented ([Parquet segments sink](../sinks/parquet.md)) |
-| `object_store` | shipper service | Implemented ([object storage sink](../sinks/object-store.md)); configured under `sinks:` and runs as a service shipping the named segment sink |
-| `clickhouse` | batch sink | Implemented ([ClickHouse sink](../sinks/clickhouse.md)); inserts into an existing table, never creates or alters tables |
-| `mqtt_publish` | batch sink | Implemented ([MQTT publish sink](../sinks/mqtt-publish.md)); one message per event, QoS 0 or 1 |
+| Kind | Role | Feature flag | Status |
+|---|---|---|---|
+| `mqtt` | source | built-in | Implemented ([MQTT source](../sources/mqtt.md)) |
+| `http` | source | built-in | Implemented ([HTTP source](../sources/http.md)) |
+| `grpc` | source | built-in | Implemented ([gRPC source](../sources/grpc.md)) |
+| `mcap` | source | built-in | Implemented ([ROS 2](../sources/ros2.md)); replays MCAP and rosbag2-MCAP recordings |
+| `modbus` | source | built-in | Implemented ([Modbus source](../sources/modbus.md)); Modbus TCP polling |
+| `can` | source | built-in | Implemented ([CAN source](../sources/can.md)); Linux SocketCAN (`raw` and DBC `decoded`) |
+| `opcua` | source | `opcua` (off by default) | Implemented ([OPC UA source](../sources/opcua.md)) |
+| `ros2_live` | source | `ros2-live` (off by default) | In progress ([ROS 2 live source](../sources/ros2-live.md)); `rmw_zenoh` transport, experimental |
+| `parquet` | segment sink | built-in | Implemented ([Parquet segments sink](../sinks/parquet.md)) |
+| `object_store` | shipper service | built-in | Implemented ([object storage sink](../sinks/object-store.md)); configured under `sinks:` and runs as a service shipping the named segment sink |
+| `iceberg` | registrar service | `iceberg` (off by default) | In progress ([Apache Iceberg registrar](../sinks/iceberg.md)); configured under `sinks:`, experimental (P2) |
+| `nats` | batch sink | built-in | Implemented ([NATS JetStream sink](../sinks/nats.md)); one message per event, deduplicated by `Nats-Msg-Id` |
+| `kafka` | batch sink | built-in | Available ([Apache Kafka sink](../sinks/kafka.md)); one record per event, `acks=all` |
+| `mqtt_publish` | batch sink | built-in | Implemented ([MQTT publish sink](../sinks/mqtt-publish.md)); one message per event, QoS 0 or 1 |
+| `clickhouse` | batch sink | `clickhouse` (on by default) | Implemented ([ClickHouse sink](../sinks/clickhouse.md)); inserts into an existing table, never creates or alters tables |
 
 ## Sink WAL-consumer policies {#sink-policies}
 

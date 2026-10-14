@@ -26,10 +26,10 @@ sinks:
     config:
       datasets: [telemetry]              # selector; empty or absent consumes every declared dataset
       compression: auto                  # zstd(1) on x86_64, snappy on aarch64 (pending benchmark B6)
-      row_group_bytes: 8MiB              # edge profile
-      rotation: { max_bytes: 128MiB, max_age: 5m }   # production default; demo uses 60s
+      row_group_bytes: 8388608           # 8 MiB (edge profile; integer bytes)
+      rotation: { max_bytes: 134217728, max_age: 300 }   # 128 MiB or 300 s (production default; demo uses 60)
       max_open_files: 4                  # LRU-finalize the least recently written file beyond this
-      max_disk: 4GiB                     # per-sink disk budget for local segments
+      max_disk: 4294967296               # 4 GiB per-sink disk budget for local segments (integer bytes)
       timestamp_unit: micros             # micros default; nanos opt-in per sink
       unsigned: native                   # or signed: widen to the next signed type
       finalize_on_shutdown: true

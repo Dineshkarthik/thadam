@@ -48,8 +48,8 @@ The contributor checks mirror CI:
 
 ```bash
 cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo nextest run --workspace
+cargo clippy --workspace --exclude thadam-python --all-targets -- -D warnings
+cargo nextest run --workspace --exclude thadam-python
 scripts/check-deps.sh
 cargo deny check
 ```

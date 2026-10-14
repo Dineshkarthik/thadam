@@ -15,14 +15,14 @@ sources:
       topics:
         - { filter: "robots/+/telemetry", qos: 1 }
       ack_mode: on_commit
-      max_message_bytes: 1MiB
+      max_message_bytes: 1048576
       expected_broker_window: 20
       tls: { ca: /etc/thadam/ca.pem, cert: /etc/thadam/client.pem, key: /etc/thadam/client.key }
 ```
 
 ## All options
 
-Required: `url`, `client_id`, `topics`. Unknown keys are rejected. Durations are whole seconds (`30`) or a unit string (`500ms`, `30s`, `5m`, `1h`). Limits below are enforced by `thadam validate`.
+Required: `url`, `client_id`, `topics`. Unknown keys are rejected. Durations are whole seconds (`30`) or a unit string (`30s`, `5m`, `1h`; `keep_alive`, `connect_timeout`, and `open_timeout` require whole seconds). Limits below are enforced by `thadam validate`.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
@@ -41,8 +41,8 @@ Required: `url`, `client_id`, `topics`. Unknown keys are rejected. Durations are
 | `ack_mode` | `on_commit` or `on_receive` | `on_commit` | See [ack modes](#ack-modes). |
 | `expected_broker_window` | integer | `100` | 1–65535. The broker's inflight window, used only for the `thadam validate` memory estimate and the unacknowledged-message guard (disconnects above window × `unacked_guard_multiple`). In MQTT 3.1.1 the window is the broker's setting, not configured here. |
 | `unacked_guard_multiple` | integer | `4` | ≥ 2. Multiplier for the guard above. The guard disconnects rather than ever blocking the poll loop. |
-| `qos0_queue_bytes` | size | `8MiB` | Byte budget for queued QoS 0 messages; beyond it the **newest message is dropped and counted**. Must be ≥ `max_message_bytes`. |
-| `max_message_bytes` | size | `1MiB` | Largest accepted payload. The client's incoming packet limit (`max_incoming_packet_size`) is derived from it; align the broker's own limit with it (see [required broker settings](#required-broker-settings)). |
+| `qos0_queue_bytes` | integer | `8388608` | Byte budget for queued QoS 0 messages (8 MiB); beyond it the **newest message is dropped and counted**. Must be ≥ `max_message_bytes`. |
+| `max_message_bytes` | integer | `1048576` | Largest accepted payload in bytes (1 MiB). The client's incoming packet limit (`max_incoming_packet_size`) is derived from it; align the broker's own limit with it (see [required broker settings](#required-broker-settings)). |
 | `protocol` | `v311` or `v5` | `v311` | `v311` is the supported protocol; `v5` is **experimental** and needs the `v5` cargo feature of `thadam-mqtt` (rejected in builds without it). |
 | `request_channel_capacity` | integer | `1024` | Client request-channel capacity, ≥ 16. |
 

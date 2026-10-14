@@ -15,7 +15,7 @@ On success it prints the number of sources, datasets, transforms, and sinks, the
 Validation is a multi-error pass: one mistake does not hide the rest. Each diagnostic carries a stable error code, a YAML path, a line/column, and usually a hint:
 
 ```text
-error[config.invalid]: unknown transform kind `teleport`, expected one of `validate`, `on_change`, `filter`, `sample`, `enrich`, `rename`, `project`, `cast`
+error[config.invalid]: unknown transform kind `teleport`, expected one of `validate`, `on_change`, `filter`, `sample`, `enrich`, `rename`, `project`, `cast`, `pose`, `joint_state`, `window`
   --> pipeline.yaml:23:11 (transforms[0].kind)
 error[config.invalid]: `max_disk` is smaller than one segment
   --> pipeline.yaml:33:5 (wal.max_disk)

@@ -58,10 +58,15 @@ Options:
       --allow-unresolved  Treat an unset `${env:}` or unreadable `${file:}` as
                           a warning, so a configuration can be checked on a
                           machine that lacks the secrets
+      --against-data-dir  Also check the configuration the way `run` would
+                          start it: every connector's configuration, every
+                          chain, and the data directory `pipeline.data_dir`
+                          (read-only). Needs the real secrets, so it cannot be
+                          combined with `--allow-unresolved`
   -h, --help              Print help
 ```
 
-Prints all diagnostics, then the pipeline summary, config hash, and memory estimate. Exits 0 if the configuration is valid (warnings allowed), 2 on any error. Details: [validating configurations](../getting-started/validating-configs.md).
+Prints all diagnostics, then the pipeline summary, config hash, and memory estimate. Exits 0 if the configuration is valid (warnings allowed), 2 on any error (or 3 with `--against-data-dir` when the data directory is incompatible). Details: [validating configurations](../getting-started/validating-configs.md).
 
 ## `thadam schema`
 
@@ -122,8 +127,6 @@ Options:
 ```
 
 Builds and runs the pipeline from the config file, handling SIGINT/SIGTERM for graceful shutdown ([lifecycle](../operations/crash-recovery.md#graceful-shutdown)). The CLI flags override the matching `observability` config keys for that run. With `--admin-bind`, the [admin API](../operations/admin-api.md) serves for the duration of the run. With `--exit-when-sources-finish`, the run ends by itself once every source is drained, which is how the [ROS 2 MCAP example](https://github.com/Dineshkarthik/thadam/tree/main/examples/ros2-mcap-to-parquet) completes; without it, the pipeline runs until SIGINT/SIGTERM.
-
-> At this stage of the build-out `thadam run` fails the pipeline build once a config contains a sink, because the registered sink factories are placeholders ([status](../introduction.md#project-status)).
 
 ## `thadam status`
 
