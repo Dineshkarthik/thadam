@@ -10,6 +10,7 @@ Edge-first data capture
 Usage: thadam <COMMAND>
 
 Commands:
+  init      Write a commented starter configuration file
   validate  Check a configuration file and print the memory estimate
   version   Print version and format information
   schema    Print the JSON Schema of the configuration file
@@ -26,6 +27,22 @@ Options:
 ```
 
 Exit codes for every command: [exit codes](../operations/exit-codes.md) (0 ok, 1 runtime failure, 2 invalid configuration/usage, 3 data directory, 130 interrupted).
+
+## `thadam init` {#thadam-init}
+
+```text
+Write a commented starter configuration file
+
+Usage: thadam init [PATH]
+
+Arguments:
+  [PATH]  Where to write the starter configuration file [default: pipeline.yaml]
+
+Options:
+  -h, --help  Print help
+```
+
+Writes a minimal, commented starter `pipeline.yaml` (one MQTT source, one JSON dataset, one local Parquet sink) with `wal.on_full: block` and an explanatory comment on the `block` versus `drop_oldest` trade-off ([backpressure and disk budgets](../concepts/backpressure-and-disk-budgets.md#on_full)). The written file passes `thadam validate` out of the box. Refuses to overwrite an existing file (exits 2); exits 0 on success or 1 on an I/O failure.
 
 ## `thadam validate` {#thadam-validate}
 

@@ -18,6 +18,7 @@
 mod data_dir;
 mod exit;
 mod export;
+mod init;
 mod inspect;
 mod point;
 mod registry;
@@ -46,6 +47,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Write a commented starter configuration file.
+    Init(init::InitArgs),
     /// Check a configuration file and print the memory estimate.
     Validate(ValidateArgs),
     /// Print version and format information.
@@ -180,6 +183,7 @@ fn main() -> ExitCode {
     let stderr = std::io::stderr();
     let (mut out, mut err) = (stdout.lock(), stderr.lock());
     let exit = match cli.command {
+        Command::Init(args) => init::run(&args.path, &mut out, &mut err),
         Command::Validate(args) => validate::run(
             &args.path,
             args.allow_unresolved,
