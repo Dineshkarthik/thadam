@@ -22,7 +22,7 @@ Unknown keys are rejected at every level. Limits are enforced by `thadam validat
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `bind` | socket address | `127.0.0.1:50051` | Address to bind. Non-loopback addresses require `bearer_token` or `tls`. |
+| `bind` | socket address | `127.0.0.1:50051` | Address to bind. Non-loopback addresses require `bearer_token`. |
 | `bearer_token` | string | none | Calls must send `authorization: Bearer <token>` metadata. Non-empty, no control characters. Redacted in logs and debug output. |
 | `tls` | mapping | none | `{ cert, key }` PEM file paths (leaf-first chain, private key). Enables TLS. Both keys are required. |
 | `max_message_bytes` | integer (bytes) | `1048576` (1 MiB) | Largest accepted `payload`. Larger messages get `INVALID_ARGUMENT`. Minimum 1. |
@@ -53,17 +53,19 @@ The JSON Schema for this block is closed (`additionalProperties: false`) and is 
 | Status | When | Notes |
 |---|---|---|
 | `OK` | The message (or every message of a stream) is committed. | Sent only after the WAL commit. |
-| `UNAUTHENTICATED` | `bearer_token` is set and the metadata is missing or wrong. | The comparison is constant-time. |
+| `UNAUTHENTICATED` | `bearer_token` is set and the metadata is missing or wrong. | Compared in constant time over SHA-256 digests. |
 | `INVALID_ARGUMENT` | `payload` is larger than `max_message_bytes`. | Rejected before the message is queued. |
+| `DEADLINE_EXCEEDED` | A client stream stalled for more than the 30 s message-body read timeout. | Ends the stream. |
 | `RESOURCE_EXHAUSTED` | The source queue is full. | The accept path never blocks on a full queue. |
 | `UNAVAILABLE` | The message was abandoned by the runtime, or the source is shutting down. | Retry later. |
 
 ## Security
 
-- **Bind address.** The default is loopback. Binding to a non-loopback address without `bearer_token` or `tls` is rejected at validation time.
-- **Bearer tokens.** Use `${env:}` or `${file:}` so the token stays out of the config file. Tokens are compared in constant time and never logged.
+- **Bind address.** The default is loopback. Binding to a non-loopback address without `bearer_token` is rejected at validation time (TLS alone does not authenticate callers). Configuring `bearer_token` on a non-loopback address without `tls` logs a warning because the token travels in cleartext.
+- **Bearer tokens.** Use `${env:}` or `${file:}` so the token stays out of the config file. Tokens are compared in constant time over SHA-256 digests (without leaking token length) and never logged.
 - **TLS.** When `tls` is set, the server speaks TLS only, using rustls with the `ring` provider. No client-certificate authentication is offered yet. A client that does not trust the server certificate fails the handshake.
 - **Size limits.** `max_message_bytes` bounds memory per message. The gRPC decoder is also limited to that size plus a small envelope allowance.
+- **Connection handling.** Concurrent connections are capped at 1024 (at most 256 concurrent HTTP/2 streams per connection). The initial HTTP/2 preface must arrive within 10 s, HTTP/2 keep-alive pings run every 20 s with a 10 s timeout (60 s socket idle cap), and streaming message body reads time out after 30 s (`DEADLINE_EXCEEDED`).
 
 ## Shutdown
 

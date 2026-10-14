@@ -6,6 +6,7 @@
 //! (ADR-0020).
 
 use std::fmt;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -54,6 +55,34 @@ impl NatsConfig {
     pub fn require_tls(&self) -> bool {
         self.url.starts_with("tls://") || self.tls.is_some()
     }
+
+    /// Whether a shared token or password travels over plain `nats://` to a
+    /// non-loopback host without TLS.
+    pub(crate) fn sends_credentials_unsecured(&self) -> bool {
+        !self.require_tls()
+            && !is_loopback_nats(&self.url)
+            && matches!(self.auth, Auth::Token(_) | Auth::UserPassword { .. })
+    }
+}
+
+/// Whether `url` is plain `nats://` to a loopback host (`localhost`,
+/// `127.0.0.0/8`, `::1`), where credentials never leave the machine.
+pub(crate) fn is_loopback_nats(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("nats://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host_port = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host_port)| host_port);
+    let host = match host_port.strip_prefix('[') {
+        Some(bracketed) => bracketed.split(']').next().unwrap_or_default(),
+        None => host_port
+            .rsplit_once(':')
+            .map_or(host_port, |(host, _)| host),
+    };
+    host.eq_ignore_ascii_case("localhost")
+        || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
 }
 
 /// The credential the sink presents. At most one method is configured.
@@ -342,7 +371,7 @@ pub fn parse_config(value: &serde_json::Value) -> Result<NatsConfig, Vec<ThadamE
     if !errors.is_empty() {
         return Err(errors);
     }
-    Ok(NatsConfig {
+    let config = NatsConfig {
         url: raw.url,
         subject,
         stream: raw.stream,
@@ -352,7 +381,14 @@ pub fn parse_config(value: &serde_json::Value) -> Result<NatsConfig, Vec<ThadamE
         tls,
         request_timeout: raw.request_timeout,
         max_in_flight: raw.max_in_flight,
-    })
+    };
+    if config.sends_credentials_unsecured() {
+        tracing::warn!(
+            url = %config.url,
+            "the NATS token or password is sent over plain nats:// without TLS; use tls:// or set tls outside local setups"
+        );
+    }
+    Ok(config)
 }
 
 /// The JSON Schema for a `kind: nats` `config:` block.
@@ -560,5 +596,62 @@ mod tests {
         assert!(parse_config(&v).is_err(), "above the cap");
         v["request_timeout"] = serde_json::json!("30fortnights");
         assert!(parse_config(&v).is_err(), "bad unit");
+    }
+
+    #[test]
+    fn non_loopback_plaintext_credentials_are_flagged() {
+        for url in [
+            "nats://localhost:4222",
+            "nats://LOCALHOST",
+            "nats://127.0.0.1:4222",
+            "nats://127.8.9.1:4222",
+            "nats://[::1]:4222",
+        ] {
+            assert!(is_loopback_nats(url), "{url}");
+        }
+        for url in [
+            "nats://nats.internal:4222",
+            "nats://10.0.0.5:4222",
+            "nats://0.0.0.0:4222",
+            "nats://localhost.evil.test:4222",
+            "tls://localhost:4222",
+        ] {
+            assert!(!is_loopback_nats(url), "{url}");
+        }
+
+        // Token over non-loopback nats:// without tls is flagged.
+        let cfg = parse_config(&demo_json()).expect("valid");
+        assert!(cfg.sends_credentials_unsecured());
+
+        // User/password over non-loopback nats:// without tls is flagged.
+        let mut v = demo_json();
+        v.as_object_mut().expect("object").remove("token");
+        v["user"] = serde_json::json!("alice");
+        v["password"] = serde_json::json!("hunter2");
+        let cfg = parse_config(&v).expect("valid");
+        assert!(cfg.sends_credentials_unsecured());
+
+        // tls:// URL clears the flag.
+        v["url"] = serde_json::json!("tls://nats.internal:4222");
+        let cfg = parse_config(&v).expect("valid");
+        assert!(!cfg.sends_credentials_unsecured());
+
+        // Setting tls: on a nats:// URL also requires TLS and clears the flag.
+        let mut v = demo_json();
+        v["tls"] = serde_json::json!({});
+        let cfg = parse_config(&v).expect("valid");
+        assert!(!cfg.sends_credentials_unsecured());
+
+        // Loopback nats:// is not flagged.
+        let mut v = demo_json();
+        v["url"] = serde_json::json!("nats://127.0.0.1:4222");
+        let cfg = parse_config(&v).expect("valid");
+        assert!(!cfg.sends_credentials_unsecured());
+
+        // No credentials on non-loopback nats:// is not flagged.
+        let mut v = demo_json();
+        v.as_object_mut().expect("object").remove("token");
+        let cfg = parse_config(&v).expect("valid");
+        assert!(!cfg.sends_credentials_unsecured());
     }
 }

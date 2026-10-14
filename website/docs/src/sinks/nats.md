@@ -39,7 +39,7 @@ Notes:
 - Secrets are plain strings **already resolved** by `${env:}`/`${file:}` interpolation ([secrets](../configuration/index.md#secrets)); the sink wraps them in redacting types and never logs them.
 - `subject` templates interpolate at whole-token granularity: `thadam.{dataset}.{robot}` is valid, `pre-{robot}` is refused at validation time (it could never match a stream's wildcard subject). Non-`dataset` placeholders must be identity levels of the selected dataset — a typo fails at `validate`/`open`, not per event. Rendered values must be usable subject tokens (no `.`, `*`, `>`, or whitespace); an event that fails rendering is rejected individually to quarantine.
 - A `kind: nats` sink publishes exactly one dataset; add one sink entry per dataset. The restriction lifts when the batch contract groups events per dataset (ADR-0002 open work).
-- TLS uses rustls with the `ring` provider only (ADR-0020): `ca_file` replaces the platform roots and, with `client_cert`/`client_key`, enables mutual TLS. Setting `tls:` (or a `tls://` URL) requires TLS.
+- TLS uses rustls with the `ring` provider only (ADR-0020): `ca_file` replaces the platform roots and, with `client_cert`/`client_key`, enables mutual TLS. Setting `tls:` (or a `tls://` URL) requires TLS. Configuring `token` or `user`/`password` over a non-loopback `nats://` URL without `tls` logs a warning because the credential travels in cleartext.
 
 ## The JSON envelope
 

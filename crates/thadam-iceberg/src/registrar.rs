@@ -44,6 +44,13 @@ impl Registrar {
     }
 
     async fn run_inner(&mut self, ctx: &ServiceContext) -> Result<(), IcebergError> {
+        if self.config.sends_credentials_unsecured() {
+            tracing::warn!(
+                id = %self.id,
+                catalog_uri = %self.config.catalog_uri,
+                "Iceberg catalog credentials are sent over plain http://; use https:// outside local setups"
+            );
+        }
         let (mut catalog_client, mut committer) = self.connect(ctx).await?;
         let catalog = self.await_catalog(ctx).await?;
         let mut watch_rx = catalog.subscribe();

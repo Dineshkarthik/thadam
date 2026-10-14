@@ -14,8 +14,9 @@ The admin HTTP API is the operational front door: health, readiness, metrics, an
 ## Authentication
 
 - With no token configured, all endpoints are open (acceptable only on loopback).
-- With `observability.admin.token_file` (or `--admin-token-file`): `/readyz`, `/metrics`, and `/status` require `Authorization: Bearer <token>`; a missing or wrong token gets `401`. `/healthz` is always unauthenticated.
+- With `observability.admin.token_file` (or `--admin-token-file`): `/readyz`, `/metrics`, and `/status` require `Authorization: Bearer <token>`; a missing or wrong token gets `401` (compared in constant time over SHA-256 digests without leaking token length). `/healthz` is always unauthenticated.
 - **A non-loopback bind without a token is a configuration error** (`config.incompatible`), not a warning — the runtime refuses rather than exposing operational state unauthenticated.
+- Concurrent admin connections are capped at 1024; HTTP/1 request headers time out after 10 s, idle keep-alive connections after 60 s, and request body reads after 10 s (`408 Request Timeout`; bodies over 64 KiB get `413`).
 
 ## `/status` {#status}
 

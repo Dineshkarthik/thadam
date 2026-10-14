@@ -55,7 +55,7 @@ Unknown keys are rejected at every level. Durations are whole seconds (`30`) or 
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `bind` | socket address | `127.0.0.1:8080` | Address to bind. Non-loopback addresses require `bearer_token` or `tls`. |
+| `bind` | socket address | `127.0.0.1:8080` | Address to bind. Non-loopback addresses require `bearer_token`. |
 | `path` | string | `/ingest` | Absolute path that accepts `POST`. Must not contain whitespace, `?`, `#`, `{`, `}`, or `*`. |
 | `bearer_token` | string | none | Requests must send `Authorization: Bearer <token>`. Redacted in logs and debug output. |
 | `tls` | mapping | none | `{ cert, key }` PEM file paths (leaf-first chain, private key). Enables HTTPS. |
@@ -100,7 +100,8 @@ Within one connection, `listen` responses are sent in request order. Across conn
 | Status | When | Notes |
 |---|---|---|
 | `204 No Content` | The message is committed. | Only after the WAL commit. |
-| `401 Unauthorized` | `bearer_token` is set and the header is missing or wrong. | Includes `WWW-Authenticate: Bearer`. The comparison is constant-time. |
+| `401 Unauthorized` | `bearer_token` is set and the header is missing or wrong. | Includes `WWW-Authenticate: Bearer`. Compared in constant time over SHA-256 digests. |
+| `408 Request Timeout` | Request body was not received within the 30 s body-read timeout. | Connection is closed after the response. |
 | `413 Payload Too Large` | Body exceeds `max_message_bytes`. | Rejected before the body is buffered in full when `Content-Length` says so. |
 | `503 Service Unavailable` | The queue is full or the message was abandoned by the runtime. | Includes `Retry-After: 1`. The accept loop never blocks on a full queue. |
 
@@ -108,12 +109,12 @@ A request that matches no route gets the usual `404`/`405` from the server and n
 
 ## Security
 
-- **Bind address.** The default is loopback. Binding to a non-loopback address without `bearer_token` or `tls` is rejected at validation time.
-- **Bearer tokens.** Use `${env:}` or `${file:}` so the token stays out of the config file. Tokens are compared in constant time and never logged.
+- **Bind address.** The default is loopback. Binding to a non-loopback address without `bearer_token` is rejected at validation time (TLS alone does not authenticate callers). Configuring `bearer_token` on a non-loopback address without `tls` logs a warning because the token travels in cleartext.
+- **Bearer tokens.** Use `${env:}` or `${file:}` so the token stays out of the config file. Tokens are compared in constant time over SHA-256 digests (without leaking token length) and never logged.
 - **TLS.** When `tls` is set, the server speaks HTTPS only, using rustls with the `ring` provider. No client-certificate authentication is offered yet.
 - **Secrets in poll.** Header values and bodies are never written to logs, attributes, or error messages. URLs are redacted to scheme, host, port, and path.
 - **Size limits.** `max_message_bytes` bounds memory per request and per response. Chunked uploads and responses without `Content-Length` are counted as they arrive.
-- **Connection handling.** TLS handshakes run in per-connection tasks with a timeout, so a slow client cannot stall accepting new connections.
+- **Connection handling.** Concurrent connections are capped at 1024. TLS handshakes time out after 10 s, HTTP/1 request headers after 10 s, idle keep-alive connections after 60 s, and request body reads after 30 s (`408 Request Timeout`), so slow or idle clients cannot hold connection slots open.
 
 ## Shutdown
 
