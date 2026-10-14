@@ -826,7 +826,7 @@ expression: "serde_json::to_string_pretty(&json_schema()).unwrap()"
     },
     "QuarantineRotationSpec": {
       "additionalProperties": false,
-      "description": "Rotation thresholds for the quarantine segments; the same shape as a\nParquet sink's `rotation` block. Keys left out use the sink's defaults\n(128 MiB or 300 seconds, whichever first).\n\nA quarantined reject caps the owning sink's durable cursor until the\nquarantine segment holding it finalizes, so `max_age` bounds the shipping\npause after any quarantined record.",
+      "description": "Rotation thresholds for the quarantine segments; the same shape as a\nParquet sink's `rotation` block. Keys left out use the sink's defaults\n(128 MiB or 300 seconds, whichever first).\n\nA reject releases its owning sink's durable cursor as soon as it is\nfsynced into the quarantine staging file; quarantine segments rotate on\ntheir own cadence without delaying the sink's cursor or uploads.",
       "properties": {
         "max_age": {
           "description": "Finalize the quarantine segment once it is this old, seconds.",

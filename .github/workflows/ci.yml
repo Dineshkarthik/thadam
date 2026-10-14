@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
@@ -182,3 +184,20 @@ jobs:
           name: fuzz-artifacts-${{ matrix.crate }}-${{ matrix.target }}
           path: crates/${{ matrix.crate }}/fuzz/artifacts/
           if-no-files-found: ignore
+
+  docker-suites:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.146
+      - run: cargo nextest run -p thadam-mqtt --locked --run-ignored only
+      - run: cargo nextest run -p thadam-nats --locked --run-ignored only
+      - run: cargo nextest run -p thadam-kafka --locked --run-ignored only
+      - run: cargo nextest run -p thadam-clickhouse --locked --run-ignored only
+      - run: cargo nextest run -p thadam-object-store --locked --run-ignored only
+      - run: cargo nextest run -p thadam-iceberg --locked --run-ignored only
+      - run: cargo nextest run -p thadam-cli --all-features --locked --run-ignored only
