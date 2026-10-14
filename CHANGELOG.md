@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0] - Unreleased (tag pending the ADR-0004 reference-hardware run)
+
 Thadam is early in its first milestone (M1 / MVP v0.1). No releases exist yet; this section summarizes what the development history has built so far. Detailed status: [docs/design/readiness.md](docs/design/readiness.md) and ARCHITECTURE.md section 21.
 
 ### Changed
@@ -32,7 +34,7 @@ Thadam is early in its first milestone (M1 / MVP v0.1). No releases exist yet; t
 - **Design corpus**: `ARCHITECTURE.md`, the ADR set in `docs/design/adr/` (nine accepted on 2026-10-07, including the delivery guarantees and claims register ADR-0011), owner-decision and readiness registers, and five spike reports (S1 WAL, S2 MQTT, D8 record representation, config YAML, filter language).
 - **`thadam-core`**: canonical event model (times with time domains, quality status/flags, hierarchical identity, extended values, shape-shared positional records), error model with stable codes, connector traits (`Source`, `BatchSink`, `SegmentSink`), disk budget, conformance-test utilities in `thadam-testkit`.
 - **`thadam-config`**: config `version: 1` — YAML loading with a strict dialect (strict booleans; no anchors/aliases/merge keys/tags; parse budget; duplicate-key errors), `${env:}`/`${file:}` secret interpolation with redaction, multi-error diagnostics with paths and line numbers, connector-kind validation through the registry, config hash (algorithm v1), memory estimate, JSON Schema export, Parquet field-ID and identity-level-ID assignment, per-sink WAL consumer policies (`required`, `max_lag`, `start_from`).
-- **`thadam-wal`**: custom segmented log — one-writer group commit, `always`/`interval`/`never` fsync policies, durable cursors, retention and `on_full` (`block`/`drop_oldest`), crash recovery with torn-tail truncation, gaps surfaced to readers. **On-disk format v1 is versioned but not frozen** (ADR-0004 pending a reference-hardware re-run).
+- **`thadam-wal`**: custom segmented log — one-writer group commit, `always`/`interval`/`never` fsync policies, durable cursors, retention and `on_full` (`block`/`drop_oldest`), crash recovery with torn-tail truncation, gaps surfaced to readers. **On-disk format v1 is versioned but not frozen**; it freezes at the v0.1.0 tag, after the ADR-0004 reference-hardware re-run.
 - **`thadam-transform`**: synchronous pure chains — router, JSON decode, event IDs (WAL-derived or content-derived `event_id.key`), message-level dedup with warm start, `explode` with parent paths, UCUM unit conversion (element-wise on arrays), time extraction with domains and skew flagging; steps `validate`, `on_change`, `filter`, `sample`, `enrich`, `rename`, `project`, `cast` (all config-reachable).
 - **`thadam-runtime`**: source/chain/sink drivers, supervisor with component states, ordered shutdown and startup recovery, `thadam.json`/`wal.json` identity split, quarantine routing, primary-chain metric attribution.
 - **`thadam-mqtt`**: MQTT 3.1.1 source — persistent sessions, acknowledge-after-commit with ordered acks, epoch-scoped ack handles, session-loss detection with resubscribe, byte-accounted queue with disconnecting guard, QoS 0 counted drops, in-process TLS/mTLS relay with rustls+`ring` (client library built without TLS features).
