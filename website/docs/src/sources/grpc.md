@@ -110,4 +110,4 @@ message PublishStreamResponse {
 
 ## Product note
 
-The product design documents (D-B2-4 and ARCHITECTURE.md line 49) place gRPC after the MVP. This source was added on explicit request and is documented here as a shipped connector.
+The product design documents (`ARCHITECTURE.md`) place gRPC after the MVP. This source was added on explicit request and is documented here as a shipped connector.

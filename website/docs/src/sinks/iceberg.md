@@ -6,7 +6,7 @@
 
 A segment reaches a table only through the same commit-then-ship chain as [object storage](object-store.md#how-it-works):
 
-1. The `parquet` sink finalizes a segment and the WAL cursor commits (D18).
+1. The `parquet` sink finalizes a segment and the WAL cursor commits.
 2. The `object_store` shipper uploads the file and records a durable `Uploaded` catalog entry with the object key.
 3. The registrar sees the `Uploaded` entry and **registers that existing file** with its dataset's table using `fast_append`. The Parquet files already carry stable field IDs (see [Parquet segments](parquet.md)), so no data file is rewritten — the append is metadata-only (manifests plus table metadata JSON).
 
