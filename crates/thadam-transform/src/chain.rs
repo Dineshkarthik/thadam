@@ -382,13 +382,16 @@ impl Chain {
                         }
                     }
                     DecodeSpec::SparkplugB => {
-                        let root = sparkplug_root.get_or_insert_with(|| match sparkplug.as_mut() {
-                            Some(decode) => decode.decode(view, persist, sparkplug_samples),
-                            None => Err(ThadamError::fatal(
-                                ErrorDomain::Config,
-                                codes::CONFIG_MISSING,
-                                "`decode: sparkplug_b` has no birth store (compile-time check missed it)",
-                            )),
+                        let root = sparkplug_root.get_or_insert_with(|| {
+                            check_payload_size(view.payload, limits)?;
+                            match sparkplug.as_mut() {
+                                Some(decode) => decode.decode(view, persist, sparkplug_samples),
+                                None => Err(ThadamError::fatal(
+                                    ErrorDomain::Config,
+                                    codes::CONFIG_MISSING,
+                                    "`decode: sparkplug_b` has no birth store (compile-time check missed it)",
+                                )),
+                            }
                         });
                         match root {
                             Ok(Some(msg)) => ds.process_sparkplug(
@@ -407,13 +410,16 @@ impl Chain {
                         }
                     }
                     DecodeSpec::Ros2 => {
-                        let root = ros2_root.get_or_insert_with(|| match ros2.as_mut() {
-                            Some(decode) => decode.decode(view.attrs, view.payload),
-                            None => Err(ThadamError::fatal(
-                                ErrorDomain::Config,
-                                codes::CONFIG_MISSING,
-                                "`decode: ros2` has no schema store (compile-time check missed it)",
-                            )),
+                        let root = ros2_root.get_or_insert_with(|| {
+                            check_payload_size(view.payload, limits)?;
+                            match ros2.as_mut() {
+                                Some(decode) => decode.decode(view.attrs, view.payload),
+                                None => Err(ThadamError::fatal(
+                                    ErrorDomain::Config,
+                                    codes::CONFIG_MISSING,
+                                    "`decode: ros2` has no schema store (compile-time check missed it)",
+                                )),
+                            }
                         });
                         match root {
                             Ok(record) => {
@@ -545,6 +551,111 @@ impl Chain {
                 .iter()
                 .map(|d| (d.id.clone(), d.snapshot_stats()))
                 .collect(),
+        }
+    }
+}
+
+fn check_payload_size(payload: &[u8], limits: &ChainLimits) -> Result<(), ThadamError> {
+    if payload.len() > limits.max_payload_bytes {
+        return Err(ThadamError::permanent(
+            ErrorDomain::Decode,
+            codes::DECODE_TOO_LARGE,
+            "payload exceeds the size limit",
+        )
+        .with_context("limit", limits.max_payload_bytes.to_string()));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use bytes::Bytes;
+    use thadam_core::{Attributes, SCHEMA_HASH_ATTR, SourceId, Timestamp, WalEpoch, WalPos};
+
+    use super::*;
+    use crate::input::RawRecordView;
+
+    #[test]
+    fn max_payload_bytes_gates_ros2_and_sparkplug_decodes() {
+        let dir = tempfile::tempdir().unwrap();
+        let schema_dir = dir.path().join("schemas");
+        let births_dir = dir.path().join("births");
+        let store = SchemaStore::open(&schema_dir);
+        let hash = store
+            .put("test_msgs/msg/Simple", "ros2msg", "int32 x\n")
+            .unwrap();
+
+        let spec = ChainSpec::from_value(serde_json::json!({
+            "datasets": [
+                {
+                    "id": "ros",
+                    "match": { "topic": "/ros" },
+                    "decode": "ros2",
+                    "identity": [{ "node": "n1" }],
+                    "fields": [{ "name": "x", "type": "i32", "from": "/x" }]
+                },
+                {
+                    "id": "sp",
+                    "match": { "topic": "spBv1.0/g/NDATA/e1" },
+                    "decode": "sparkplug_b",
+                    "identity": [{ "node": "e1" }],
+                    "fields": [{ "name": "seq", "type": "u64", "from": "/seq" }]
+                }
+            ]
+        }))
+        .unwrap()
+        .with_schema_dir(&schema_dir)
+        .with_births_dir(&births_dir);
+
+        let limits = ChainLimits {
+            max_payload_bytes: 8,
+            ..ChainLimits::default()
+        };
+        let mut chain = Chain::compile(&spec, limits).unwrap();
+        let source = SourceId::new("src");
+
+        let mut ros_attrs = Attributes::new();
+        ros_attrs.insert("topic", "/ros");
+        ros_attrs.insert(SCHEMA_HASH_ATTR, hash.as_str());
+
+        let mut sp_attrs = Attributes::new();
+        sp_attrs.insert("topic", "spBv1.0/g/NDATA/e1");
+
+        let messages = [
+            thadam_core::RawMessage {
+                ingest_time: Timestamp::from_nanos(1),
+                attrs: ros_attrs,
+                payload: Bytes::from(vec![0u8; 9]),
+            },
+            thadam_core::RawMessage {
+                ingest_time: Timestamp::from_nanos(2),
+                attrs: sp_attrs,
+                payload: Bytes::from(vec![0u8; 9]),
+            },
+        ];
+        let views: Vec<RawRecordView<'_>> = messages
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                RawRecordView::new(&source, m, WalEpoch::new(1), WalPos::new(i as u64 + 1), 0)
+            })
+            .collect();
+        let input = FrameInput::new(&views, true);
+        let mut out = chain.new_output(input.origin().unwrap(), true);
+        let mut rejects = Vec::new();
+        chain.process(&input, &mut out, &mut rejects);
+
+        assert_eq!(out.total_events(), 0);
+        assert_eq!(rejects.len(), 2);
+        for (reject, expected_ds) in rejects.iter().zip(["ros", "sp"]) {
+            assert_eq!(reject.dataset.as_deref(), Some(expected_ds));
+            assert_eq!(
+                (reject.error.domain, reject.error.code),
+                (ErrorDomain::Decode, codes::DECODE_TOO_LARGE)
+            );
+            assert_eq!(reject.error.context.get("limit"), Some("8"));
         }
     }
 }

@@ -108,7 +108,7 @@ Then enable and start the `thadam` unit with systemd. That step was not run here
 
 What the unit does:
 
-- Runs as `thadam`. systemd creates `/var/lib/thadam` (`StateDirectory=`, mode 0750) for the data directory, and `pipeline.data_dir` should point there.
+- Runs as `thadam`. systemd creates `/var/lib/thadam` (`StateDirectory=`, mode 0700) for the data directory and sets `UMask=0077`, and `pipeline.data_dir` should point there.
 - Starts `thadam run --admin-bind 127.0.0.1:9464 /etc/thadam/pipeline.yaml`. The admin API is loopback-only and needs no token. `thadam run` reads the `observability.admin` section of the configuration; the flag pins the bind to loopback so a non-loopback value in the configuration does not take effect for this unit.
 - Restarts on failure after 5 seconds. Exit codes 2 (invalid configuration) and 3 (data directory locked or incompatible) are not restarted, because they do not clear on retry. Exit 0 is a clean stop and is not restarted.
 - Stops with SIGTERM and allows 40 seconds (`TimeoutStopSec=40s`) before SIGKILL, above `thadam`'s 30-second shutdown bound.

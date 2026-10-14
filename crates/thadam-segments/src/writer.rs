@@ -155,9 +155,11 @@ impl OpenFile {
         if let Some(parent) = staging.parent() {
             fs::create_dirs(parent)?;
         }
-        let file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
+        let mut opts = OpenOptions::new();
+        opts.create_new(true).write(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+        let file = opts
             .open(&staging)
             .map_err(|e| SegmentError::io("create staging file", &staging, e))?;
         let hashing = HashingFile {

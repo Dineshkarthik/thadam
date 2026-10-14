@@ -36,6 +36,11 @@ use iceberg::spec::{
 use crate::error::IcebergError;
 use crate::storage::S3Io;
 
+/// Hard cap on a Parquet footer read (64 MiB), well above any segment footer
+/// Thadam writes, so a corrupt 4-byte tail length is rejected before the range
+/// read.
+const MAX_FOOTER_BYTES: u64 = 64 * 1024 * 1024;
+
 /// Reads one segment's Parquet footer through the table's storage (two
 /// ranged GETs: the 8-byte tail, then the footer) and converts the embedded
 /// Arrow schema to an Iceberg schema. Conversion failures (for example
@@ -59,6 +64,14 @@ pub(crate) async fn iceberg_schema_of(
         return Err(footer_error(uri, "bad Parquet magic in the 8-byte tail"));
     }
     let footer_len = u32::from_le_bytes(tail[..4].try_into().unwrap_or([0; 4])) as u64;
+    if footer_len > MAX_FOOTER_BYTES {
+        return Err(footer_error(
+            uri,
+            format!(
+                "Parquet footer length ({footer_len} bytes) exceeds the {MAX_FOOTER_BYTES}-byte cap"
+            ),
+        ));
+    }
 
     let start = size.saturating_sub(8 + footer_len);
     let body = io.read_range(uri, start..(size - 8)).await?;
@@ -710,5 +723,28 @@ mod tests {
             *l.element_field.field_type,
             Type::Primitive(PrimitiveType::Long)
         );
+    }
+
+    #[tokio::test]
+    async fn oversized_parquet_footer_len_is_rejected_before_range_read() {
+        use bytes::Bytes;
+        use iceberg::io::Storage as _;
+
+        let store = Arc::new(object_store::memory::InMemory::new());
+        let io = S3Io::new(store, "warehouse");
+        let uri = io.uri_of("lake/seg.parquet");
+        let over_cap = (MAX_FOOTER_BYTES as u32) + 1;
+        let mut fake = Vec::with_capacity(16);
+        fake.extend_from_slice(b"PAR1____");
+        fake.extend_from_slice(&over_cap.to_le_bytes());
+        fake.extend_from_slice(b"PAR1");
+        io.write(&uri, Bytes::from(fake)).await.expect("write");
+
+        let err = iceberg_schema_of(&io, &uri)
+            .await
+            .expect_err("oversized footer_len must be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains("exceeds"), "{msg}");
+        assert!(msg.contains(&MAX_FOOTER_BYTES.to_string()), "{msg}");
     }
 }

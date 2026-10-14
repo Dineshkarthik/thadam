@@ -42,6 +42,8 @@ pub const BD_SEQ_METRIC: &str = "bdSeq";
 pub const MAX_TRACKED_NODES: usize = 10_000;
 /// Maximum number of devices tracked under one `(group, node)`.
 pub const MAX_DEVICES_PER_NODE: usize = 1_000;
+/// Maximum number of device scopes tracked across all `(group, node)` pairs.
+pub const MAX_TRACKED_DEVICES: usize = 100_000;
 /// Maximum number of metrics accepted in a single Sparkplug payload.
 pub const MAX_METRICS_PER_BIRTH: usize = 4_096;
 
@@ -244,6 +246,7 @@ struct NodeState {
 #[derive(Debug, Default)]
 pub struct Decoder {
     nodes: HashMap<(Box<str>, Box<str>), NodeState>,
+    tracked_devices: usize,
 }
 
 impl Decoder {
@@ -290,19 +293,34 @@ impl Decoder {
             };
             let id = node_id(&key);
             let known = decoder.nodes.contains_key(&id);
+            let known_device = decoder
+                .nodes
+                .get(&id)
+                .is_some_and(|s| s.devices.contains_key(&device));
             if !known && decoder.nodes.len() >= MAX_TRACKED_NODES {
                 return Err(too_large(format!(
                     "Sparkplug decoder reached the tracked-node cap ({MAX_TRACKED_NODES})"
                 )));
             }
+            if !known_device {
+                if decoder
+                    .nodes
+                    .get(&id)
+                    .is_some_and(|s| s.devices.len() >= MAX_DEVICES_PER_NODE)
+                {
+                    return Err(too_large(format!(
+                        "Sparkplug node {}/{} reached the devices-per-node cap ({MAX_DEVICES_PER_NODE})",
+                        key.group, key.node
+                    )));
+                }
+                if decoder.tracked_devices >= MAX_TRACKED_DEVICES {
+                    return Err(too_large(format!(
+                        "Sparkplug decoder reached the tracked-device cap ({MAX_TRACKED_DEVICES})"
+                    )));
+                }
+            }
             let msg = parse_stored(&key, &record)?;
             let state = decoder.nodes.entry(id).or_default();
-            if !state.devices.contains_key(&device) && state.devices.len() >= MAX_DEVICES_PER_NODE {
-                return Err(too_large(format!(
-                    "Sparkplug node {}/{} reached the devices-per-node cap ({MAX_DEVICES_PER_NODE})",
-                    key.group, key.node
-                )));
-            }
             let session_moved = known && state.bd_seq != record.bd_seq;
             let scope = if session_moved {
                 Scope {
@@ -312,7 +330,9 @@ impl Decoder {
             } else {
                 Scope::from_birth(&msg, record.dead || state.node.dead)
             };
-            state.devices.insert(device, scope);
+            if state.devices.insert(device, scope).is_none() {
+                decoder.tracked_devices += 1;
+            }
         }
         Ok(decoder)
     }
@@ -427,18 +447,33 @@ impl Decoder {
             return Ok(());
         };
         let id = topic_node_id(topic);
+        let known_device = self
+            .nodes
+            .get(&id)
+            .is_some_and(|s| s.devices.contains_key(device));
         if !self.nodes.contains_key(&id) && self.nodes.len() >= MAX_TRACKED_NODES {
             return Err(too_large(format!(
                 "Sparkplug decoder reached the tracked-node cap ({MAX_TRACKED_NODES})"
             )));
         }
-        let state = self.nodes.entry(id).or_default();
-        if !state.devices.contains_key(device) && state.devices.len() >= MAX_DEVICES_PER_NODE {
-            return Err(too_large(format!(
-                "Sparkplug node {}/{} reached the devices-per-node cap ({MAX_DEVICES_PER_NODE})",
-                topic.group, topic.node
-            )));
+        if !known_device {
+            if self
+                .nodes
+                .get(&id)
+                .is_some_and(|s| s.devices.len() >= MAX_DEVICES_PER_NODE)
+            {
+                return Err(too_large(format!(
+                    "Sparkplug node {}/{} reached the devices-per-node cap ({MAX_DEVICES_PER_NODE})",
+                    topic.group, topic.node
+                )));
+            }
+            if self.tracked_devices >= MAX_TRACKED_DEVICES {
+                return Err(too_large(format!(
+                    "Sparkplug decoder reached the tracked-device cap ({MAX_TRACKED_DEVICES})"
+                )));
+            }
         }
+        let state = self.nodes.entry(id).or_default();
         if state.bd_seq.is_none() {
             out.notes
                 .push("DBIRTH before any NBIRTH for the node".into());
@@ -457,7 +492,9 @@ impl Decoder {
         out.bd_seq = state.bd_seq;
         out.change = Some(Change::DeviceBirth);
         out.metrics = resolve_all(Some(&scope), msg, out);
-        state.devices.insert(device.into(), scope);
+        if state.devices.insert(device.into(), scope).is_none() {
+            self.tracked_devices += 1;
+        }
         Ok(())
     }
 
@@ -1322,5 +1359,39 @@ mod tests {
             );
         }
         assert_eq!(d.nodes.len(), MAX_TRACKED_NODES);
+    }
+
+    #[test]
+    fn total_device_scope_cap_rejects_excess_devices_across_nodes() {
+        let mut d = Decoder::new();
+        let empty_birth = payload(Some(1), vec![]);
+        let full_nodes = MAX_TRACKED_DEVICES / MAX_DEVICES_PER_NODE;
+        for n in 0..full_nodes {
+            for dev in 0..MAX_DEVICES_PER_NODE {
+                let topic_str = format!("spBv1.0/g/DBIRTH/e-{n}/dev-{dev}");
+                feed(&mut d, &topic_str, &empty_birth);
+            }
+        }
+        assert_eq!(d.tracked_devices, MAX_TRACKED_DEVICES);
+
+        // Re-registering an existing device at the global cap still succeeds.
+        let out = feed(&mut d, "spBv1.0/g/DBIRTH/e-0/dev-0", &empty_birth);
+        assert_eq!(out.change, Some(Change::DeviceBirth));
+        assert_eq!(d.tracked_devices, MAX_TRACKED_DEVICES);
+
+        // A new device on a node that is well under both MAX_TRACKED_NODES and
+        // MAX_DEVICES_PER_NODE is rejected by MAX_TRACKED_DEVICES.
+        let err = d
+            .handle(&t("spBv1.0/g/DBIRTH/e-extra/dev-0"), &empty_birth)
+            .unwrap_err();
+        assert_eq!(
+            (err.domain, err.code),
+            (ErrorDomain::Decode, codes::DECODE_TOO_LARGE)
+        );
+        assert_eq!(d.tracked_devices, MAX_TRACKED_DEVICES);
+        assert!(
+            !d.nodes
+                .contains_key(&(Box::from("g"), Box::from("e-extra")))
+        );
     }
 }

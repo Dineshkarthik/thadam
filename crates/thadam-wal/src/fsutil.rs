@@ -29,12 +29,11 @@ pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
 /// Takes an exclusive, non-blocking `flock`. `Ok(None)` if it is held
 /// elsewhere (another process, or another open handle in this process).
 pub(crate) fn try_lock(path: &Path) -> io::Result<Option<File>> {
-    let f = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)?;
+    let mut opts = OpenOptions::new();
+    opts.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    let f = opts.open(path)?;
     match rustix::fs::flock(&f, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
         Ok(()) => Ok(Some(f)),
         Err(e) if e == rustix::io::Errno::WOULDBLOCK => Ok(None),
@@ -76,11 +75,11 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
         .to_owned();
     tmp_name.push(".tmp");
     let tmp = dir.join(tmp_name);
-    let f = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&tmp)?;
+    let mut opts = OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    let f = opts.open(&tmp)?;
     f.write_all_at(bytes, 0)?;
     sync_file(&f)?;
     drop(f);

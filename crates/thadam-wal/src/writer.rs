@@ -498,12 +498,11 @@ impl Writer {
         tmp_name.push(".tmp");
         let tmp = PathBuf::from(tmp_name);
         let result = (|| -> io::Result<File> {
-            let f = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&tmp)?;
+            let mut opts = OpenOptions::new();
+            opts.read(true).write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+            let f = opts.open(&tmp)?;
             f.write_all_at(
                 &encode_segment_header(self.sh.epoch.get(), base, unix_now()),
                 0,
