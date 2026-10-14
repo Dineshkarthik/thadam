@@ -71,7 +71,7 @@ impl BatchSinkFactory for MqttPublishSinkFactory {
                 "datasets",
                 format!(
                     "a `kind: mqtt_publish` sink publishes exactly one dataset (got {}: [{}]); \
-                     give it a `datasets: [<id>]` selector listing one dataset and add one sink \
+                     give it a `config.datasets: [<id>]` selector listing one dataset and add one sink \
                      entry per dataset",
                     ctx.datasets.len(),
                     names,

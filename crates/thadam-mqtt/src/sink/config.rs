@@ -75,6 +75,11 @@ pub struct MqttPublishConfig {
     /// How long the broker may take to accept the connection.
     #[serde(default = "default_connect_timeout")]
     pub connect_timeout: DurationSpec,
+    /// The dataset selector. The runtime reads it to restrict the build
+    /// context; it is parsed here so a malformed selector fails with a good
+    /// message and `deny_unknown_fields` accepts the key.
+    #[serde(default)]
+    pub datasets: Option<Vec<serde_json::Value>>,
 }
 
 fn default_qos() -> u8 {
@@ -209,6 +214,21 @@ impl MqttPublishConfig {
                 "connect_timeout must be whole seconds, at least 1".into(),
             );
         }
+
+        if let Some(datasets) = &self.datasets {
+            if datasets.iter().any(|item| !item.is_string()) {
+                bad(
+                    "datasets",
+                    "every `datasets` entry must be a dataset id string".into(),
+                );
+            }
+            if datasets.len() != 1 {
+                bad(
+                    "datasets",
+                    "a `kind: mqtt_publish` sink publishes exactly one dataset; add one sink entry per dataset".into(),
+                );
+            }
+        }
         out
     }
 
@@ -259,7 +279,9 @@ pub fn config_schema() -> serde_json::Value {
             "request_timeout": { "$ref": "#/$defs/duration", "default": "10s" },
             "max_message_bytes": { "type": "integer", "minimum": 1, "default": DEFAULT_MAX_MESSAGE_BYTES },
             "keep_alive": { "$ref": "#/$defs/duration", "default": "30s" },
-            "connect_timeout": { "$ref": "#/$defs/duration", "default": "10s" }
+            "connect_timeout": { "$ref": "#/$defs/duration", "default": "10s" },
+            "datasets": {"type": "array", "items": {"type": "string"}, "maxItems": 1,
+                "description": "Selector consumed by the runtime; a mqtt_publish sink publishes exactly one dataset."}
         },
         "$defs": {
             "duration": {
@@ -478,6 +500,22 @@ mod tests {
             ["password_file"]
         );
         let v = with(v, "username", json!("thadam"));
+        assert!(MqttPublishConfig::from_value(&v).is_ok());
+    }
+
+    #[test]
+    fn datasets_selects_exactly_one() {
+        let v = with(minimal(), "datasets", json!(["imu", "pose"]));
+        assert_eq!(
+            fields(&MqttPublishConfig::from_value(&v).unwrap_err()),
+            ["datasets"]
+        );
+        let v = with(minimal(), "datasets", json!([7]));
+        assert_eq!(
+            fields(&MqttPublishConfig::from_value(&v).unwrap_err()),
+            ["datasets"]
+        );
+        let v = with(minimal(), "datasets", json!(["imu"]));
         assert!(MqttPublishConfig::from_value(&v).is_ok());
     }
 
