@@ -5,6 +5,7 @@ and the raw result files, so tables are never retyped by hand.
 Usage (from spikes/d8-record): python3 scripts/build_report.py
 """
 import os
+import platform
 import re
 
 here = os.path.dirname(os.path.abspath(__file__))
@@ -34,7 +35,9 @@ x = re.sub(r" \[[0-9.]+-[0-9.]+\]", "", x)
 x = demote(x.strip(), "##", "####")
 
 tpl = read("scripts", "report_template.md")
-report = tpl.replace("{{ALLOC}}", alloc).replace("{{CRITERION}}", crit).replace("{{XTHREAD}}", x)
+report = (tpl.replace("{{ALLOC}}", alloc).replace("{{CRITERION}}", crit).replace("{{XTHREAD}}", x)
+          .replace("{{HOST}}", f"{platform.machine()}, {os.cpu_count()} logical CPUs")
+          .replace("{{OS}}", f"{platform.system()} {platform.release()}"))
 
 os.makedirs(os.path.dirname(out_path), exist_ok=True)
 with open(out_path, "w") as f:

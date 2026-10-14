@@ -31,7 +31,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SPIKE="$(dirname "$HERE")"
-BIN="${CARGO_TARGET_DIR:-$SPIKE/target/s3-spike}/release/s3-ros2-live"
+BIN="${CARGO_TARGET_DIR:-$SPIKE/target}/release/s3-ros2-live"
 OUT="$1"
 shift
 

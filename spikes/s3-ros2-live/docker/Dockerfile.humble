@@ -9,7 +9,7 @@
 #   ros:humble-ros-base, pulled 2026-10-12, Ubuntu 22.04 "jammy".
 FROM ros:humble-ros-base@sha256:860e53793ccf575e5369b5e9a19939de2bfcfb46a299954d06f54f2af54fed19
 
-# Opt-in corporate-proxy hook (same pattern as docker/Dockerfile).
+# Opt-in TLS-intercepting-proxy hook (same pattern as docker/Dockerfile).
 COPY docker/secrets/ /tmp/s3-secrets/
 RUN set -e; \
     if [ -f /tmp/s3-secrets/ca.pem ]; then \

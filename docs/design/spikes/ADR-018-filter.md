@@ -8,7 +8,7 @@
 
 **Recommendation: ship structured YAML predicates for the MVP, define them so each has an exact CEL equivalent, reserve the `expr:` key, and add CEL (`cel` crate, behind the same `thadam-transform` boundary) after the MVP.** This is the ADR's own fallback branch, chosen here on safety, diagnostics and dependency grounds, not because CEL failed on speed. Confidence: **medium**.
 
-**CEL passes a per-event speed bar only if it is bound correctly**, and fails it if it is bound naively. Per-event costs on this host (Apple Silicon (arm64), macOS arm64, relative numbers only), median ns per event:
+**CEL passes a per-event speed bar only if it is bound correctly**, and fails it if it is bound naively. Per-event costs on this host (arm64 laptop, macOS, relative numbers only), median ns per event:
 
 | | structured predicate | CEL, interpreter only | CEL via `VariableResolver` | CEL, context of referenced variables | CEL, context of every field |
 |---|---|---|---|---|---|
@@ -34,12 +34,12 @@ Other findings, all measured here:
 
 | Item | Value |
 |---|---|
-| Host | Apple Silicon (arm64), 18 cores, 48 GB, macOS, arm64 |
+| Host | arm64 laptop, 18 cores, 48 GB, macOS |
 | Toolchain | rustc 1.99.0 (pinned by the repository's `rust-toolchain.toml`); Rust 1.88.0 installed for the MSRV check |
 | Crates (exact) | `cel` 0.15.0 (default features `regex`, `chrono`, `ext_encoders`), `evalexpr` 13.1.0 (feature-gated, default on), `criterion` 0.8.2, `serde-saphyr` 1.3.0 (parses the predicate YAML), `serde` 1.0.229, `serde_json` 1.0.151 |
 | Profile | `release`: `lto = "thin"`, `codegen-units = 1`, `debug = "line-tables-only"` (as in the D8 spike) |
 | Allocator | macOS system `malloc`; the counting allocator is installed only in `alloc_report` |
-| Machine load | Not idle. Before the final criterion run: load average 3.3 / 4.9 / 5.1, 79% idle. Two full criterion runs agree within about 5% (`results/criterion_raw_run1.log` and `results/criterion_raw.log`). |
+| Machine load | Not idle. Before the final criterion run: load average 3.3 / 4.9 / 5.1, 79% idle. Two full criterion runs agree within about 5% (`results/criterion_summary_run1.md` and `results/criterion_summary.md`). |
 | Not available | Raspberry Pi 5 class ARM, Jetson, x86 Linux. The ADR's ARM criterion is **not met** by this spike. |
 
 ## 3. What was compared
@@ -160,7 +160,7 @@ CEL, `cel` 0.15.0:
 | Determinism | `now()`, `rand()`, `random()` are undeclared. `timestamp('...')` of a constant works. `matches` uses the `regex` crate (upstream guarantees linear-time matching; not tested here). |
 | Lists | `all`, `exists`, `size` work on list variables |
 
-Structured predicates (this spike's evaluator, where the semantics are mine to define): `f32` fields compare in the `f32` domain (`eq: 0.1` true); null: `eq` false, `ne` true, ordered comparisons and ranges false; `u64` literals above `i64::MAX` need their own literal type. **The first run of this spike parsed such literals as `f64` and `eq: 18446744073709551614` matched `u64::MAX`**; adding a `UInt` literal variant fixed it. A structured grammar has to model integer literal types explicitly, as CEL does with `u`.
+Structured predicates (this spike's evaluator, where the semantics are defined here): `f32` fields compare in the `f32` domain (`eq: 0.1` true); null: `eq` false, `ne` true, ordered comparisons and ranges false; `u64` literals above `i64::MAX` need their own literal type. **The first run of this spike parsed such literals as `f64` and `eq: 18446744073709551614` matched `u64::MAX`**; adding a `UInt` literal variant fixed it. A structured grammar has to model integer literal types explicitly, as CEL does with `u`.
 
 `evalexpr`: `1 < 1.5` true but `1 == 1.0` **false**; mixed-type operations return errors; `x == 0.1` false for the widened `f32`; no `all`/`exists`; missing variable is an error.
 
@@ -231,10 +231,10 @@ UC-05's quality validation fits the structured form; its windowing and downsampl
 
 ## 6. Limitations (read before using the numbers)
 
-- **ARM criterion not met.** One host, an Apple Silicon (arm64) laptop. No Raspberry Pi 5, no Jetson, no x86 Linux. Relative ordering is the transferable result; absolute nanoseconds are not. The ADR said the criterion must be set before the benchmark ran; it was not, so the "bar" above is a post-hoc reading against the D8 numbers and the withdrawn 50,000 events/s hypothesis (at that rate a 1.7 µs binding is about 8.5% of one core on this host).
+- **ARM criterion not met.** One host, an arm64 laptop. No Raspberry Pi 5, no Jetson, no x86 Linux. Relative ordering is the transferable result; absolute nanoseconds are not. The ADR said the criterion must be set before the benchmark ran; it was not, so the "bar" above is a post-hoc reading against the D8 numbers and the withdrawn 50,000 events/s hypothesis (at that rate a 1.7 µs binding is about 8.5% of one core on this host).
 - **Machine not idle.** Other processes were running. Two runs agree within about 5%, and the confidence intervals are tight, but a quiet-machine rerun was not done.
-- **The structured evaluator is a sketch** I wrote for the benchmark, with semantics I chose. A production one would differ in details and cost. It found a precision bug in its own literal parsing (section 5.4), which indicates the semantic surface a real design must pin down. Its 3 to 13 ns is real for this code and this event layout (index-resolved selectors on a shape-shared record), not a property of "structured predicates" in general.
-- **CEL binding strategies were written by me.** A lazy `Val` for `quality` or for the whole event (implementing `Indexer`) could beat the resolver numbers; it was not built. The per-lookup `Box` in `CowVal::owned` is an artifact of the resolver API as used.
+- **The structured evaluator is a sketch** written for the benchmark, with semantics chosen here. A production one would differ in details and cost. It found a precision bug in its own literal parsing (section 5.4), which indicates the semantic surface a real design must pin down. Its 3 to 13 ns is real for this code and this event layout (index-resolved selectors on a shape-shared record), not a property of "structured predicates" in general.
+- **CEL binding strategies were written for this spike.** A lazy `Val` for `quality` or for the whole event (implementing `Indexer`) could beat the resolver numbers; it was not built. The per-lookup `Box` in `CowVal::owned` is an artifact of the resolver API as used.
 - **`cel` internals not traced:** why float comparisons allocate 6 times each, and where exactly the `+` chain overflows (compile, evaluate or drop of the AST).
 - **No replay-equivalence test**, no fuzzing of the CEL parser, no `thadam validate` integration, no YAML-position mapping of CEL errors, no owner or user ergonomics review. All remain open in the ADR checklist.
 - Only five filters and two event shapes. Larger expressions, string-heavy events, and nested `Value::Record` access were not measured.
@@ -284,8 +284,8 @@ From `spikes/adr018-filter/` (toolchain from the root `rust-toolchain.toml`; use
 ```bash
 cargo build --release
 ./target/release/adr018-filter                       # agreement check against the Rust reference (10,000 events per case)
-cargo bench --bench filters > results/criterion_raw.log   # about 4 minutes
-python3 scripts/summarize.py results/criterion_raw.log > results/criterion_summary.md
+cargo bench --bench filters > /tmp/criterion_raw.log   # about 4 minutes
+python3 scripts/summarize.py /tmp/criterion_raw.log > results/criterion_summary.md
 ./target/release/alloc_report > results/alloc_report.md
 ./target/release/semantics > results/semantics.md
 ./scripts/stress.sh | tee results/stress.txt         # one child process per case
@@ -302,4 +302,4 @@ git clone --depth 1 https://github.com/rustsec/advisory-db.git # evaluated at b0
 cargo +1.88.0 check                                            # in a scratch project with cel: uuid 1.27.0 requires 1.89
 ```
 
-Raw results: `results/criterion_raw.log` (final) and `results/criterion_raw_run1.log`, `results/criterion_summary*.md`, `results/alloc_report.md`, `results/semantics.md`, `results/stress.txt`.
+Results: `results/criterion_summary*.md`, `results/alloc_report.md`, `results/semantics.md`, `results/stress.txt`. Raw criterion output is not committed.

@@ -6,7 +6,7 @@
 # Images: public Docker Hub only, pinned by tag.
 FROM ros:jazzy-ros-base
 
-# Opt-in corporate-proxy hook (same pattern as tools/thadam-simulator/Dockerfile):
+# Opt-in TLS-intercepting-proxy hook (same pattern as tools/thadam-simulator/Dockerfile):
 # on TLS-intercepting networks run `make secrets/ca.pem` (copies the host CA
 # bundle, gitignored). It is installed into the image trust store at build time
 # only so apt can reach the ROS apt repo through the proxy.

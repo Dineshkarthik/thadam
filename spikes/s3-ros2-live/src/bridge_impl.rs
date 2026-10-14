@@ -87,7 +87,7 @@ pub struct BridgeTransport {
 impl BridgeTransport {
     /// Open a zenoh session connected to the bridge's tcp listener.
     /// Client mode for the same reason as zenoh_impl (no listener to dial
-    /// back through Docker Desktop's NAT; the router brokers everything).
+    /// back through Docker port forwarding (NAT; e.g. Docker Desktop); the router brokers everything).
     pub async fn connect(
         endpoint: &str,
         key_prefix: &str,

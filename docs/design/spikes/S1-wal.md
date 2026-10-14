@@ -46,15 +46,15 @@
 
 | | macOS host | Linux |
 |---|---|---|
-| Machine | Apple Silicon (arm64) (18 cores), 48 GB | Docker Desktop VM on the same Mac: 18 vCPU, 7.9 GB RAM |
-| OS / kernel | macOS | Debian 12.15 (`rust:1-bookworm`), kernel linuxkit, aarch64 |
-| Storage | APPLE SSD AP1024Z (Apple Fabric), APFS | ext4 on `/dev/vda1`, a virtio disk backed by a file on the Mac's APFS volume. Mounted as a Docker named volume, not a bind mount. Guest reports a write-back cache and no FUA |
+| Machine | arm64 laptop, 18 cores, 48 GB | Docker Desktop VM on the same host: 18 vCPU, 7.9 GB RAM |
+| OS / kernel | macOS, arm64 | Debian 12.15 (`rust:1-bookworm`), linuxkit kernel, aarch64 |
+| Storage | Internal SSD, APFS | ext4 on `/dev/vda1`, a virtio disk backed by a file on the host's APFS volume. Mounted as a Docker named volume, not a bind mount. Guest reports a write-back cache and no FUA |
 | Flush primitive | `fsync()` does **not** flush the drive cache; `F_FULLFSYNC` does; `F_BARRIERFSYNC` is ordering only | `fdatasync`, but whether the hypervisor turns guest flushes into `F_FULLFSYNC` on the host is unknown (see limitations) |
 | Toolchain | Rust 1.95.0 | Rust 1.99.0 |
 
 Crate versions: redb 4.3.0, rusqlite 0.40.2 with bundled SQLite 3.53.2, crc32c 0.6.8.
 
-The machine was shared with other agents' work during the runs, including at least one Docker container (`s2-mosquitto`) and cargo builds. Section 6 covers how that affects the numbers.
+The host was shared with other work during the runs, including at least one Docker container (`s2-mosquitto`) and cargo builds. Section 6 covers how that affects the numbers.
 
 ## 4. Method
 
@@ -139,7 +139,7 @@ The complete tables are in the appendix. This section picks the comparable rows.
 | SQLite | 4 KiB | 199.6 | 20.0 | 34.1 | 57.0 | 93 | 32.4 |
 | redb | 4 KiB | 380.4 | 11.0 | 16.0 | 24.0 | 176 | 32.8 |
 
-All three engines are bound by the cost of `F_FULLFSYNC`, about 5 to 8 ms on this SSD. Group commit amortizes it: about 32 frames, roughly 400 KB, per fsync. With plain macOS `fsync`, which is not durable against power loss, the custom log does 3.2 to 4.6 GB/s and SQLite about 0.56 to 0.59 GB/s. That gap reflects per-transaction CPU and I/O, not durability. `F_BARRIERFSYNC` gave 477 to 1496 MB/s but with p99 of 31 to 77 ms.
+All three engines are bound by the cost of `F_FULLFSYNC`, about 5 to 8 ms on the host SSD. Group commit amortizes it: about 32 frames, roughly 400 KB, per fsync. With plain macOS `fsync`, which is not durable against power loss, the custom log does 3.2 to 4.6 GB/s and SQLite about 0.56 to 0.59 GB/s. That gap reflects per-transaction CPU and I/O, not durability. `F_BARRIERFSYNC` gave 477 to 1496 MB/s but with p99 of 31 to 77 ms.
 
 **Linux VM** (`fdatasync`):
 
@@ -288,7 +288,7 @@ LazyFS models loss of un-fsynced data only. Create, rename, unlink and truncate 
 
 In each case the damaged frame and everything after it was dropped, survivors were byte-exact, and new appends were never mixed with stale frames.
 
-The first version of the zeroed-middle case was vacuous. I confirmed this with a mutant that skips truncation and appends in place: the mutant passed. Re-appended frames had exactly the old frames' sizes and overwrote the whole stale region. The fixed case appends exactly one frame. Against the mutant it now fails, because the old frames `k+1..N` become valid again after one append ("next_seq 25 expected 3"). The real code passes. **This is direct evidence that "truncate, then start a new segment" is load-bearing.** Appending in place at the recovered end resurrects stale frames whenever a re-appended frame lines up with the lost one.
+The first version of the zeroed-middle case was vacuous. This was confirmed with a mutant that skips truncation and appends in place: the mutant passed. Re-appended frames had exactly the old frames' sizes and overwrote the whole stale region. The fixed case appends exactly one frame. Against the mutant it now fails, because the old frames `k+1..N` become valid again after one append ("next_seq 25 expected 3"). The real code passes. **This is direct evidence that "truncate, then start a new segment" is load-bearing.** Appending in place at the recovered end resurrects stale frames whenever a re-appended frame lines up with the lost one.
 
 ### 5.8 Failure behavior
 
@@ -327,10 +327,10 @@ The first version of the zeroed-middle case was vacuous. I confirmed this with a
 ## 6. Limitations (read before using the numbers)
 
 - **No reference hardware.** There was no x86 NVMe, no ARM eMMC, and no SD card. The ADR's hardware checklist items remain open.
-- **The Linux disk is virtual.** Linux runs used ext4 on a virtio disk inside Docker Desktop, backed by a file on the Mac's SSD. Linux fsync took about 1.4 ms per group, against about 8 ms for `F_FULLFSYNC` on the host. That suggests guest flushes do not reach the drive with full-flush semantics, but I could not confirm the hypervisor's behavior. Use the Linux numbers to compare engines on the Linux code path, not as device performance.
+- **The Linux disk is virtual.** Linux runs used ext4 on a virtio disk inside Docker Desktop, backed by a file on the host's SSD. Linux fsync took about 1.4 ms per group, against about 8 ms for `F_FULLFSYNC` on the host. That suggests guest flushes do not reach the drive with full-flush semantics, but the hypervisor's behavior was not confirmed. Use the Linux numbers to compare engines on the Linux code path, not as device performance.
 - **macOS flush semantics.** Plain macOS `fsync` rows (`data`) are not durable against power loss. Only the `full` rows (and redb, which uses `F_FULLFSYNC`) are.
 - **Write amplification is process-level.** "OS write amp" counts bytes attributed to this process by the OS. It excludes flash FTL amplification and, on Linux, ext4 journal (jbd2) writes, which belong to a kernel thread. `/proc/diskstats` device-level amplification was not measured, because inside the VM it would describe the virtual disk.
-- **Single runs.** Each configuration ran once (10 s measured after 1 s warm-up) on a shared laptop with other agents' containers and builds active. Macro differences such as 2x or 10x are reliable. Differences under about 40% on macOS flush-bound rows are not.
+- **Single runs.** Each configuration ran once (10 s measured after 1 s warm-up) on a shared laptop with other containers and builds active. Macro differences such as 2x or 10x are reliable. Differences under about 40% on macOS flush-bound rows are not.
 - **Most reads and recoveries used a warm page cache.** Only Linux recovery used dropped caches.
 - **Coverage of the kill -9 loop.** A SIGKILL never tears a write, and LazyFS does not drop metadata operations. So directory-fsync ordering (segment creation, rename, unlink) was only reasoned about, not tested under loss. No hardware power-cut rig was used.
 - **Not tested:**
@@ -452,7 +452,7 @@ done
 python3 report_tables.py results/macos.jsonl
 ```
 
-**Linux** (Docker). The image builds offline because the network here intercepts TLS inside containers: crates and LazyFS sources are fetched on the host and passed as named build contexts.
+**Linux** (Docker). For networks that intercept TLS inside containers, the image builds offline: crates and LazyFS sources are fetched on the host and passed as named build contexts.
 
 ```sh
 cargo vendor --locked /tmp/s1wal-vendor

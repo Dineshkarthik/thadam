@@ -13,7 +13,7 @@
 - **D9: choose the extended value set.** The measured payoff is in the typed primitive arrays (`F64s`, and by extension `F32s`, `I32s`, `I64s`). Narrow scalars and `F32` showed no memory or CPU effect here; their value is physical-type fidelity, which this benchmark does not measure.
 - **Keep `Record` opaque**, as ADR-0001 already requires. Expose a `ShapeKey` plus a positional hot path so that B can be swapped for C without touching callers. Section 8 has the details.
 
-**Headline numbers** (Apple Silicon (arm64), single thread unless noted; medians; run-to-run noise is about 4% median and up to 17%, see section 7):
+**Headline numbers** ({{HOST}}, single thread unless noted; medians; run-to-run noise is about 4% median and up to 17%, see section 7):
 
 - **Memory per event (inline record plus live heap, malloc-rounded).**
   - W1 telemetry, 7 fields: A-fresh 712 B, A-interned 488 B, **B 368 B**, C 368 B.
@@ -33,13 +33,13 @@
 
 | Item | Value |
 |---|---|
-| Host | Apple Silicon (arm64), 18 cores (6 "Super" + 12 "Performance"), 48 GB RAM |
-| OS | macOS, arm64 |
+| Host | {{HOST}} |
+| OS | {{OS}} |
 | Toolchain | rustc 1.99.0 (b940084d7 2026-09-28), LLVM 23.1.1, `aarch64-apple-darwin`; picked up from the repository's root `rust-toolchain.toml` |
 | Profile | `release`: `lto = "thin"`, `codegen-units = 1`, `debug = "line-tables-only"` (mirrors the plan's release profile) |
 | Crates | `criterion` 0.8.2, `arrow-array` / `arrow-schema` 60.0.0, `bytes` 1.12.1, `serde_json` 1.0.151 |
 | Allocator | macOS system `malloc` for every run. The counting allocator wraps it and is installed only in `alloc_report`. |
-| Machine load | Not idle: other agents and background processes were running. 1-minute load average around each run: alloc_report about 9.5 (read at 13:05, just after it ran), criterion run 1 6.5 at start and 4.4 at end, xthread 2.6 at start and 8.1 at end, criterion run 2 8.5 at start and 5.9 at end. `criterion_raw*.log` and `xthread.md` carry the before/after `uptime` lines. |
+| Machine load | Not idle: other processes were running. 1-minute load average around each run: alloc_report about 9.5 (read at 13:05, just after it ran), criterion run 1 6.5 at start and 4.4 at end, xthread 2.6 at start and 8.1 at end, criterion run 2 8.5 at start and 5.9 at end. The before/after `uptime` lines for `xthread` are in `xthread.md`; the criterion load averages come from the raw run logs, which are not committed. |
 
 The host is a development laptop, not an edge target. **Relative numbers are what matter.** Absolute nanoseconds, atomic-contention behaviour, and `malloc` behaviour will differ on Linux x86_64 and on Cortex-A class ARM (section 7).
 
@@ -166,7 +166,7 @@ Reading the tables:
 
 ## 7. Limitations
 
-- **Platform.** Apple Silicon (arm64) on macOS with the system allocator. Not Linux, not x86_64, not a Cortex-A edge CPU. Atomic-contention cost, `malloc` scalability, and cache behaviour differ there. Contended atomics are likely **more** expensive on small ARM cores, which would widen the gaps in the shared and storm scenarios. `malloc_size` accounting is macOS-specific. Re-run `xthread` and `alloc_report` on the reference ARM and x86 hardware before any claim is published.
+- **Platform.** {{HOST}} on {{OS}} with the system allocator. Not Linux, not x86_64, not a Cortex-A edge CPU. Atomic-contention cost, `malloc` scalability, and cache behaviour differ there. Contended atomics are likely **more** expensive on small ARM cores, which would widen the gaps in the shared and storm scenarios. `malloc_size` accounting is macOS-specific. Re-run `xthread` and `alloc_report` on the reference ARM and x86 hardware before any claim is published.
 - **Noise.** The machine was shared and busy (load average 2.6 to 9.5 on 18 cores during runs), and thread placement across the two core classes was not controlled. Run-to-run difference between the two full criterion runs (`results/run_to_run.txt`): median 3.9%, p90 12.2%, max 17.5% over 130 benchmarks. **Treat differences below about 15% as noise.** The conclusions above rest on larger effects. Cross-thread numbers come from a single 7-repetition run per cell; at 8 threads, rows with identical code differ by up to 17%.
 - **Decode shape.** All representations decode declared fields in declared order from a parsed `serde_json::Value`. There is no schema inference, no per-event shape detection, and no multi-shape stream. B's and C's caches are monomorphic (one shape). Behaviour with many shapes (10k distinct shapes, eviction, the ADR-0001 `max_shapes` limits) is not measured. Real decode skips the intermediate `serde_json::Value`.
 - **A is modelled generously.** Names come from the declaration, so there is no hash interner and no per-event key comparison during decode. Real keyed decode from untrusted JSON would cost more.
@@ -251,6 +251,6 @@ python3 scripts/compare.py /tmp/run1 target/criterion
 python3 scripts/build_report.py
 ```
 
-Result files (`spikes/d8-record/results/`): `alloc_report.md`, `criterion_summary.md` (run 1), `criterion_summary_run2.md`, `criterion_raw.log`, `criterion_raw_run2.log`, `run_to_run.txt`, `xthread.md`.
+Result files (`spikes/d8-record/results/`): `alloc_report.md`, `criterion_summary.md` (run 1), `criterion_summary_run2.md`, `run_to_run.txt`, `xthread.md`.
 
 Sources: `src/value.rs` (value sets), `src/repr.rs` (A, B, C), `src/workload.rs`, `src/arrow_conv.rs`, `src/alloc.rs`, `src/bin/alloc_report.rs`, `src/bin/xthread.rs`, `benches/d8.rs`, `tests/equivalence.rs`.

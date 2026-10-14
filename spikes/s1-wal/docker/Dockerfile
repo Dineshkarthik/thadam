@@ -1,5 +1,5 @@
 # Linux environment for spike S1. Data directories live on a Docker volume or tmpfs inside the
-# Docker Desktop VM, never on a bind mount from the macOS host.
+# Docker Desktop VM, never on a bind mount from the host.
 #
 # Builds offline (crates and LazyFS are fetched on the host and passed as named build contexts):
 #   cargo vendor --locked /tmp/s1wal-vendor

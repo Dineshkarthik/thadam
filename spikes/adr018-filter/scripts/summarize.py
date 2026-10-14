@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Turn results/criterion_raw.log into markdown tables (ns/event with the criterion
-[low, mid, high] interval). Usage: scripts/summarize.py results/criterion_raw.log"""
+"""Turn a saved criterion run log into markdown tables (ns/event with the criterion
+[low, mid, high] interval). Usage: scripts/summarize.py <criterion-output.log>"""
 import re
 import sys
 from collections import OrderedDict
