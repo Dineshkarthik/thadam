@@ -19,7 +19,7 @@ sources:
         bearer_token: ${env:THADAM_INGEST_TOKEN}
         tls: { cert: /etc/thadam/server.pem, key: /etc/thadam/server.key }
         extract_headers: [X-Robot-Id]
-      max_message_bytes: 1MiB
+      max_message_bytes: 1048576
       queue_capacity: 1024
 ```
 
@@ -48,7 +48,7 @@ Unknown keys are rejected at every level. Durations are whole seconds (`30`) or 
 | `mode` | `listen` or `poll` | `listen` | Selects the mode. |
 | `listen` | mapping | defaults | Used in `listen` mode. See below. |
 | `poll` | mapping | — | **Required** in `poll` mode; must be absent in `listen` mode. |
-| `max_message_bytes` | size | `1MiB` | Largest accepted request body (`413` above it) or response body (poll drops it as too large). |
+| `max_message_bytes` | integer | `1048576` | Largest accepted request body (`413` above it) or response body (poll drops it as too large), in bytes (1 MiB). |
 | `queue_capacity` | integer | `1024` | Messages accepted but not yet committed. Above this, `listen` answers `503`. Minimum 16. |
 
 ### `listen`

@@ -131,9 +131,9 @@ Tests: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `min`, `max`, and `null` (`null
   dataset: joints
 ```
 
-## `window` — tumbling windows (experimental)
+## `window` — tumbling and sliding windows (experimental)
 
-**Config: accepted. Status: In progress (experimental).** Aggregates (`count`, `sum`, `min`, `max`, `mean`) per asset over tumbling windows of **ingest time**, emitting one event per asset and window when the asset's next window begins. It is the only step that keeps state across events that a restart cannot rebuild by warm-up, so the sink's WAL cursor is held back behind open windows and a restart re-reads from there. Segment sinks only. Full key table, limits, and the retention cost: [`kind: window`](../configuration/transforms.md#window).
+**Config: accepted. Status: In progress (experimental).** Aggregates (`count`, `sum`, `min`, `max`, `mean`, `first`, `last`, `stddev`, `range`, `delta`, `rms`) per asset over tumbling or sliding windows (`size`, optional `slide`) of **ingest time** (`time: ingest`, default) or **event time** (`time: event`, with per-asset watermarks and `allowed_lateness`), emitting one event per asset and window when the window closes (or on `idle_close`). It is the only step that keeps state across events that a restart cannot rebuild by warm-up, so the sink's WAL cursor is held back behind open windows and a restart re-reads from there. Segment sinks only. Full key table, limits, and the retention cost: [`kind: window`](../configuration/transforms.md#window).
 
 ```yaml
 - kind: window

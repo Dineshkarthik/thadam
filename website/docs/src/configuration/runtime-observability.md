@@ -33,7 +33,7 @@ observability:
 | `format` | `json` or `pretty` | `json` | Structured JSON lines (one object per line) or human-readable output. `text` is a deprecated alias for `pretty` and warns at validation. Structured JSON is the default. |
 | `level` | level name | `info` | The minimum log level. |
 
-Logs go to stderr through a bounded, **lossy** writer: when the buffer fills, lines are dropped and the drop is counted (`thadam_log_dropped_total`, once wired) rather than blocking the pipeline. Payloads and secrets are never logged. `thadam run --log-format` overrides `observability.logs.format` for a single run; without the flag, the config value is used (`json` when the section is absent). `--log-level` sets the minimum level for a run and accepts env-filter strings such as `thadam_runtime=debug,warn`.
+Logs go to stderr through a bounded, **lossy** writer: when the buffer fills, lines are dropped and the drop is counted (`thadam_log_dropped_total`) rather than blocking the pipeline. Payloads and secrets are never logged. `thadam run --log-format` overrides `observability.logs.format` for a single run; without the flag, the config value is used (`json` when the section is absent). `--log-level` sets the minimum level for a run and accepts env-filter strings such as `thadam_runtime=debug,warn`.
 
 ### `observability.admin` {#admin}
 

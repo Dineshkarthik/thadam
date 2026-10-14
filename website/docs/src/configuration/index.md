@@ -47,13 +47,13 @@ Every struct rejects unknown keys, so adding to this format is a minor release a
 
 | Type | Accepted forms | Canonicalized to | Examples |
 |---|---|---|---|
-| Duration | text with a unit, or — in the MQTT `config` block only — a whole number of seconds | `humantime` text | `50ms`, `5s`, `10m`, `1h`, `1d` |
+| Duration | text with a unit, or — in connector `config` blocks — a whole number of seconds | `humantime` text | `50ms`, `5s`, `10m`, `1h`, `1d` |
 | Size | `KiB`/`MiB`/`GiB`/`TiB` or `KB`/`MB`/`GB`/`TB` text, or a plain byte count | byte integer | `16MiB`, `2GiB`, `1048576` |
-| Count | integer, or text with `k`/`m` suffix (transform durations also accept `g` inside `thadam-transform`) | integer | `4`, `500k`, `2m` |
+| Count | integer, or text with `k`/`m` suffix (transform counts also accept `g` inside `thadam-transform`) | integer | `4`, `500k`, `2m` |
 | Field type | `bool`, `i8`…`i64`, `u8`…`u64`, `f32`, `f64` (`str`/`string`, `bytes`, `ts`/`timestamp`), `list<T>` (nesting ≤ 3) | canonical spelling | `f32`, `u64`, `list<f64>` |
 | Time domain | `utc`, `tai`, `monotonic`, `sim`, `unknown` | as written | `utc` |
 
-Bare numbers are rejected for durations; units are mandatory. Equal values hash identically regardless of spelling (`1h` ≡ `60m`).
+Bare numbers are rejected for top-level durations; units are mandatory (connector `config` blocks also accept whole seconds, and `parquet` `rotation.max_age` takes whole seconds only). Equal values hash identically regardless of spelling (`1h` ≡ `60m`).
 
 ## YAML dialect rules
 

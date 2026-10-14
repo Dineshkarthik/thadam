@@ -79,7 +79,7 @@ Replays must use an isolated prefix (`.../replays/{replay_id}/`) or a separate b
 
 ## Metrics and status
 
-Progress shows up in logs as structured fields named after the planned Prometheus metrics (`thadam_ship_uploads_total`, `thadam_ship_bytes_total`, `thadam_ship_retry_age_seconds`, `thadam_ship_upload_seconds`), the service component state in `/status`, and a `backlog` of eligible segments. The typed runtime metric channel for services lands separately; [metrics.md](../operations/metrics.md#planned) keeps `thadam_ship_*` in the planned list until then.
+The shipper exports `thadam_ship_uploads_total{sink, outcome}` (`ok`, `conflict_equal`, `retry`, `fatal`), `thadam_ship_bytes_total{sink}`, `thadam_ship_upload_seconds{sink}`, and `thadam_ship_retry_age_seconds{sink}` on `/metrics` ([metrics reference](../operations/metrics.md#shipping)), updates the catalog gauges `thadam_segment_files{sink, state}` and `thadam_segment_bytes{sink, state}`, and exposes its service component state in `/status` along with structured log fields.
 
 ## Delivery class
 

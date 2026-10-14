@@ -48,12 +48,12 @@ sinks:
 | `username` | string | none | requires `password_file` |
 | `password_file` | string | none | a file holding the password; resolved at open |
 | `max_in_flight` | integer | `100` | bounds the payloads held at once |
-| `request_timeout` | duration | `10s` | how long a publish may wait for its PUBACK |
+| `request_timeout` | duration | `10s` | how long a publish may wait for its PUBACK (whole seconds) |
 | `max_message_bytes` | integer | `1048576` | an encoded event over this size is a per-event rejection |
 | `keep_alive` | duration | `30s` | whole seconds |
 | `connect_timeout` | duration | `10s` | whole seconds |
 
-Durations are whole seconds (`30`) or a string such as `500ms`, `30s`, `5m`, `1h`. `keep_alive` and `connect_timeout` take whole seconds only. The schema is closed: an unknown key fails validation. Run `thadam validate` to check a configuration without connecting.
+Durations are whole seconds (`30`) or a string such as `30s`, `5m`, `1h`; `request_timeout`, `keep_alive`, and `connect_timeout` take whole seconds only. The schema is closed: an unknown key fails validation. Run `thadam validate` to check a configuration without connecting.
 
 Notes:
 
