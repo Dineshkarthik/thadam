@@ -1,6 +1,6 @@
 # NATS JetStream sink
 
-**Status: Implemented.** The `nats` kind is a batch sink that publishes one dataset's events to a NATS JetStream stream — one acknowledged message per event, as JSON, deduplicated by the event id. It complements the file-oriented sinks: use it to fan captured events back out to low-latency subscribers (dashboards, alerting, downstream services) directly from the replay edge.
+**Status: Available.** The `nats` kind is a batch sink that publishes one dataset's events to a NATS JetStream stream — one acknowledged message per event, as JSON, deduplicated by the event id. It complements the file-oriented sinks: use it to fan captured events back out to low-latency subscribers (dashboards, alerting, downstream services) directly from the replay edge.
 
 ## How it works
 
@@ -80,6 +80,6 @@ Docker-gated tests run the sink against a real broker (`nats:2.12.2` pinned by t
 cargo nextest run -p thadam-nats --run-ignored only -E 'binary(docker_nats)'
 ```
 
-They cover publish-and-consume-back (subjects, envelope, headers), broker stop/start recovery with exactly-once accounting, retried batches deduplicating by `Nats-Msg-Id`, a missing stream failing `open` with a configuration error, delivery-class probing against an operator-zeroed window, `create_stream`, per-event rejection (unrenderable subject, payload over the server's `max_payload`, message over the stream's `max_msg_size`), no responders classified transient, token and user/password credentials with wrong credentials and denied publishes classified fatal, and mutual TLS with a CA and client certificate. Set `RUST_LOG=debug` for sink logs during the run.
+They cover publish-and-consume-back (subjects, envelope, headers), broker stop/start recovery without duplicate delivered messages within the stream's duplicate window, retried batches deduplicating by `Nats-Msg-Id`, a missing stream failing `open` with a configuration error, delivery-class probing against an operator-zeroed window, `create_stream`, per-event rejection (unrenderable subject, payload over the server's `max_payload`, message over the stream's `max_msg_size`), no responders classified transient, token and user/password credentials with wrong credentials and denied publishes classified fatal, and mutual TLS with a CA and client certificate. Set `RUST_LOG=debug` for sink logs during the run.
 
 Each test starts its own container (labelled `thadam-nats-test`) and removes it when the test ends, including on panic. Containers that needed a config file (auth, TLS) get it through `docker cp` before they start; no host path is mounted. To clean up after a killed run: `docker rm -f $(docker ps -aq --filter label=thadam-nats-test)`.

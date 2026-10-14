@@ -125,7 +125,7 @@ Stop Thadam with Ctrl-C (SIGINT) or SIGTERM: it drains the source queue into the
 
 ### What lands next
 
-The pipeline above runs end to end today, and local Parquet segments plus the `object_store` shipper are both wired: a configuration with an S3-compatible sink builds, runs, and uploads finalized segments (see [object storage](../sinks/object-store.md)). The pieces still ahead are replay (`thadam replay`, PR17), and the chaos suites, oracle verifier, and published benchmarks (PR18). The README status banner and [readiness](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md) track them.
+The pipeline above runs end to end today: local Parquet segments, the `object_store` shipper ([object storage](../sinks/object-store.md)), replay ([`thadam replay`](../cli/replay.md)), inspection ([`thadam inspect`](../cli/inspect.md)), the chaos suites, and the oracle verifier are all wired. Still ahead are the chaos verification run and the published benchmark numbers on reference hardware. The README status banner and [readiness](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md) track them.
 
 ## 5. A larger example: the `edge-capture` demo
 

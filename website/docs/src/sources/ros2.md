@@ -1,14 +1,14 @@
 # ROS 2
 
-Thadam's ROS 2 support is staged (ADR-0007). Stage 1 (`thadam-ros2-msg`, the transport-independent `.msg` parser and CDR decoder) and the Stage 2 file source (`thadam-mcap`, replaying MCAP and rosbag2-MCAP recordings) exist today.
+**Status: Available (offline MCAP); live transport In progress (experimental).** Thadam's ROS 2 support is staged (ADR-0007). Stage 1 (`thadam-ros2-msg`, the transport-independent `.msg` parser and CDR decoder) and the Stage 2 file source (`thadam-mcap`, replaying MCAP and rosbag2-MCAP recordings) exist today.
 
 | Stage | Status |
 |---|---|
-| Stage 1: `thadam-ros2-msg` (.msg parser + CDR decoder) | **Done** |
-| Stage 2: MCAP / rosbag2 file source (`thadam-mcap`) | **Done** |
-| Stage 2: `thadam export --mcap` ([`thadam export`](../cli/export.md)) | **Done** |
-| Stage 2, rest: [`examples/ros2-mcap-to-parquet`](https://github.com/Dineshkarthik/thadam/tree/main/examples/ros2-mcap-to-parquet) (MCAP to decoded, validated Parquet and back) | **Done** |
-| Stage 3: live-transport spike (Zenoh-native, sidecar, `r2r`) | **Done** (spike S3: rmw_zenoh primary, bridge mapped) |
+| Stage 1: `thadam-ros2-msg` (.msg parser + CDR decoder) | **Available** |
+| Stage 2: MCAP / rosbag2 file source (`thadam-mcap`) | **Available** |
+| Stage 2: `thadam export --mcap` ([`thadam export`](../cli/export.md)) | **Available** |
+| Stage 2, rest: [`examples/ros2-mcap-to-parquet`](https://github.com/Dineshkarthik/thadam/tree/main/examples/ros2-mcap-to-parquet) (MCAP to decoded, validated Parquet and back) | **Available** |
+| Stage 3: live-transport spike (Zenoh-native, sidecar, `r2r`) | **Available** (spike S3: rmw_zenoh primary, bridge mapped) |
 | Stage 4: live ROS 2 source ([`ros2_live`](ros2-live.md)) | **In progress** (rmw_zenoh transport, experimental) |
 
 ## How it works
@@ -40,14 +40,14 @@ Thadam's ROS 2 support is staged (ADR-0007). Stage 1 (`thadam-ros2-msg`, the tra
 | `byte[]`, `char[]`, `uint8[]` | `Bytes` | `Bytes` (raw bytes) |
 | `float32` array | `List(F32)` | `F32s` typed array |
 | `float64` array | `List(F64)` | `F64s` typed array |
-| `int8` / `int16` / `uint16` / `int32` array | `List(I32)` | `I32s` (lossless widen to i32) |
-| `int64` / `uint32` array | `List(I64)` | `I64s` (lossless widen to i64) |
+| `int8` / `int16` / `uint16` / `int32` array | `List(I32)` | `I32s` (exact widen to i32) |
+| `int64` / `uint32` array | `List(I64)` | `I64s` (exact widen to i64) |
 | `uint64` array | `List(U64)` | `List` (no wider signed typed array exists) |
 | `bool` array | `List(Bool)` | `List` |
 | `string` / `wstring` array | `List(Str)` | `List` |
 | `pkg/Type` array (nested message) | `List(Record(shape))` | `List` of `Record` |
 
-Array rules: all three bound forms (`T[]`, `T[<=N]`, `T[N]`) decode to the same container; fixed arrays carry no length prefix on the wire. **Widening rule:** narrower integers decode into the nearest typed array that holds them losslessly — int8/int16/uint16 land in `I32s`, uint32 in `I64s`; `uint64` has no lossless typed array and stays a `List` of `U64`. Nested-message arrays decode to a `List` of `Record` values whose shape is the recursively flattened element type (a `Time` scalar inside still yields the sec/nanosec/`Ts` triple).
+Array rules: all three bound forms (`T[]`, `T[<=N]`, `T[N]`) decode to the same container; fixed arrays carry no length prefix on the wire. **Widening rule:** narrower integers decode into the nearest typed array that holds every value — int8/int16/uint16 land in `I32s`, uint32 in `I64s`; `uint64` has no wider signed typed array and stays a `List` of `U64`. Nested-message arrays decode to a `List` of `Record` values whose shape is the recursively flattened element type (a `Time` scalar inside still yields the sec/nanosec/`Ts` triple).
 
 ## Wire details and limits
 

@@ -1,6 +1,6 @@
 # MQTT publish sink
 
-**Status: Implemented.** The `mqtt_publish` kind is a batch sink that publishes one dataset's events to an MQTT broker, one message per event, as JSON. Use it to fan captured events back out to MQTT subscribers (dashboards, alerting, other edge services) from the replay edge.
+**Status: Available.** The `mqtt_publish` kind is a batch sink that publishes one dataset's events to an MQTT broker, one message per event, as JSON. Use it to fan captured events back out to MQTT subscribers (dashboards, alerting, other edge services) from the replay edge.
 
 ## How it works
 

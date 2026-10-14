@@ -1,6 +1,6 @@
 # Apache Iceberg registrar
 
-**Status: In progress (steps 1 and 2; experimental, P2).** The `iceberg` kind registers already-shipped Parquet segments in Apache Iceberg tables, using the REST catalog. It is configured as a `sinks:` entry and runs as a service (the registrar), consuming the segment catalog of a [`parquet`](parquet.md) sink — normally the same sink an [`object_store`](object-store.md) shipper ships. It is built only with `cargo build -p thadam-cli --features iceberg` (off by default: it adds a second Arrow/Parquet dependency tree).
+**Status: In progress (steps 1 to 3; experimental, P2).** The `iceberg` kind registers already-shipped Parquet segments in Apache Iceberg tables, using the REST catalog. It is configured as a `sinks:` entry and runs as a service (the registrar), consuming the segment catalog of a [`parquet`](parquet.md) sink — normally the same sink an [`object_store`](object-store.md) shipper ships. It is built only with `cargo build -p thadam-cli --features iceberg` (off by default: it adds a second Arrow/Parquet dependency tree).
 
 ## How it works
 
@@ -22,7 +22,7 @@ Before appending a segment, the registrar reads that segment's Parquet footer an
 |---|---|
 | A field ID the table does not have | The column is **added** as optional, keeping the file's own ID (a required column also lands optional, because older files have no value for it) |
 | A known field ID under a new name | The column is **renamed** to the new name (the ID is the identity) |
-| A wider type than the table's: `long` over `int`, `double` over `float`, or `decimal(P',S)` over `decimal(P,S)` with `P' > P` | The table column is **promoted** (Iceberg's lossless promotions; existing files are read through the wider type) |
+| A wider type than the table's: `long` over `int`, `double` over `float`, or `decimal(P',S)` over `decimal(P,S)` with `P' > P` | The table column is **promoted** (Iceberg's widening promotions; existing files are read through the wider type) |
 | A column the dataset no longer has | The table column **stays** (it must be optional) |
 | A narrower type than the table's (`long`→`int`, `double`→`float`, smaller decimal precision) | **Fatal** |
 | Any other type change on a field ID, including a primitive turning into a record or list, or a decimal scale change | **Fatal** |

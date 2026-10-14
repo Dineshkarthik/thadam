@@ -1,6 +1,6 @@
 # Modbus source
 
-The `modbus` source polls one Modbus TCP server on a fixed interval. Every poll reads each configured range, in order, and emits one message whose payload is a JSON object.
+**Status: Available.** The `modbus` source polls one Modbus TCP server on a fixed interval. Every poll reads each configured range, in order, and emits one message whose payload is a JSON object.
 
 Built as the `thadam-modbus` crate on `tokio-modbus` (`default-features = false`, `tcp` feature only). Only Modbus TCP is supported; RTU and RTU-over-TCP are not.
 
@@ -103,7 +103,7 @@ Polling is **at-most-once per poll**. The source sets `ack_mode: none`: it never
 | Event | Result |
 |---|---|
 | Poll succeeds and the message is committed | Recorded once. |
-| Crash after a poll, before the message is committed | That poll's reading is lost. The next poll reads the device again. |
+| Crash after a poll, before the message is committed | That poll's reading is not committed. The next poll reads the device again. |
 | Poll fails | No message for that pass. The source reconnects and retries. |
 
 Modbus has no way to replay a past register value, so a lost poll cannot be recovered. A reading that matters should be polled at a rate that tolerates losing one.

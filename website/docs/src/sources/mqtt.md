@@ -1,6 +1,6 @@
 # MQTT source
 
-The `mqtt` source subscribes to a broker, captures messages into the WAL with persistent sessions, and acknowledges after the WAL commit — the at-least-once path. Design: [ADR-0006](../design/index.md) with evidence from spike S2. Built on `rumqttc` 0.25.1 behind `thadam-mqtt`; library types never cross the connector boundary.
+**Status: Available.** The `mqtt` source subscribes to a broker, captures messages into the WAL with persistent sessions, and acknowledges after the WAL commit — the at-least-once path. Design: [ADR-0006](../design/index.md) with evidence from spike S2. Built on `rumqttc` 0.25.1 behind `thadam-mqtt`; library types never cross the connector boundary.
 
 ```yaml
 sources:

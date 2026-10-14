@@ -7,7 +7,7 @@ Thadam manages three independent disk budgets, tracked with per-category atomics
 | Category | Configured by | Holds |
 |---|---|---|
 | WAL | [`wal.max_disk`](../configuration/wal.md#wal) | Raw captured messages (segments + frames, retained window) |
-| Segments (per sink) | sink config `max_disk` (planned) | Finalized local Parquet awaiting upload, plus `keep_for` retention (planned) |
+| Segments (per sink) | sink config `max_disk` | Finalized local Parquet awaiting upload, plus `keep_for` retention |
 | Quarantine | [`quarantine.max_disk`](../configuration/wal.md#quarantine) (default 256 MiB) | Rejected events, so failures cannot starve normal data |
 
 Usage (`used` and the `limit`) is reported per category in [`/status`](admin-api.md). Enforcement stays well below filesystem capacity: open and recovery never allocate space, so consumers can still drain and reclaim on a full disk.
@@ -45,4 +45,4 @@ The WAL framing overhead is about 2% for 200 B records (spike S1, 24-byte frame 
 
 - `/status`: per-category `used`/`limit`, WAL `disk_bytes`, per-sink cursor lag (`lag_frames`), evicted bytes.
 - Metrics: `thadam_wal_gap_total{kind}`, `thadam_wal_evicted_bytes_total`, `thadam_component_state`.
-- Alert shape: lag frames growing while a required sink is `degraded`, budgets within ~15% of limits, any `Gap::Evicted` on a pipeline that intended zero loss.
+- Alert shape: lag frames growing while a required sink is `degraded`, budgets within ~15% of limits, any `Gap::Evicted` on a pipeline that did not expect WAL eviction.

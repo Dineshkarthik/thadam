@@ -52,11 +52,11 @@ Terms as Thadam uses them. Where a term has a formal definition in an ADR, the A
 
 **Segment** — In the WAL, one append-only file of frames. In sinks, one finalized Parquet (or NDJSON) file for a dataset.
 
-**Segment catalog** — The append-only, CRC-checked log of `Finalized`/`Eligible`/`Uploaded`/`Deleted` segment records (planned).
+**Segment catalog** — The append-only, CRC-checked log of `Finalized`/`Eligible`/`Uploaded`/`Deleted` segment records.
 
 **Segment sink** — Sink contract for accumulating file targets (Parquet, NDJSON): a watermark reported via `poll_commit`, finalized files, `cursor_committed` for ship eligibility. Compare *batch sink*.
 
-**Shipper** — The service that uploads eligible segments to object storage (planned); not a sink, so a network outage cannot stall capture.
+**Shipper** — The service that uploads eligible segments to object storage; not a sink, so a network outage cannot stall capture.
 
 **Source time** — The timestamp the device reported, set once at decode and never overwritten.
 

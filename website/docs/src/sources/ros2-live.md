@@ -4,7 +4,7 @@
 
 **Only the `rmw_zenoh` transport exists in this step.** Your ROS 2 nodes must use `RMW_IMPLEMENTATION=rmw_zenoh_cpp` (Jazzy/Lyrical package `ros-<distro>-rmw-zenoh-cpp`) and reach the same router. A `zenoh-bridge-ros2dds` sidecar mode — for nodes on their stock DDS — is a later step, and only if it turns out to be needed (spike S3 §12.6 has the trade-offs).
 
-**The source is off by default.** Build the CLI with `--features ros2-live`:
+**The source is off by default.** Build `thadam-cli` with the `ros2-live` Cargo feature:
 
 ```console
 $ cargo run -p thadam-cli --features ros2-live -- run pipeline.yaml

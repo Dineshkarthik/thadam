@@ -1,6 +1,6 @@
 # Parquet segments sink
 
-**Status: working.** The `parquet` kind builds, runs, and is covered by the segment-sink conformance suite (monotonic watermark, crash recovery at every finalize failpoint, dataset isolation). Delivery to object storage rides on these segments and is still in progress ([object storage sink](object-store.md)).
+**Status: Available.** The `parquet` kind builds, runs, and is covered by the segment-sink conformance suite (monotonic watermark, crash recovery at every finalize failpoint, dataset isolation). Delivery to object storage rides on these segments ([object storage sink](object-store.md)).
 
 ## What it does
 
@@ -72,4 +72,4 @@ Unsigned values follow a per-sink unsigned policy: `Native` (default — `UInt8`
 
 The same segment machinery writes [quarantine](../concepts/per-sink-chains.md#quarantine) files with a fixed schema and their own disk budget (see [`quarantine`](../configuration/wal.md#quarantine)).
 
-A quarantine segment does not hold back the sink that owns it. Rejects are fsynced into a staging file first, which is what releases the sink's cursor; the quarantine segment then rotates on `quarantine.rotation` (default 5 minutes or 128 MiB) and ships on its own, and a reject staged but not yet in a durable segment at crash time is recovered into the next quarantine segment exactly once. A quarantine segment becomes eligible for shipping once both the sink's cursor and the quarantine's durable position have passed it.
+A quarantine segment does not hold back the sink that owns it. Rejects are fsynced into a staging file first, which is what releases the sink's cursor; the quarantine segment then rotates on `quarantine.rotation` (default 5 minutes or 128 MiB) and ships on its own, and a reject staged but not yet in a durable segment at crash time is recovered into the next quarantine segment without duplicating rows (filtered by the quarantine's durable WAL position). A quarantine segment becomes eligible for shipping once both the sink's cursor and the quarantine's durable position have passed it.

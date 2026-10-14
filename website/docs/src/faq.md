@@ -30,7 +30,7 @@ No. Thadam may transport command/event-like messages only where explicitly confi
 
 ## Which protocols and sinks work today?
 
-Sources: MQTT (3.1.1; v5 experimental), HTTP, gRPC, Modbus TCP, SocketCAN, OPC UA (`--features opcua`), ROS 2 MCAP (offline ingestion), and live ROS 2 over `rmw_zenoh` (`--features ros2-live`, experimental), with JSON, ROS 2 CDR, and Sparkplug B decoding. Sinks: Parquet (local segments), S3-compatible object storage shipping ([`thadam-object-store`](sinks/object-store.md)), Apache Iceberg table registration (`--features iceberg`, experimental, P2), NATS JetStream, Apache Kafka, MQTT publish, and the ClickHouse batch sink (P1). The [roadmap](roadmap.md) has the full sequence.
+Sources: MQTT (3.1.1; v5 experimental), HTTP, gRPC, Modbus TCP, SocketCAN, OPC UA (Cargo feature `opcua`), ROS 2 MCAP (offline ingestion), and live ROS 2 over `rmw_zenoh` (Cargo feature `ros2-live`, experimental), with JSON, ROS 2 CDR, and Sparkplug B decoding. Sinks: Parquet (local segments), S3-compatible object storage shipping ([`thadam-object-store`](sinks/object-store.md)), Apache Iceberg table registration (Cargo feature `iceberg`, experimental, P2), NATS JetStream, Apache Kafka, MQTT publish, and the ClickHouse batch sink (P1). The [roadmap](roadmap.md) has the full sequence.
 
 ## Can I run Thadam on a Raspberry Pi / Jetson / Mac?
 

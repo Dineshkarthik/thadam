@@ -44,7 +44,7 @@ The same diagram in mermaid form is in the repository README and in `ARCHITECTUR
 6. The segment sink writes one Parquet writer per dataset. A finalized file advances the sink's watermark; the runtime commits the cursor durably; only then is the file eligible for upload.
 7. The shipper uploads eligible files with deterministic keys and create-if-absent semantics, then records the upload in the segment catalog.
 
-Because capture is first and chains read behind, a misconfigured filter loses nothing (fix the config, rewind the cursor, replay), a slow sink never blocks capture or its sibling sinks, and the on-disk format never depends on the in-memory event model.
+Because capture is first and chains read behind, a misconfigured filter leaves the raw WAL intact (fix the config, rewind the cursor, replay within the retained window), a slow sink never blocks capture or its sibling sinks, and the on-disk format never depends on the in-memory event model.
 
 ## Milestone boundary
 
