@@ -17,7 +17,7 @@ The complete queue inventory (ARCHITECTURE.md section 10):
 
 ## Flow-controlled sources: withhold acks, keep polling
 
-For MQTT QoS 1 and 2, backpressure works by **withholding acknowledgements while the client keeps polling** its network loop, so the keepalive ping continues and the broker stops at exactly its inflight window. Spike S2 verified this end to end (acks withheld for 3× the keepalive: 0 reconnects, 0 loss, broker stopped at its window). Stopping the poll loop instead causes a broker disconnect after roughly 1.5–2× the keepalive and a redelivery storm — which is why the connector's poll task is forbidden from awaiting anything but the library's `poll()`.
+For MQTT QoS 1 and 2, backpressure works by **withholding acknowledgements while the client keeps polling** its network loop, so the keepalive ping continues and the broker stops at exactly its inflight window. The MQTT spike verified this end to end (acks withheld for 3× the keepalive: 0 reconnects, 0 loss, broker stopped at its window). Stopping the poll loop instead causes a broker disconnect after roughly 1.5–2× the keepalive and a redelivery storm — which is why the connector's poll task is forbidden from awaiting anything but the library's `poll()`.
 
 Source-side memory is therefore bounded by `broker window × max_message_bytes`, plus the QoS 0 queue budget.
 

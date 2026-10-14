@@ -1,4 +1,4 @@
-# Thadam edge-capture demo (PR15).
+# Thadam edge-capture demo.
 #
 #   make up            broker + toxiproxy + simulator (level 1 support cast)
 #   make run-native    thadam runs natively on thadam/pipeline.local.yaml

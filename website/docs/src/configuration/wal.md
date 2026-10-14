@@ -19,7 +19,7 @@ wal:
 | `max_disk` | size | required | The WAL disk budget. Must be at least one segment; a budget under four segments warns (retention and `on_full` then act on very coarse units). |
 | `segment_bytes` | size | `16MiB` | The size at which a segment file is sealed. Minimum 1 MiB. |
 | `fsync` | `always`, `never`, or `{ interval: <duration> }` | `{ interval: 10ms }` (provisional) | The fsync policy; see below. `interval: 0` is invalid. |
-| `on_full` | `block` or `drop_oldest` | **none — required** | What happens at `max_disk`. Data loss must be an explicit choice (ADR-0011, D4). See [`on_full`](#on_full-policy). |
+| `on_full` | `block` or `drop_oldest` | **none — required** | What happens at `max_disk`. Data loss must be an explicit choice (ADR-0011). See [`on_full`](#on_full-policy). |
 | `retain_for` | duration | none | How long *consumed* data stays available for replay, bounded by `max_disk`. Zero is invalid; omit to keep nothing beyond consumption. |
 | `max_pending_bytes` | size | `8MiB` | Bytes a source may have submitted to the WAL writer without a completed commit. Zero is invalid. A batch larger than the budget takes the whole budget, which avoids deadlock. |
 
@@ -27,8 +27,8 @@ wal:
 
 | Value | Meaning | Durability |
 |---|---|---|
-| `always` | fsync after every commit | Process crash and, on flush-honoring storage, power loss. Unbatched small messages amplify writes (≈12.8× payload for 200 B messages at 5,000/s on Linux, spike S1). |
-| `{ interval: 10ms }` | Group commit: one `write` + one `fdatasync` per group, at most once per interval | Same guarantee class; commits within an unflushed interval can be lost to power loss — the reason no power-loss claim is published without hardware evidence. The default is provisional pending the S1 re-run on reference hardware. |
+| `always` | fsync after every commit | Process crash and, on flush-honoring storage, power loss. Unbatched small messages amplify writes (≈12.8× payload for 200 B messages at 5,000/s on Linux, WAL spike). |
+| `{ interval: 10ms }` | Group commit: one `write` + one `fdatasync` per group, at most once per interval | Same guarantee class; commits within an unflushed interval can be lost to power loss — the reason no power-loss claim is published without hardware evidence. The default is provisional pending the WAL hardware re-run. |
 | `never` | Never fsync; durability depends on the OS | Survives a process crash only (the OS flushes asynchronously). |
 
 The fsync interval lands inside commit latency, so it directly sets the per-connection [throughput ceiling](../concepts/delivery-guarantees.md#throughput-ceiling) of `ack_mode: on_commit`.

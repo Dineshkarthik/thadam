@@ -17,7 +17,7 @@
 
 Thadam is open-source, Rust-first, and edge-native. It is designed to keep capturing data through network outages and downstream downtime, and to replay what it captured when the world comes back.
 
-> **Name status:** "Thadam" is the selected project identity, not a claim of trademark or domain availability. Registry, domain, and trademark clearance is still pending (tracked as reserved ADR-0016), so every crate is `publish = false` and nothing is published to crates.io yet.
+> **Name status:** "Thadam" is the selected project identity, not a claim of trademark or domain availability. Registry, domain, and trademark clearance is still pending (tracked in [ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Draft), so every crate is `publish = false` and nothing is published to crates.io yet.
 
 ## Project status: pre-alpha
 
@@ -30,20 +30,20 @@ Thadam is under active development. The architecture and the delivery guarantees
 - The transform chain (`thadam-transform`): router, JSON decode, identity, event IDs, deduplication, `explode`, units, time extraction, and the steps `validate`, `on_change`, `filter`, `sample`, `enrich`, `rename`, `project`, `cast`, `pose`, and `joint_state`.
 - The MQTT source (`thadam-mqtt`, [ADR-0006](docs/design/adr/0006-mqtt-client.md)): persistent sessions, acknowledge-after-commit, ordered acks, TLS and mTLS, session-loss detection.
 - Other sources: HTTP, gRPC, Modbus TCP, SocketCAN (Linux), and OPC UA (behind the opt-in `opcua` feature). Sparkplug B payloads decode with `decode: sparkplug_b`.
-- Other sinks: Apache Kafka, NATS JetStream, and MQTT publish (`mqtt_publish`), plus ClickHouse (P1, on by default, outside the M1 reliability gate; [ADR-0008](docs/design/adr/0008-clickhouse-sink.md) is still Draft).
+- Other sinks: Apache Kafka, NATS JetStream, and MQTT publish (`mqtt_publish`), plus ClickHouse (P1, on by default, outside the core v0.1 reliability gate; [ADR-0008](docs/design/adr/0008-clickhouse-sink.md) is still Draft).
 - The Python SDK (`sdk/python`): configuration validation, the config hash, reading segments, and in-process pipelines.
 - The runtime (`thadam-runtime`) with supervisor, shutdown and crash recovery, the admin HTTP API (`/healthz`, `/readyz`, `/metrics`, `/status`), and Prometheus metrics; `thadam run` and `thadam status` exist at the CLI level.
 - The Parquet segment sink (`thadam-segments`) and the object-store shipper (`thadam-object-store`) — locally durable segments, then oldest-first deterministic-key uploads with startup capability probing and unbounded retry.
 - The seeded demo simulator (`tools/thadam-simulator`) and the `edge-capture` demo stack: a 6-robot MQTT fleet with a per-sample truth oracle, Docker Compose topology (Mosquitto, Toxiproxy, SeaweedFS, Prometheus/Grafana), and a DuckDB exploration script.
 - Replay and inspection (`thadam replay`, `thadam inspect`), the chaos suites, the oracle verifier, and the benchmark harness (`tools/thadam-bench`).
-- Offline ROS 2 (milestone M2, [ADR-0007](docs/design/adr/0007-ros2-strategy.md)): MCAP capture, `decode: ros2` in the chain, `thadam export --mcap`, and [`examples/ros2-mcap-to-parquet`](examples/ros2-mcap-to-parquet).
+- Offline ROS 2 ([ADR-0007](docs/design/adr/0007-ros2-strategy.md)): MCAP capture, `decode: ros2` in the chain, `thadam export --mcap`, and [`examples/ros2-mcap-to-parquet`](examples/ros2-mcap-to-parquet).
 
 **In progress:**
 
 - Published benchmark results and the ADR-0004 WAL re-run on reference hardware (`scripts/wal-hw-bench.sh` is ready; the runs are not done).
 - Live ROS 2 transport (`kind: ros2_live`, rmw_zenoh): experimental, behind the opt-in `ros2-live` feature. No discovery and no ARM numbers yet; ROS 2 is not part of v0.1.
 - Iceberg registrar (`kind: iceberg`, P2): experimental, behind the opt-in `iceberg` feature. Schema evolution and catalog authentication are in; token refresh, compaction, and partitioning are not.
-- Windowing (`window`, steps S1 to S5): experimental. WASM and inference (S6, S7) are deferred until a user needs them.
+- Windowing (`window`): experimental. WASM operators and in-chain inference are deferred until a user needs them.
 
 Current per-component status is tracked in [docs/design/readiness.md](docs/design/readiness.md) and [ARCHITECTURE.md](ARCHITECTURE.md) section 21.
 
@@ -205,11 +205,11 @@ The exact allowed wording per claim, with its conditions and evidence, is the re
 
 ## Roadmap
 
-Milestones (owner decisions of 2026-10-07; detail in [ARCHITECTURE.md](ARCHITECTURE.md) section 1 and [product.md](product.md) section 32):
+Milestones (detail in [ARCHITECTURE.md](ARCHITECTURE.md) section 1 and [product.md](product.md) section 32):
 
 - **M1 (MVP v0.1):** MQTT source, capture WAL, local Parquet segments, S3-compatible shipping, replay, chaos verification. In progress: the chaos verification run and the published benchmarks are open.
 - **M2:** ROS 2 — MCAP/rosbag2 offline ingestion and export are done; the live `rmw_zenoh` source is experimental.
-- **M3 (P1):** ClickHouse sink, built outside the M1 reliability gate; the B8 benchmark and the `edge-analytics` example are open.
+- **M3 (P1):** ClickHouse sink, built outside the M1 reliability gate; the HTTP-vs-native client benchmark and the `edge-analytics` example are open.
 - **Beyond the MVP scope:** built, with the statuses above: HTTP and gRPC sources, Modbus, SocketCAN, OPC UA, the Kafka, NATS JetStream, and MQTT publish sinks, Sparkplug B decoding, windowing (experimental), Iceberg (experimental), and the Python SDK. Not started: Delta, fleet remote configuration, and the plugin mechanism.
 
 The product.md phases map onto these: Phase 0 foundations and Phase 1 MVP runtime feed M1; Phase 2 robotics is M2; Phase 3 industrial, Phase 4 lakehouse, Phase 5 fleet/platform, and Phase 6 advanced processing follow.
@@ -219,13 +219,13 @@ The product.md phases map onto these: Phase 0 foundations and Phase 1 MVP runtim
 - [ARCHITECTURE.md](ARCHITECTURE.md) — the current-state architecture of the MVP.
 - [product.md](product.md) — product scope, use cases, roadmap (source of truth for product direction).
 - [docs/design/adr/](docs/design/adr/) — architecture decision records, including the delivery guarantees and claims register.
-- [docs/design/spikes/](docs/design/spikes/) — spike reports (S1 WAL, S2 MQTT, D8 record representation, config YAML, filter language).
+- [docs/design/spikes/](docs/design/spikes/) — spike reports (WAL, MQTT, record representation, config YAML, filter language).
 - [The Thadam book](website/docs/src/SUMMARY.md) — the full user documentation (concepts, configuration, operations, CLI), published at `/docs/` on the site. Build the whole site with `website/scripts/build.sh` (needs mdBook 0.5.x: `cargo install mdbook --locked`), preview it with `website/scripts/preview.sh`, and check it with `python3 website/scripts/check.py`. Output goes to `website/dist/`. The folder layout is in [website/README.md](website/README.md). Deployment is configured separately from this repository.
 - [docs/design/readiness.md](docs/design/readiness.md) — implementation status by component and milestone.
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the toolchain, workspace layout, required checks, and the ADR process. Notes for automated contributors are in [AGENTS.md](AGENTS.md). Architecture decisions are recorded as ADRs; only the project owner accepts an ADR.
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the toolchain, workspace layout, required checks, and the ADR process. Notes for automated contributors are in [AGENTS.md](AGENTS.md). Architecture decisions are recorded as ADRs; only the maintainer accepts an ADR.
 
 ## Security
 

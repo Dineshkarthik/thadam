@@ -39,7 +39,7 @@ Rough envelope for the WAL:
 max_disk ≥ ingest_rate × longest_outage_you_want_to_absorb × (1 + framing overhead)
 ```
 
-The WAL framing overhead is about 2% for 200 B records (spike S1, 24-byte frame headers plus per-segment header). The endurance math matters too: 10 MB/s of payload is about 860 GB/day of WAL writes before Parquet writes, which is why industrial SSD or eMMC is the supported baseline and SD cards are not ([delivery guarantees](../concepts/delivery-guarantees.md#memory-and-storage-discipline)).
+The WAL framing overhead is about 2% for 200 B records (WAL spike, 24-byte frame headers plus per-segment header). The endurance math matters too: 10 MB/s of payload is about 860 GB/day of WAL writes before Parquet writes, which is why industrial SSD or eMMC is the supported baseline and SD cards are not ([delivery guarantees](../concepts/delivery-guarantees.md#memory-and-storage-discipline)).
 
 ## Watching it
 

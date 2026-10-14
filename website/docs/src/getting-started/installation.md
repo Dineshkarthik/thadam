@@ -1,12 +1,12 @@
 # Installation
 
-There are no prebuilt binaries or published crates yet (nothing is published before the naming ADR, [ADR-0016](../design/index.md)); the supported way to run Thadam today is to build from source.
+There are no prebuilt binaries or published crates yet (nothing is published while [ADR-0016](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0016-naming-and-publishing.md) is Draft); the supported way to run Thadam today is to build from source.
 
 ## Supported platforms
 
 - **Linux x86_64** and **Linux ARM64 (aarch64)** are the only durability targets. Production deployments run here.
 - **macOS** builds work for development only. Durability claims do not cover macOS: fsync semantics differ and the WAL format is validated on Linux reference hardware.
-- The supported storage baseline is **industrial SSD or eMMC that honors flush**. SD cards are not a supported target for durability claims (owner decision, 2026-10-07).
+- The supported storage baseline is **industrial SSD or eMMC that honors flush**. SD cards are not a supported target for durability claims.
 - Target resource envelope: 1–4 CPU cores, 256 MB–2 GB RAM depending on workload, local SSD.
 
 The minimum supported Rust version (MSRV) is **1.89**; the repository pins a newer stable toolchain for reproducible builds (see below).

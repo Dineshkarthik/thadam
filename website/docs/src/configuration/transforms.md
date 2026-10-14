@@ -52,7 +52,7 @@ A null field is not checked. Status and flag land in the `_quality_status`, `_qu
 
 ## `kind: on_change` {#on_change}
 
-Passes an event only when a watched field changed value, or when the heartbeat elapses — deadband-style reduction for slow-changing state. It is **lossy by design** and it is not deduplication (product.md UC-05 conflates the two; ADR-0011 D17 keeps them separate).
+Passes an event only when a watched field changed value, or when the heartbeat elapses — deadband-style reduction for slow-changing state. It is **lossy by design** and it is not deduplication (product.md UC-05 conflates the two; ADR-0011 keeps them separate).
 
 ```yaml
 - kind: on_change

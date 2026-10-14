@@ -64,6 +64,7 @@ FORBIDDEN_CLAIMS = [
 NEGATION_CUES = ("not ", "cannot", "can't", "refuse", "rather than", "without ", "no claim")
 STATUS_WORDS = ("Available", "In progress", "Planned")
 STATUS_LINE_RE = re.compile(r"\bStatus:\s*([^.\n]+)")
+PR_TOKEN_RE = re.compile(r"\bPR[0-9]+\b")
 HEX_RE = re.compile(r"#(?:[0-9A-Fa-f]{3}){1,2}\b")
 FRAGMENT_PAGES = {"docs/toc.html"}
 FAVICON_GUARDS = {
@@ -137,6 +138,12 @@ def lint_docs_status(label, text, errors):
             )
 
 
+def lint_pr_tokens(label, text, errors):
+    for match in PR_TOKEN_RE.finditer(text):
+        snippet = text[max(0, match.start() - 30):match.end() + 30]
+        errors.append(f"{label}: internal PR token '{match.group(0)}' in visible text: ...{snippet}...")
+
+
 class PageParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -146,6 +153,7 @@ class PageParser(HTMLParser):
         self.canonical = None
         self.og_url = None
         self.refs = []
+        self.ids = set()
         self.in_pre = False
         self.missing_alt = 0
         self.og_image = None
@@ -155,6 +163,10 @@ class PageParser(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
+        if a.get("id"):
+            self.ids.add(a["id"])
+        if tag == "a" and a.get("name"):
+            self.ids.add(a["name"])
         if tag == "img" and "alt" not in a:
             self.missing_alt += 1
         if tag == "script" and (a.get("type") or "") == "application/ld+json":
@@ -241,12 +253,18 @@ def main():
                 errors.append(f"{copy.relative_to(DIST)} differs from thadam-assets/brand/{brand_rel}")
 
     pages = sorted(DIST.rglob("*.html"))
-    expected_docs = set()
+    parsed_pages = []
+    page_ids = {}
     for page in pages:
-        rel = page.relative_to(DIST).as_posix()
         text = page.read_text(encoding="utf-8")
         parser = PageParser()
         parser.feed(text)
+        parsed_pages.append((page, text, parser))
+        page_ids[page.resolve()] = parser.ids
+
+    expected_docs = set()
+    for page, text, parser in parsed_pages:
+        rel = page.relative_to(DIST).as_posix()
         page_dir_rel = page.parent.relative_to(DIST)
 
         if rel not in FRAGMENT_PAGES:
@@ -262,11 +280,14 @@ def main():
             except json.JSONDecodeError as exc:
                 errors.append(f"{rel}: JSON-LD does not parse: {exc}")
         is_docs_page = rel.startswith("docs/") and rel not in NOINDEX_PAGES
-        if rel == "index.html" or is_docs_page:
+        if rel in ("index.html", "404.html") or is_docs_page:
             visible = VisibleText()
             visible.feed(text)
             visible_text = visible.text()
-            lint_claims("homepage" if rel == "index.html" else rel, visible_text, errors)
+            label = "homepage" if rel == "index.html" else rel
+            if rel == "index.html" or is_docs_page:
+                lint_claims(label, visible_text, errors)
+            lint_pr_tokens(label, visible_text, errors)
             if is_docs_page:
                 lint_docs_status(rel, visible_text, errors)
         if rel == "index.html":
@@ -300,7 +321,12 @@ def main():
         for kind, value in parser.refs:
             candidates = [value] if kind != "srcset" else [part.strip().split()[0] for part in value.split(",") if part.strip()]
             for target in candidates:
-                if target.startswith(("#", "mailto:", "tel:", "data:")):
+                if target.startswith(("mailto:", "tel:", "data:")):
+                    continue
+                if target.startswith("#"):
+                    frag = unquote(target[1:])
+                    if frag and frag not in parser.ids:
+                        errors.append(f"{rel}: broken fragment {target}")
                     continue
                 parts = urlsplit(target)
                 if parts.scheme in ("http", "https"):
@@ -319,8 +345,14 @@ def main():
                 if not resolved.is_relative_to(DIST.resolve()):
                     errors.append(f"{rel}: {kind} escapes dist/: {target}")
                     continue
-                if not (resolved.is_file() or (resolved.is_dir() and (resolved / "index.html").is_file())):
+                target_file = resolved if resolved.is_file() else ((resolved / "index.html") if (resolved.is_dir() and (resolved / "index.html").is_file()) else None)
+                if target_file is None:
                     errors.append(f"{rel}: broken {kind} {target}")
+                    continue
+                if parts.fragment and target_file in page_ids:
+                    frag = unquote(parts.fragment)
+                    if frag and frag not in page_ids[target_file]:
+                        errors.append(f"{rel}: broken fragment #{frag} in {target}")
 
     if not (DIST / "docs" / "index.html").is_file():
         errors.append("docs/index.html missing")

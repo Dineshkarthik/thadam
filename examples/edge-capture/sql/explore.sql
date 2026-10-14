@@ -6,7 +6,7 @@
 -- The glob path derives from the data-directory layout:
 --   data/sinks/local/ready/{dataset}/date=YYYY-MM-DD/hour=HH/*.parquet
 -- Quarantine lives on its own subtree:
---   data/quarantine/local/ready/_quarantine/...            (PR15-era layout)
+--   data/quarantine/local/ready/_quarantine/...
 --
 -- For S3 (level 2), load httpfs and point the same queries at
 -- s3://thadam-demo/fleet/thadam/v1/edge-capture/{dataset}/...
@@ -89,7 +89,7 @@ LIMIT 5;
 
 ------------ quarantine --------------------------------------------------------------------
 -- If the second query errors with "No files found", nothing was quarantined yet —
--- the simulator's malformed-rate chaos produces a steady trickle (and F8 bursts, PR18).
+-- the simulator's malformed-rate chaos produces a steady trickle (and F8 bursts).
 SELECT '== quarantine files ==' AS "──";
 SELECT count(*) AS quarantine_files FROM glob('./data/quarantine/local/ready/**/*.parquet');
 

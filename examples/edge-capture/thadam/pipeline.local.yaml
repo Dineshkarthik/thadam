@@ -9,7 +9,7 @@
 # binding differ. `state` and `events` carry a small dedup window as well:
 # the simulator's duplicate-publish chaos applies to every stream, and
 # message-level dedup must see all six for the oracle's `duplicate_of`
-# expectation to hold (PR15 decision; see examples/edge-capture/README.md).
+# expectation to hold (see examples/edge-capture/README.md).
 version: 1
 
 pipeline:
@@ -155,7 +155,7 @@ sinks:
     kind: parquet
     config:
       datasets: [telemetry, joints, imu, pose, state, events]
-      compression: auto                     # zstd(1) on x86_64, snappy on aarch64 (pending bench B6)
+      compression: auto                     # zstd(1) on x86_64, snappy on aarch64 (pending compression benchmark)
       row_group_bytes: 8388608                # 8 MiB (connector schema: integer bytes)
       rotation: { max_bytes: 67108864, max_age: 60 }   # 64 MiB or 60 s; production default 5m
       max_open_files: 6

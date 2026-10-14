@@ -38,12 +38,12 @@ quarantine: { format: parquet, max_disk: 268435456 }   # 256 MiB (connector sche
 
 # Dataset schemas (field `id`s, identity level `id`s, `explode`) are declared
 # once, here; sinks select datasets by id in their `config.datasets` list.
-# PR15 note: `state` and `events` carry a 50k dedup window too — the demo
+# `state` and `events` carry a 50k dedup window too — the demo
 # simulator's duplicate-publish chaos applies to every stream, and message-level
 # dedup must see all six for the oracle's `duplicate_of` expectation to hold.
 # Connector config blocks (sources/sinks) take sizes in integer bytes and
 # durations in integer seconds; the human forms (1MiB, 60s) validate but the
-# connector runtime parse is integer-typed (PR15 end-to-end discovery).
+# connector runtime parse is integer-typed.
 datasets:
   - id: telemetry
     match: { source: fleet-mqtt, topic: "thadam-demo/v1/+/+/telemetry" }
@@ -159,7 +159,7 @@ sinks:
     kind: parquet
     config:
       datasets: [telemetry, joints, imu, pose, state, events]
-      compression: auto                     # zstd(1) on x86_64, snappy on aarch64 (pending bench B6)
+      compression: auto                     # zstd(1) on x86_64, snappy on aarch64 (pending compression benchmark)
       row_group_bytes: 8388608                # 8 MiB (connector schema: integer bytes)
       rotation: { max_bytes: 67108864, max_age: 60 }   # 64 MiB or 60 s; production default 5m
       max_open_files: 6

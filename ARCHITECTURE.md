@@ -1,12 +1,12 @@
 # Thadam Architecture
 
-Status: CONDITIONALLY READY (verdict and exact blockers: `docs/design/readiness.md`; decisions: `docs/design/owner-decisions.md`). The owner accepted ADR-0001, 0002, 0003, 0006, 0011, 0012, 0013, 0018, and 0020 on 2026-10-07, and `docs/design/product-amendments.md` Part A is applied to `product.md`. The WAL was built before ADR-0004 was accepted, by the owner's choice, so its on-disk format is versioned but not frozen; the S1 re-run on x86 NVMe and ARM eMMC must still finish before ADR-0004 can be accepted and the format frozen.
+Status: CONDITIONALLY READY (verdict and exact blockers: `docs/design/readiness.md`; decisions: `docs/design/owner-decisions.md`). The maintainer accepted ADR-0001, 0002, 0003, 0006, 0011, 0012, 0013, 0018, and 0020 on 2026-10-07, and `docs/design/product-amendments.md` Part A is applied to `product.md`. The WAL was built before ADR-0004 was accepted, by the maintainer's choice, so its on-disk format is versioned but not frozen; the S1 re-run on x86 NVMe and ARM eMMC must still finish before ADR-0004 can be accepted and the format frozen.
 
-Owner decisions B2 (scope), B3 (product defaults), B6 (D5, D6, D8, D9, D10), and B7 (ADR-0012 YAML crate, ADR-0018 filter language), the ADR acceptances, and the EMQX 5.8.x pin were all made on 2026-10-07 and are reflected below. The three spikes have reported: S1 (WAL, `docs/design/spikes/S1-wal.md`), S2 (MQTT, `docs/design/spikes/S2-mqtt.md`), and the D8 record-representation microbenchmark (`docs/design/spikes/D8-record-representation.md`), and the ADR-0012 and ADR-0018 spikes (`docs/design/spikes/ADR-012-yaml.md`, `ADR-018-filter.md`). Their corrections are folded into sections 3 to 6, 10, 11, 14, 19, 21, and 22. The workspace MSRV is Rust 1.89 (raised from 1.88 for `serde-saphyr`). ADR-0004 stays Draft because the S1 re-run on x86 NVMe and ARM eMMC is still required before the on-disk format is frozen; ADR-0007 and ADR-0008 stay Draft by design (M2 and P1).
+Maintainer decisions B2 (scope), B3 (product defaults), B6 (D5, D6, D8, D9, D10), and B7 (ADR-0012 YAML crate, ADR-0018 filter language), the ADR acceptances, and the EMQX 5.8.x pin were all made on 2026-10-07 and are reflected below. The three spikes have reported: S1 (WAL, `docs/design/spikes/S1-wal.md`), S2 (MQTT, `docs/design/spikes/S2-mqtt.md`), and the D8 record-representation microbenchmark (`docs/design/spikes/D8-record-representation.md`), and the ADR-0012 and ADR-0018 spikes (`docs/design/spikes/ADR-012-yaml.md`, `ADR-018-filter.md`). Their corrections are folded into sections 3 to 6, 10, 11, 14, 19, 21, and 22. The workspace MSRV is Rust 1.89 (raised from 1.88 for `serde-saphyr`). ADR-0004 stays Draft because the S1 re-run on x86 NVMe and ARM eMMC is still required before the on-disk format is frozen; ADR-0007 and ADR-0008 stay Draft by design (M2 and P1).
 
 Last consolidated: 2026-10-07 (updated with the spike results and B6 the same day). Scope of this document: the current-state architecture of the Thadam MVP. It replaces six design documents that were written in sequence and partly contradict each other (listed in section 19). The scope amendments in `docs/design/product-amendments.md` Part A were approved on 2026-10-07 and applied to `product.md` on 2026-10-13; the remaining architecture-alignment proposals (Parts B and C) are cataloged there.
 
-Tags used throughout: **[A]** assumption, **[V]** validate before relying on it, **[OPEN]** an owner or ADR decision is pending. Every ADR referenced here lives in `docs/design/adr/`; their statuses are in section 17.
+Tags used throughout: **[A]** assumption, **[V]** validate before relying on it, **[OPEN]** a maintainer or ADR decision is pending. Every ADR referenced here lives in `docs/design/adr/`; their statuses are in section 17.
 
 ## Contents
 
@@ -41,10 +41,10 @@ Thadam is a single-process, single-binary Rust edge runtime. It captures message
 
 ### Milestones
 
-These milestones were decided by the owner on 2026-10-07 (B2, `docs/design/owner-decisions.md`).
+These milestones were decided by the maintainer on 2026-10-07 (B2, `docs/design/owner-decisions.md`).
 
-- **M1 (MVP v0.1):** MQTT source, capture WAL, local Parquet segments, S3-compatible shipping, replay, and chaos verification. The M1 gate is the demo acceptance list in `examples/edge-capture` (section 21, PR18).
-- **M2:** ROS 2. MCAP and rosbag2 offline ingestion first, then a live transport chosen by a spike. The owner decided that ROS 2 is not in v0.1.
+- **M1 (MVP v0.1):** MQTT source, capture WAL, local Parquet segments, S3-compatible shipping, replay, and chaos verification. The M1 gate is the demo acceptance list in `examples/edge-capture` (section 21).
+- **M2:** ROS 2. MCAP and rosbag2 offline ingestion first, then a live transport chosen by a spike. The maintainer decided that ROS 2 is not in v0.1.
 - **M3 (P1):** ClickHouse sink, started only after the M1 reliability gate.
 - **After the MVP:** HTTP and gRPC sources, aggregation and windowing, OPC UA, CAN, Iceberg and Delta, Python SDK, plugin mechanism, fleet management.
 
@@ -53,14 +53,14 @@ If capacity tightens, cut in this order: ClickHouse, then live ROS 2. M1 is neve
 ### Platforms
 
 - Linux x86_64 and aarch64 are the only durability targets. macOS builds are for development only; durability claims do not cover macOS.
-- The supported storage baseline is industrial SSD or eMMC that honors flush. SD cards are not a supported target for durability claims (owner decision B3, 2026-10-07). Honoring flush on the actual device remains an assumption **[A]** until the hardware evidence in ADR-0011 exists.
+- The supported storage baseline is industrial SSD or eMMC that honors flush. SD cards are not a supported target for durability claims (maintainer decision B3, 2026-10-07). Honoring flush on the actual device remains an assumption **[A]** until the hardware evidence in ADR-0011 exists.
 - Target envelope: 1 to 4 cores, 256 MB to 2 GB of RAM.
 
 ### Explicit non-goals for the MVP
 
 *(Historical original MVP v0.1 boundary; several connectors, the Python SDK, the Iceberg registrar, and windowing have since been built in the workspace — see [section 21](#21-implementation-sequence) and `docs/design/readiness.md` for current status.)*
 
-GUI, cloud control plane, fleet management, remote configuration, Kubernetes operator, HTTP/gRPC/OPC UA/CAN/Modbus/Kafka/NATS/MQTT-publishing connectors, Iceberg/Delta/Snowflake/BigQuery, windowing and aggregation, joins, watermarks, WASM operators, ML inference, hot config reload, multiple pipelines per process, priority buffer queues, a dynamic plugin system, a schema registry product, application-level encryption at rest (document LUKS or filesystem encryption instead), command and control message transport, a video storage path, a Python SDK, and publishing crates before the naming ADR (ADR-0016, not yet written).
+GUI, cloud control plane, fleet management, remote configuration, Kubernetes operator, HTTP/gRPC/OPC UA/CAN/Modbus/Kafka/NATS/MQTT-publishing connectors, Iceberg/Delta/Snowflake/BigQuery, windowing and aggregation, joins, watermarks, WASM operators, ML inference, hot config reload, multiple pipelines per process, priority buffer queues, a dynamic plugin system, a schema registry product, application-level encryption at rest (document LUKS or filesystem encryption instead), command and control message transport, a video storage path, a Python SDK, and publishing crates before the naming ADR ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Draft).
 
 ---
 
@@ -417,7 +417,7 @@ A segment sink with a fixed schema: `_wal_epoch`, `_wal_pos`, `_ingest_time`, `s
 
 ## 9. Crate map and dependency rules
 
-The workspace comprises 27 members (`crates/*`, `apps/thadam-cli`, `tools/*`, and `sdk/python`), split by dependency weight and change rate (D20). All crates are `publish = false` until the naming ADR (ADR-0016, not yet written).
+The workspace comprises 27 members (`crates/*`, `apps/thadam-cli`, `tools/*`, and `sdk/python`), split by dependency weight and change rate (D20). All crates are `publish = false` until the naming ADR ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Draft) is accepted.
 
 ```text
 crates/thadam-core          model, errors, positions, connector traits, clock, shutdown, disk budget, schema/birth stores
@@ -686,28 +686,28 @@ Owner ADR: ADR-0020, from the maturity review section 14.
 All ADRs are in `docs/design/adr/`. Process and template: `0000-adr-process.md` (maintained separately). "Reserved" means the number is in use in the plans but the ADR is not written; its content is currently covered where noted.
 
 - ADR-0000 ADR process: Proposed (not part of the 2026-10-07 acceptance list; the lifecycle it defines is already followed).
-- ADR-0001 Canonical event model: **Accepted** (owner, 2026-10-07). Implementation-time verification in PR3 and PR8.
-- ADR-0002 Connector contract: **Accepted** (owner, 2026-10-07). Implementation-time verification in PR3, PR4, PR10, and PR12.
-- ADR-0003 Execution and process model: **Accepted** (owner, 2026-10-07), including D1 (capture-first WAL).
+- ADR-0001 Canonical event model: **Accepted** (maintainer, 2026-10-07).
+- ADR-0002 Connector contract: **Accepted** (maintainer, 2026-10-07).
+- ADR-0003 Execution and process model: **Accepted** (maintainer, 2026-10-07), including D1 (capture-first WAL).
 - ADR-0004 Durable buffer: Draft. S1 reported and its recommendation is folded in; `thadam-wal` is implemented with a versioned but not frozen format, and the ADR records the implementation deviations. It stays Draft until the S1 re-run on x86 NVMe and ARM eMMC, because it freezes the on-disk format.
 - ADR-0005 Internal representation: Reserved. Content is folded into ADR-0001 (D8, with the revisit trigger from the original plan).
-- ADR-0006 MQTT client: **Accepted** (owner, 2026-10-07), with `rumqttc` 0.25.1 pinned behind `thadam-mqtt` and EMQX pinned to the last open-source build (5.8.x) for CI, tests, and documentation. Amended 2026-10-07: TLS is terminated inside `thadam-mqtt` (in-process relay, `tokio-rustls` with `ring`) because every `rumqttc` TLS feature pins a vulnerable `rustls-webpki`; `rumqttc` is built with no features. Open, not blocking: the optional S2b run against `rumqttc-next` and the PR12 conformance suite.
+- ADR-0006 MQTT client: **Accepted** (maintainer, 2026-10-07), with `rumqttc` 0.25.1 pinned behind `thadam-mqtt` and EMQX pinned to the last open-source build (5.8.x) for CI, tests, and documentation. Amended 2026-10-07: TLS is terminated inside `thadam-mqtt` (in-process relay, `tokio-rustls` with `ring`) because every `rumqttc` TLS feature pins a vulnerable `rustls-webpki`; `rumqttc` is built with no features. Open, not blocking: the optional S2b run against `rumqttc-next`.
 - ADR-0007 ROS 2 strategy: Draft.
 - ADR-0008 ClickHouse sink: Draft, deferred after the M1 gate.
 - ADR-0009 Object-store architecture: Reserved. Content is in section 8 and ADR-0011 (commit-then-ship) and ADR-0013 (keys).
 - ADR-0010 Python SDK boundary: Reserved, post-MVP.
-- ADR-0011 Delivery guarantees and claims register: **Accepted** (owner, 2026-10-07).
-- ADR-0012 Config format and YAML crate: **Accepted** (owner, 2026-10-07): `serde-saphyr` with `strict_booleans: true`, MSRV 1.89, `serde_norway` as the documented fallback. Remaining details were PR5 implementation details, now recorded in ADR-0012 "PR5 outcomes" (parse budget 50,000 nodes and depth 32, anchors and merge keys rejected, `--allow-unresolved`, `thadam schema`, identity levels as an ordered list).
-- ADR-0013 Parquet segment layout: **Accepted** (owner, 2026-10-07). PR13 closed O4 and O5 and the unsigned default (ADR-0013 "PR13 implementation decisions").
+- ADR-0011 Delivery guarantees and claims register: **Accepted** (maintainer, 2026-10-07).
+- ADR-0012 Config format and YAML crate: **Accepted** (maintainer, 2026-10-07): `serde-saphyr` with `strict_booleans: true`, MSRV 1.89, `serde_norway` as the documented fallback. Parse budget 50,000 nodes and depth 32, anchors and merge keys rejected, `--allow-unresolved`, `thadam schema`, identity levels as an ordered list (ADR-0012 "PR5 outcomes").
+- ADR-0013 Parquet segment layout: **Accepted** (maintainer, 2026-10-07). O4, O5, and the unsigned default (`Native`) are closed (ADR-0013 "PR13 implementation decisions").
 - ADR-0014 Time and clock semantics: Reserved. Content is folded into ADR-0001 (D15) and ADR-0013 (D14, D16).
-- ADR-0015 Recording and replay format: Draft (2026-10-10). Records the owner's export decisions; `thadam export --mcap` implements it.
-- ADR-0016 Naming and publishing: Reserved. Name clearance is tracked but not blocking while crates are `publish = false`.
+- ADR-0015 Recording and replay format: Draft (2026-10-10). Records the export decisions; `thadam export --mcap` implements it.
+- [ADR-0016](docs/design/adr/0016-naming-and-publishing.md) Naming and publishing: Draft (2026-10-14). Name clearance is pending; all crates stay `publish = false` until accepted.
 - ADR-0017 Plugin mechanism: Reserved. Compile-time features now; out-of-process later; Rust dynamic libraries rejected because Rust has no stable ABI.
-- ADR-0018 Filter and expression language: **Accepted** (owner, 2026-10-07): structured YAML predicates for the MVP, CEL reserved for a future ADR. Remaining details are PR9 implementation details.
+- ADR-0018 Filter and expression language: **Accepted** (maintainer, 2026-10-07): structured YAML predicates for the MVP, CEL reserved for a future ADR.
 - ADR-0019 Transform semantics (deduplication, deadband, sampling): Reserved. Content is in section 7 and ADR-0011.
-- ADR-0020 Dependency security and toolchain policy: **Accepted** (owner, 2026-10-07), with the MSRV floor at Rust 1.89.
+- ADR-0020 Dependency security and toolchain policy: **Accepted** (maintainer, 2026-10-07), with the MSRV floor at Rust 1.89.
 
-Flip rule (status after 2026-10-07): ADRs 0001, 0002, 0003, 0006, 0011, 0012, 0013, 0018, and 0020 are Accepted. The remaining gate for the WAL work is ADR-0004, which needs the S1 re-run on x86 NVMe and ARM eMMC. The docs baseline (PR2) must be committed so that the acceptances are recorded in the repository.
+Status after 2026-10-07: ADRs 0001, 0002, 0003, 0006, 0011, 0012, 0013, 0018, and 0020 are Accepted. The remaining gate for freezing the WAL v1 format is ADR-0004, which awaits the S1 re-run on x86 NVMe and ARM eMMC.
 
 ---
 
@@ -752,8 +752,8 @@ Each entry gives what was decided, what replaced it, and where.
 - **17 crates (`thadam-model`, `thadam-buffer`, `thadam-connector`, `thadam-observability`, `thadam-sink-*`, `thadam-source-*`, a `thadam` facade).** Replaced by the crate map in section 9 (D20). The facade is deferred until publishing; observability is inside `thadam-runtime`.
 - **One pipeline task running decode and transforms inline.** Replaced by one ChainTask per sink.
 - **`on_full: block | drop_oldest` with `block` as the default.** Replaced by a required explicit choice (D4).
-- **Timeline PR numbering (PR1 to PR23).** Replaced by the implementation plan's PR1 to PR21 numbering (section 21).
-- **Throughput hypothesis of 50k events/s on 2 cores with a 100 ms fsync interval.** Withdrawn as a target; ack-window math applies (section 10). Hypotheses remain only as things to falsify.- **Plan-level benchmarks B1 to B8 numbering.** Still useful as benchmark identifiers; the demo plan adds M1 to M7 scenario measurements.
+- **Throughput hypothesis of 50k events/s on 2 cores with a 100 ms fsync interval.** Withdrawn as a target; ack-window math applies (section 10). Hypotheses remain only as things to falsify.
+- **Plan-level benchmarks B1 to B8 numbering.** Still useful as benchmark identifiers; the demo plan adds M1 to M7 scenario measurements.
 
 ### In the architecture review
 
@@ -765,7 +765,7 @@ Each entry gives what was decided, what replaced it, and where.
 
 ### In the implementation plan
 
-- ClickHouse sink "HTTP, format by ADR-008": updated by the maturity review (the lean now is the official `clickhouse` crate) (section 21, PR19 to PR21).
+- ClickHouse sink "HTTP, format by ADR-008": updated by the maturity review (the lean now is the official `clickhouse` crate) (section 21).
 - `thadam-clickhouse` dependency list (`reqwest` plus `arrow-ipc`): superseded by the candidate list in ADR-0008.
 - The implementation plan's metric list: merged into section 14.
 - **Default `fsync: interval(50ms)` (D3).** Replaced provisionally by `interval(10ms)` after S1 and S2 (section 6).
@@ -784,27 +784,25 @@ Each entry gives what was decided, what replaced it, and where.
 
 Places where the current plans disagreed and how this document resolves them.
 
-- **Time-based replay seek.** The demo uses `thadam replay ... --from -45m`, while the implementation plan says random access by time is post-MVP. Resolution **[A]**: PR17 resolves a relative or absolute time to a WAL position by scanning frame headers inside the retained window (bounded by `retain_for`), with no persistent time index. Validate cost in PR17 **[V]**. Time-to-position uses `ingest_time` and `clock_synced`, never segment `created_unix` alone, since wall time is unreliable without an RTC.
-- **`thadam export --mcap`.** The review replaced the MCAP tap with WAL retention plus export, but no PR in the implementation plan builds it. Resolution: it ships with the MCAP work in M2 (section 21), when the `mcap` dependency arrives.
-- **Event ID spelling.** The implementation plan calls it `identity_key`; the demo uses `event_id: {key: [...]}`. Resolution: use the demo spelling (it is a concrete config); the spelling is frozen with the first fixture set in PR5 (ADR-0012, Accepted).
+- **Time-based replay seek.** The demo uses `thadam replay ... --from -45m`, while the implementation plan says random access by time is post-MVP. Resolution **[A]**: `thadam replay` resolves a relative or absolute time to a WAL position by scanning frame headers inside the retained window (bounded by `retain_for`), with no persistent time index. Time-to-position uses `ingest_time` and `clock_synced`, never segment `created_unix` alone, since wall time is unreliable without an RTC.
+- **`thadam export --mcap`.** The review replaced the MCAP tap with WAL retention plus export. Resolution: it ships with the MCAP work in M2 (section 21), when the `mcap` dependency arrives.
+- **Event ID spelling.** The implementation plan calls it `identity_key`; the demo uses `event_id: {key: [...]}`. Resolution: use the demo spelling (`event_id: {key: [...]}`), frozen with the first fixture set (ADR-0012, Accepted).
 - **Deduplication placement.** The implementation plan lists dedup as a transform step; the demo applies it at the dataset level before `explode`. Resolution: dataset level, before `explode` (section 7).
-- **Unit conversion for typed arrays.** The demo needs element-wise conversion on `list<f32>`; the implementation plan did not list it. Added to PR8.
+- **Unit conversion for typed arrays.** The demo needs element-wise conversion on `list<f32>`; the implementation plan did not list it. Implemented in `thadam-transform`.
 - **Quality flag set.** The union of the original plan and the demo, including `MISSING_TIME`.
 - **Envelope columns.** The demo's list (adds `_quality_reason`, `_time_domain`, `_clock_synced`, `seq`, `sample_idx`) is a superset of the implementation plan's; the demo's list is used.
 - **Metric labels and names.** Merged in section 14.
-- **Config sink binding for transforms.** Unspecified in both; tracked as O2.
-- **`on_full`.** The implementation plan's example sets `on_full: block` and tags it OPEN; the demo's YAML does the same; both agree it must be explicit, and the owner confirmed on 2026-10-07 that there is no default. `thadam init` writes `block`.
+- **Config sink binding for transforms.** Tracked as O2 (`transforms[].sinks: [ids]`).
+- **`on_full`.** The implementation plan's example sets `on_full: block` and tags it OPEN; the demo's YAML does the same; both agree it must be explicit, and the maintainer confirmed on 2026-10-07 that there is no default. `thadam init` writes `block`.
 - **WAL frame header size.** Stated as 24 bytes but the listed fields total 20. Resolved by S1 and recorded in ADR-0004: 24 bytes, with a reserved word that must be zero (O9 closed; the format freezes at the v0.1.0 tag, after the ADR-0004 reference-hardware run).
-- **MSRV.** "Stable minus two" (implementation plan) and "1.88 or later" (maturity review and readiness gate) agreed on 1.88 as the floor until the owner chose `serde-saphyr` (Rust 1.89) for ADR-0012 on 2026-10-07. The declared `rust-version` is now 1.89 and is the floor (ADR-0020).
-- **PR numbering across documents.** The readiness gate refers to implementation-plan numbering; this document uses it.
+- **MSRV.** "Stable minus two" (implementation plan) and "1.88 or later" (maturity review and readiness gate) agreed on 1.88 as the floor until the maintainer chose `serde-saphyr` (Rust 1.89) for ADR-0012 on 2026-10-07. The declared `rust-version` is now 1.89 and is the floor (ADR-0020).
 - **Example directory names.** The original and implementation plans name `examples/mqtt-to-parquet`, `mqtt-to-s3`, and `offline-replay`; the demo plan consolidates them into one example, `examples/edge-capture`, with levels 1 to 4, and names the P1 follow-on `examples/edge-analytics`. The demo plan's names are used.
-- **Level-to-PR mapping.** The demo plan places demo levels at PR15 (level 1), PR16 (level 2), PR17 (level 4), and PR18 (level 3), which matches section 21.
 
 ---
 
 ## 21. Implementation sequence
 
-This replaces the implementation plan's PR list (itself a revision of the original plan's PR list) with the demo `[IMPL]` items and the maturity-review changes folded in. PR numbers follow the implementation plan, because the readiness gate refers to them. Spikes are throwaway work whose reports live in `docs/design/spikes/`.
+Spikes are throwaway experiments whose reports live in `docs/design/spikes/`. Component implementation and verification status is tracked below and in `docs/design/readiness.md`.
 
 ### Status (updated 2026-10-14, through `HEAD`)
 
@@ -833,106 +831,47 @@ This replaces the implementation plan's PR list (itself a revision of the origin
 | `cargo fuzz` targets (6 targets across `thadam-transform`, `thadam-ros2-msg`, `thadam-sparkplug`) and `fuzz-smoke` CI job | Done |
 | WAL hardware bench script and runbook (`scripts/wal-hw-bench.sh`, `docs/design/wal-hardware-runbook.md`) | Done (tooling; ADR-0004 hardware runs pending) |
 
-### Gates (production code starts only after READY)
+### Gated and deferred work
 
-READY requires: the docs baseline committed with ADRs 0001, 0002, 0003, 0011, 0012, 0013, 0018, 0020 Accepted (all accepted 2026-10-07); owner sign-off on B2, B3, B6, and B7 (all done 2026-10-07); S1 and S2 reports in (done) with ADR-0004 and ADR-0006 Accepted (ADR-0006 done 2026-10-07; ADR-0004 waits on the S1 hardware re-run); and the approved Part A amendments applied to `product.md` (done 2026-10-13). See `docs/design/owner-decisions.md` and `docs/design/readiness.md`. Only the WAL format freeze waits on the reference-hardware re-run.
-
-### Foundation (no unresolved decision)
-
-- **PR1: workspace scaffold and CI guardrails** (done). Root `clippy.toml` (`allow-unwrap-in-tests`, `allow-expect-in-tests`), `rust-toolchain.toml`, lints, `deny.toml`, `scripts/check-deps.sh` with `--self-test`, nextest, x86_64 and aarch64 CI, and `docs/design/adr/0000-adr-process.md`.
-  - Folded from ADR-0020: MSRV 1.89 as `rust-version` (`thadam-iceberg` 1.94), advisories blocking, license allow-list, bans on `aws-lc-sys`, `openssl-sys`, `serde_yaml` (with scoped exceptions for opt-in features), sources limited to crates.io.
-- **PR2: docs baseline** (done). `ARCHITECTURE.md`, ADRs, `docs/design/product-amendments.md`, `owner-decisions.md`, `version-inventory.md`, and `product.md` under version control with Part A applied.
-
-### Spikes and sign-offs, in parallel with PR1 and PR2
-
-- **S1: WAL** (`docs/design/spikes/S1-wal.md`). **Reported 2026-10-07.** Gates PR6 and PR7. The custom log is confirmed and the frame layout is recommended as built; ADR-0004 stays Draft until the **S1 re-run on x86 NVMe and ARM eMMC** and the other items in ADR-0004 ("Remaining before this ADR can leave Draft") are done, and only then is the format frozen.
-- **S2: MQTT** (`docs/design/spikes/S2-mqtt.md`). **Reported 2026-10-07.** Gates PR12. It ran the ack-window curve against Mosquitto 2.1.2 and EMQX 5.8.6, keepalive under stall, `poll` cancel-safety (not cancel-safe), payload-stripped acks (work), persistent sessions, ack order, MQTT 5 smoke, and a fork-readiness review. Output: ADR-0006 (Accepted by the owner 2026-10-07) with the five wrapper rules, the exit criteria, and the fallback order (a maintained fork such as `rumqttc-next`, then `ntex-mqtt`, then `paho-mqtt` only after legal review). The EMQX licensing question is settled: CI, tests, demos, and documentation use the last open-source build, 5.8.x (S2 ran 5.8.6); newer Enterprise-licensed images are not used. Follow-ups: S2b against `rumqttc-next` and a repeat on ARM.
-- **D8 microbenchmark** (`docs/design/spikes/D8-record-representation.md`). **Reported 2026-10-07.** Supports representation B with an opaque `Record` and the extended value set.
-- **Owner decisions B2, B3, B6, and B7:** all done 2026-10-07.
-- **ADR-0012 before PR5. ADR-0018 before PR9** and before any demo YAML is published: both Accepted 2026-10-07 (`serde-saphyr`; structured predicates).
-
-### M1: P0 core
-
-- **PR3: `thadam-core` model and errors.** **Done.** Shape-shared records behind an opaque `Record` (`ShapeKey`, `get_at`, `set_at`, slow-path `get` and `iter`; no public fields), extended values, simplified times with `TimeDomain` and `clock_synced`, quality, identity, positions, error model, `DiskBudget`. Resolves O1 (declared-field types in core) and O8 (`SinkBatch`, with PR4). Evaluates the `Value` size bound and states the typed-array ownership rule. Tests: invariants, `Event` size budget (128 bytes excluding heap), proptest, error-code snapshot, `loom` on `DiskBudget`, and a test that fails if `Record` leaks a public field or an `Arc<Shape>` comparison. B6 is signed and ADR-0001 is Accepted (2026-10-07).
-- **PR4: core traits and `thadam-testkit`.** **Done.** `Source`, `BatchSink`, `SegmentSink`, factories, `SinkBatch`, memory connectors, `FakeClock`, conformance suites (liveness, cancel-safety, ack ordering, epoch-scoped handles and the stale-ack scenario, the protocol task never awaiting the runtime, lost-token watchdog, panic isolation), plus the `async_trait` and ack-tracker benchmarks. B6 is signed and ADR-0002 is Accepted (2026-10-07).
-- **PR5: `thadam-config`, `thadam init`, `thadam validate`, `thadam version`.** **Done** (the CLI also has `thadam schema`, `validate --allow-unresolved`, and `validate --against-data-dir`). Depends on ADR-0012 (Accepted: `serde-saphyr` with `strict_booleans: true`, MSRV 1.89, `serde_norway` fallback) and PR3. Scope includes the demo configuration options listed in section 15, the explicit-`on_full` rule, and the ADR-0012 "PR5 outcomes" (key spelling, O2, hash scope, interpolation edge cases, parse budget, anchors and merge keys, path-to-span index). Tests: fixture diagnostics, secret redaction, JSON Schema snapshot, config hash stability.
-- **PR6: `thadam-wal` writer and recovery.** **Done**, with the format versioned but not frozen: the owner decided to build the WAL now and re-validate on reference hardware later, so ADR-0004 stays Draft (see "Implementation notes (PR6 and PR7)" in ADR-0004 for the deviations). Implements the S1 layout and its corrections: lazy segment allocation with delete-before-allocate (open never allocates), no page-cache trust after a failed fsync (`O_DIRECT` or `posix_fadvise(DONTNEED)`, or seal at the last good fsync offset and let sources redeliver), no preallocation on macOS, readers and cursors bounded by the durable end, no sequence reuse at or below a durable cursor, a bad segment header fails the open, and the default `interval(10ms)`. Adds failpoints behind a feature: `wal::after_write_before_fsync`. Acceptance: zero committed-ticket loss across 1,000 crash iterations; no stale-frame resurrection; no ticket resolves after a failed fsync; an ENOSPC test on a loop device in which consumers drain and reclaim on a full disk.
-- **PR7: WAL readers, cursors, retention, `on_full`.** **Done.** Monotonic retention, `Gap`, `retain_for`, `required`/`max_lag`. Acceptance: disk stays at or below budget plus one segment.
-- **PR8: `thadam-transform` part 1.** **Done.** Router, JSON decode to declared shapes, event IDs including content-derived `event_id.key`, time extraction with domains and `max_skew` flagging, rename, project, cast, units including `convert_to` with element-wise conversion on typed arrays. Decoder fuzz target (ADR-0020). Determinism tests.
-- **PR9: `thadam-transform` part 2.** **Done.** Depends on ADR-0018 (Accepted: structured predicates; CEL reserved) and the ADR-0018 implementation details (filter key spelling, namespace, literal typing, null semantics, cost limits). Dataset-level dedup before `explode` with warm start, `explode` with `index_field`, the `^/` parent-path syntax, `validate` (flag and status assignment), `on_change` with heartbeat, sampling, filter, enrichment with a recorded file hash, plus `pose`, `joint_state`, and experimental `window`.
-- **PR10: `thadam-runtime` core.** **Done.** Registry, SourceDriver with ordered ack FIFO, ChainTask, SegmentDriver, BatchDriver, supervisor, shutdown, maintenance, startup recovery. Settled the `thadam.json`/`wal.json` split of section 11 (identity in `wal.json`; `thadam.json` references the WAL epoch only as a binding), the `SegmentBatch` grouped append, and the per-sink `required`/`max_lag`/`start_from` policies. Tests: crash-between-steps matrix (finalize, cursor commit, eligible, upload, delete), panic isolation, RSS bound under a stalled sink.
-- **PR11: observability, admin API, `thadam run`, `thadam status`.** **Done.** `PipelineHandle::status` snapshots, `MetricsSink` and `PrometheusMetrics` (all 46 consolidated metric names in section 14, pinned by an exact-list test), structured lossy logging, the admin HTTP API (`/healthz`, `/readyz`, `/metrics`, `/status`), and the `thadam run` and `thadam status` CLI commands.
-- **PR12: `thadam-mqtt`.** **Done.** Depends on ADR-0006 (Accepted). EMQX in the CI matrix and demos is pinned to an exact 5.8.x tag (currently 5.8.6), never a newer Enterprise-licensed image. `rumqttc` `=0.25.1` with no features (every TLS feature pins a vulnerable `rustls-webpki`; ADR-0006 amendment 2026-10-07) and TLS terminated in `thadam-mqtt` through an in-process relay with `tokio-rustls` `ring`; the five wrapper rules and three configuration requirements (section 10); `expected_broker_window`, `max_incoming_packet_size` derived from `max_message_bytes`, `protocol: v311` default and `v5` experimental. Acceptance, against both Mosquitto and EMQX: no loss of QoS 1 messages across kill -9 while publishing continues (within broker queue limits, duplicates counted); no disconnect under a 3x keepalive stall; ack ordering; `SESSION_LOST` detection with resubscribe; the stale-ack scenario loses 0 messages; the oversize configuration test; QoS 0 overflow accounting; a lint or test that fails on any `select!`, `timeout`, or `now_or_never` around `poll`; and a TLS and mTLS handshake with `ring`.
-- **PR13: `thadam-arrow`.** **Done.** Dataset schema, `BatchEncoder`, envelope and lineage columns, **stable Parquet field IDs** (ADR-0013, assignment policy O5, closed in PR13). Tests: type matrix, field-ID round trip, timestamp units, fingerprint stability.
-- **PR14: `thadam-segments`.** **Done.** Parquet sink, catalog, quarantine, budget eviction, `unsynced/`. Adds failpoints `segments::after_rename_before_catalog` and `segments::before_cursor_commit`. Tests: finalize failpoint matrix, footer rebuild, reader compatibility (DuckDB, pyarrow, Spark), field IDs present in written files.
-- **PR15: simulator and demo Level 1 (`examples/edge-capture`, first Parquet in 10 minutes).** **Done.** Includes the seeded fleet, the oracle, and `thadam-simulator verify`.
-- **PR16: `thadam-object-store` shipper and demo Level 2.** **Done.** SeaweedFS S3 behind Toxiproxy, least-privilege policy. Adds failpoints `ship::after_put_before_mark` and `ship::mid_multipart`. Tests: S3 plus in-memory stores, Toxiproxy outage, slow and lossy link, crash mid-multipart, conflict and probe paths.
-- **PR17: `thadam replay` and `thadam inspect`, demo Level 4.** **Done** (`--suggest-schema` deferred). `replay --output` writes to a separate directory or prefix, never production. Time-based `--from` per section 20. `inspect wal|cursors|segments|sample`. Tests: row-set equivalence, corrected filter recovering dropped data.
-- **PR18: crash suites, benchmarks, claims register, demo Level 3, M1 gate.** **In progress** (chaos suites, oracle verifier, and `tools/thadam-bench` are built; the full chaos verification run and reference-hardware benchmark numbers are still open). Builds the `thadam:failpoints` image and runs the F6 failpoint scenarios, nightly kill -9 and LazyFS suites, the chaos scripts F1 to F10, `thadam-bench` scenarios M1 to M7, first published results on x86_64 and ARM64, the version inventory and claims register published. **M1 gate acceptance:** the demo acceptance list: time to first Parquet under 10 minutes; F1 to F6 pass `make verify` (zero missing acknowledged samples, zero duplicate rows, zero duplicate or partial objects); F7 disk never exceeds budget plus one segment and every loss is attributed; F8 quarantine equals injected malformed counts; replay recovers filtered data with row-set equivalence; every metric present; M1 to M6 published for both architectures.
-
-### M2: ROS 2 (not in v0.1: owner decision B2, 2026-10-07)
-
-These items do not use PR numbers 19 to 21, which belong to ClickHouse. Order follows the maturity review.
-
-- **M2-A: `thadam-ros2-msg`.** A schema-driven CDR decoder and `.msg` and IDL parser, keyed by type name plus type hash (RIHS01 from Iron onward **[V]**). Fuzz targets (`msg_parse`, `cdr_decode`, ADR-0020) run in the `fuzz-smoke` CI job. Required by every live option, because compile-time code generation does not serve a generic data plane.
-  - **Status: done.**
-- **M2-B: MCAP and rosbag2 file source, `thadam export --mcap`, and an `examples/ros2-mcap-to-parquet` example.** Offline ingestion has no live-middleware risk.
-  - **Status: done.**
-- **Spike S3 (ADR-0007), live-transport order:** (a) Zenoh-native, via raw `zenoh` against `rmw_zenoh`, for Jazzy and Lyrical (LTS to 2031); (b) `zenoh-bridge-ros2dds` sidecar for DDS robots (Humble and Jazzy on Fast DDS or Cyclone), which needs a second key mapping; (c) `r2r` as the in-process rcl fallback; (d) RustDDS and `ros2-client` deferred. Wrap the transport behind Thadam's own trait and pin versions.
-  - **Status: done** (`docs/design/spikes/S3-ros2-live.md`: `rmw_zenoh` selected as primary; bridge mode mapped for later if needed).
-- **M2-C: live ROS 2 source** (`thadam-ros2-live`, `kind: ros2_live` over `rmw_zenoh`, behind the opt-in `ros2-live` Cargo feature) per ADR-0007 after S3.
-  - **Status: in progress (experimental)** (`rmw_zenoh` transport implemented and Docker-tested against Jazzy; bridge mode, liveliness discovery, and ARM benchmarks open).
-
-### M3: ClickHouse (P1, outside the M1 reliability gate)
-
-- **PR19: ADR-0008 benchmark (B8).** Compares the official `clickhouse` crate (`insert_native()` or `clickhouse-ext-arrow`) against raw HTTP with `FORMAT ArrowStream`, with a parity rule: choose the vendor-maintained crate unless the raw path wins materially. Drops `klickhouse` and `clickhouse-arrow` from primary consideration. No MSRV change (the floor is already 1.89). **Status: open.**
-- **PR20: `thadam-clickhouse`.** Startup probe of table settings, deterministic dedup tokens, never creates or alters tables, bisect for poison rows. **Status: done.**
-- **PR21: `examples/edge-analytics` and B8 results.** **Status: open.**
-- Deferral rule: if capacity tightens, the remaining M3 work moves out. Nothing in M1 depends on it.
-
-### Do-not-code-yet gates
-
-- PR3 and PR4: B6 is signed, `Record` is opaque, and ADR-0001 and ADR-0002 are Accepted (2026-10-07). **Done.**
-- PR5: ADR-0012 is Accepted (2026-10-07). **Done.**
-- PR6 and PR7: the gate was ADR-0004 accepted, which requires the S1 re-run on x86 NVMe and ARM eMMC (the format becomes permanent when released). The owner chose to build the WAL first and re-validate later, so both are **done** with a versioned but unfrozen format. **The format freeze is still gated** on the re-run, and ADR-0004 stays Draft.
-- PR9: ADR-0018 is Accepted (2026-10-07). **Done** with PR8.
-- PR10 and PR11: D5 and D6 signed (done). **Done.**
-- PR12: ADR-0006 is Accepted (2026-10-07). **Done.**
-- PR19 and PR21: B8 benchmark and `examples/edge-analytics` remain open.
-- Live ROS 2: S3 is done; `thadam-ros2-live` is experimental while ADR-0007 stays Draft.
-- Nothing is published, and no names are registered, before ADR-0016.
+- **M1 (MVP v0.1) reliability gate:** All M1 crates (`thadam-core`, `thadam-testkit`, `thadam-config`, `thadam-wal`, `thadam-transform`, `thadam-arrow`, `thadam-mqtt`, `thadam-runtime`, `thadam-segments`, `thadam-object-store`, `apps/thadam-cli`) and the demo and verification tooling (`tools/thadam-simulator`, `examples/edge-capture`, `tools/thadam-bench`, chaos scripts) are built. Remaining for the M1 gate:
+  - **WAL format freeze ([ADR-0004](docs/design/adr/0004-durable-buffer.md), Draft):** Run `scripts/wal-hw-bench.sh` on x86 NVMe and ARM eMMC reference hardware (`docs/design/wal-hardware-runbook.md`) and complete the remaining ADR-0004 validation items before freezing the WAL v1 on-disk format at the `v0.1.0` tag.
+  - **Chaos verification and benchmarks ([ADR-0011](docs/design/adr/0011-delivery-guarantees-and-claims-register.md)):** Full M1 chaos verification run (F1 to F10, `thadam:failpoints`, kill -9 and LazyFS suites) and first published benchmark results (`thadam-bench` M1 to M7 on x86_64 and ARM64) for the claims register.
+- **M2 (ROS 2, outside v0.1):** Offline ROS 2 (`thadam-ros2-msg`, `thadam-mcap`, `thadam export --mcap`, `examples/ros2-mcap-to-parquet`) and the live-transport spike (`docs/design/spikes/S3-ros2-live.md`) are complete. `thadam-ros2-live` (`kind: ros2_live` over `rmw_zenoh`, behind the opt-in `ros2-live` feature) is experimental while [ADR-0007](docs/design/adr/0007-ros2-strategy.md) stays Draft; `zenoh-bridge-ros2dds` sidecar mode, liveliness discovery, and ARM reference-hardware benchmarks remain open.
+- **M3 (ClickHouse, P1, outside the M1 reliability gate):** `thadam-clickhouse` is implemented and Docker-tested (startup probe of table settings, deterministic dedup tokens, bisect for poison rows). Still open before [ADR-0008](docs/design/adr/0008-clickhouse-sink.md) leaves Draft: the HTTP-vs-native client benchmark (B8) and the `examples/edge-analytics` example. If capacity tightens, the remaining M3 items defer without affecting M1.
+- **Deferred beyond current pre-alpha scope:** OpenTelemetry trace export (`otlp`), `thadam inspect --suggest-schema`, `thadam replay --speed`, WASM and in-chain ML inference transforms (`docs/design/advanced-processing.md`), Iceberg compaction and partitioning, and remaining Tier-2 / P2 connectors and managed destinations (see `docs/design/readiness.md`).
+- **Publishing gate ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Draft):** Every workspace crate stays `publish = false` and no package is published to crates.io or PyPI until [ADR-0016](docs/design/adr/0016-naming-and-publishing.md) is accepted.
 
 ---
 
 ## 22. Open items
 
-Resolved in this document **[A]** but still needing explicit confirmation in the named PR or ADR:
+Resolved in this document **[A]** or closed in implementation:
 
-- **O1** Declared-field types in `thadam-core` so `thadam-arrow` and `thadam-transform` do not depend on `thadam-config` (PR3).
-- **O2** **Closed in PR5.** Per-sink transform selector syntax: `transforms[].sinks: [ids]`, absent means every sink (ADR-0012).
-- **O3** Primary chain owns quarantine and reject metrics when several chains see the same message (PR10).
-- **O4** **Closed in PR13 (not written).** A `_wal_record_idx` lineage column so a row can be located inside a frame. The default event ID uses the record index, but the lineage columns carry only the frame position. `thadam-arrow` does not write the column and reserves field ID 13 for it, so adding it later is additive (ADR-0013).
-- **O5** **Closed in PR13.** Parquet field-ID assignment policy: envelope IDs 1 to 99 fixed by the format, identity level IDs 100 to 199 and declared top-level IDs (1000 to 4,194,303) explicit and required in configuration, nested IDs derived from the parent ID and tree position, and IDs never reused after removal (ADR-0013). Closed in `thadam-config`: `datasets[].fields[].id` and `datasets[].identity.<level>.id` carry the explicit IDs.
-- **O6** Time-based replay seek without a time index (PR17). **Closed in `thadam replay` and `thadam export`.**
-- **O7** `thadam export --mcap` placement in M2. Resolved by the B2 decision: ROS 2 and the `mcap` dependency are M2, so export shipped there.
-- **O8** `SinkBatch` type definition (PR3, PR4). **Closed in `thadam-core`.**
-- **O9** WAL header size and exact field layout. **Resolved** by S1 and recorded in ADR-0004: a 24-byte frame header with a reserved word; frozen only when ADR-0004 is accepted after the hardware re-run.
+- **O1** **Closed in `thadam-core`.** Declared-field types live in `thadam-core` so `thadam-arrow` and `thadam-transform` do not depend on `thadam-config`.
+- **O2** **Closed in `thadam-config`.** Per-sink transform selector syntax: `transforms[].sinks: [ids]`, absent means every sink (ADR-0012).
+- **O3** **Closed in `thadam-runtime`.** Primary chain owns quarantine and reject metrics when several chains see the same message.
+- **O4** **Closed in `thadam-arrow` (not written).** A `_wal_record_idx` lineage column so a row can be located inside a frame. The default event ID uses the record index, but the lineage columns carry only the frame position. `thadam-arrow` does not write the column and reserves field ID 13 for it, so adding it later is additive (ADR-0013).
+- **O5** **Closed in `thadam-arrow` and `thadam-config`.** Parquet field-ID assignment policy: envelope IDs 1 to 99 fixed by the format, identity level IDs 100 to 199 and declared top-level IDs (1000 to 4,194,303) explicit and required in configuration, nested IDs derived from the parent ID and tree position, and IDs never reused after removal (ADR-0013). `datasets[].fields[].id` and `datasets[].identity.<level>.id` carry the explicit IDs.
+- **O6** **Closed in `thadam replay` and `thadam export`.** Time-based replay seek without a time index.
+- **O7** **Closed in `thadam-mcap` and `apps/thadam-cli`.** `thadam export --mcap` placement in M2.
+- **O8** **Closed in `thadam-core`.** `SinkBatch` type definition.
+- **O9** **Resolved** by S1 and recorded in ADR-0004: a 24-byte frame header with a reserved word; frozen only when ADR-0004 is accepted after the hardware re-run.
 - **O10** Where processing time (`process_time`, product.md section 8) is recorded. The original plan stored `processed_at` per batch; the implementation plan's `EventBatch` has no such field. Options are per batch in lineage or per file in Parquet footer metadata (ADR-0001, ADR-0013).
 
-New open items from the spike results:
+Items from the spike results:
 
 - **O11** S1 re-run on x86 NVMe and ARM eMMC (flush latency, device-level write amplification, eMMC recovery, the `interval(10ms)` default, Linux preallocation, segment size), validation of the prost `RawFrame` payload, an ENOSPC test on a loop device, and a directory-metadata loss test (ADR-0004). Required before the on-disk format is frozen.
 - **O12** The `Value` layout size bound is tested in `thadam-core` (ADR-0001); a D8 re-measurement on reference ARM and x86 hardware remains open before publishing hardware numbers.
-- **O13** EMQX licensing: **Closed 2026-10-07.** The owner pinned the last open-source build, 5.8.x, for CI, tests, demos, and documentation (ADR-0006; 5.8.6 used in S2); newer Enterprise-licensed images, such as the 5.10.5 that S2 saw identify as EMQX Enterprise with a non-commercial-use licence banner, are not used.
+- **O13** EMQX licensing: **Closed 2026-10-07.** The maintainer pinned the last open-source build, 5.8.x, for CI, tests, demos, and documentation (ADR-0006; 5.8.6 used in S2); newer Enterprise-licensed images, such as the 5.10.5 that S2 saw identify as EMQX Enterprise with a non-commercial-use licence banner, are not used.
 - **O14** S2b: the S2 harness against `rumqttc-v4-next` (at most one day), an ARM repeat, and QoS 2 beyond the happy path (ADR-0006; TLS/mTLS and QoS 0 overflow accounting are implemented in `thadam-mqtt`).
 - **O15** **Closed in `thadam-runtime`.** The final names and labels of `thadam_source_unacked_max{source}` and `thadam_source_stale_acks_total{source}` are registered in `PrometheusMetrics`.
-- **O16** PR5 implementation details left by the ADR-0012 spike (key spelling, config hash scope and algorithm, interpolation edge cases, parse budget numbers, anchors and merge keys, path-to-span index), listed in ADR-0012. **Closed in `thadam-config`**: parse budget 50,000 nodes and depth 32, anchors, aliases, merge keys, and custom tags rejected; the outcomes are in ADR-0012 "PR5 outcomes" and the `thadam-config` crate documentation.
-- **O17** PR9 implementation details left by the ADR-0018 spike (filter key spelling, identifier namespace, nested access, literal typing, null semantics, cost limits, replay-equivalence test), listed in ADR-0018. **Closed in `thadam-transform` and `thadam-config`.**
+- **O16** **Closed in `thadam-config`.** Implementation details left by the ADR-0012 spike (key spelling, config hash scope and algorithm, interpolation edge cases, parse budget numbers, anchors and merge keys, path-to-span index): parse budget 50,000 nodes and depth 32, anchors, aliases, merge keys, and custom tags rejected (ADR-0012 "PR5 outcomes").
+- **O17** **Closed in `thadam-transform` and `thadam-config`.** Implementation details left by the ADR-0018 spike (filter key spelling, identifier namespace, nested access, literal typing, null semantics, cost limits, replay-equivalence test).
 
-Unresolved and owned by someone else:
+Remaining external dependencies and validation items:
 
-- Owner acceptance of ADR-0004 (Draft, after the S1 re-run on x86 NVMe and ARM eMMC) and of ADR-0000 (Proposed; not in the 2026-10-07 acceptance list). ADR-0001, 0002, 0003, 0006, 0011, 0012, 0013, 0018, and 0020 are Accepted (2026-10-07). B2, B3, B6, and B7 are decided (2026-10-07).
-- Part A of `docs/design/product-amendments.md` (A.1 to A.9 and A.11) was applied to `product.md` on 2026-10-13; Parts B and C remain proposed for owner review.
+- Maintainer acceptance of ADR-0004 (Draft, after the S1 re-run on x86 NVMe and ARM eMMC) and of ADR-0000 (Proposed; not in the 2026-10-07 acceptance list). ADR-0001, 0002, 0003, 0006, 0011, 0012, 0013, 0018, and 0020 are Accepted (2026-10-07). B2, B3, B6, and B7 are decided (2026-10-07).
+- Part A of `docs/design/product-amendments.md` (A.1 to A.9 and A.11) was applied to `product.md` on 2026-10-13; Parts B and C remain Open.
 - Producer batching is deliberately not assumed (B3); if target-user payload samples later show a batching pattern, this is revisited in ADR-0006.
-- Name clearance (ADR-0016), reference ARM hardware, CI platform (github.com versus GitHub Enterprise), and ARM64 runner availability.
+- Name clearance ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Draft), reference ARM hardware, CI platform (github.com versus GitHub Enterprise), and ARM64 runner availability.
 - The `[V]` items from the maturity review: Lyrical middleware tiers, Zenoh key-expression formats, hiroz interoperability with Jazzy and Humble, license files for `ros2-client`, `r2r`, and the open62541 bindings, legal review of EPL-2.0, DDS-Security support in pure-Rust options, `ntex-mqtt` on Tokio, conditional put on non-AWS, non-MinIO stores, `clickhouse-ext-arrow` type coverage, and Parquet nanosecond timestamp reader support.

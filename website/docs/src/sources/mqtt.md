@@ -1,6 +1,6 @@
 # MQTT source
 
-**Status: Available.** The `mqtt` source subscribes to a broker, captures messages into the WAL with persistent sessions, and acknowledges after the WAL commit — the at-least-once path. Design: [ADR-0006](../design/index.md) with evidence from spike S2. Built on `rumqttc` 0.25.1 behind `thadam-mqtt`; library types never cross the connector boundary.
+**Status: Available.** The `mqtt` source subscribes to a broker, captures messages into the WAL with persistent sessions, and acknowledges after the WAL commit — the at-least-once path. Design: [ADR-0006](../design/index.md) with evidence from the MQTT spike. Built on `rumqttc` 0.25.1 behind `thadam-mqtt`; library types never cross the connector boundary.
 
 ```yaml
 sources:
@@ -49,7 +49,7 @@ Required: `url`, `client_id`, `topics`. Unknown keys are rejected. Durations are
 
 | `ack_mode` | Guarantee | Behavior |
 |---|---|---|
-| `on_commit` (default) | **At-least-once** for QoS 1 and 2, in receive order | The broker is acknowledged (PUBACK) only after the WAL commit resolves. Backpressure is applied by withholding acks while the client keeps polling, so keepalive survives and the broker stops at exactly its inflight window (verified in S2: 3× keepalive stall, 0 reconnects, 0 loss). Throughput is bounded by the broker window ÷ commit latency — see [throughput ceiling](../concepts/delivery-guarantees.md#throughput-ceiling). |
+| `on_commit` (default) | **At-least-once** for QoS 1 and 2, in receive order | The broker is acknowledged (PUBACK) only after the WAL commit resolves. Backpressure is applied by withholding acks while the client keeps polling, so keepalive survives and the broker stops at exactly its inflight window (verified in the MQTT spike: 3× keepalive stall, 0 reconnects, 0 loss). Throughput is bounded by the broker window ÷ commit latency — see [throughput ceiling](../concepts/delivery-guarantees.md#throughput-ceiling). |
 | `on_receive` | **At-most-once across a crash** | The message is acknowledged as the runtime pulls it. A crash between receive and WAL commit loses it. Opt-in throughput escape hatch only. |
 
 QoS 0 is at-most-once in both modes. QoS 1 is claimed; **QoS 2 is experimental** (happy path tested only).
@@ -80,11 +80,11 @@ Every captured message carries attributes, available for dataset `match` and lin
 
 ## Required broker settings {#required-broker-settings}
 
-Thadam's guarantees depend on settings it does not control. The deployment runbook table (ADR-0006, verified in S2 against Mosquitto 2.1.2 and EMQX 5.8.6):
+Thadam's guarantees depend on settings it does not control. The deployment runbook table (ADR-0006, verified against Mosquitto 2.1.2 and EMQX 5.8.6):
 
 | Setting | Mosquitto 2.x | EMQX 5.8.x |
 |---|---|---|
-| Inflight window | `max_inflight_messages` (default 20). Size to at least rate × commit latency × 1.2 — e.g. 1000 for 5k msg/s at 100 ms commit | `mqtt.max_inflight` (default 32). **If ≥ ~1000, also raise `force_shutdown.max_mailbox_size`** (default 1000 killed sessions in S2) |
+| Inflight window | `max_inflight_messages` (default 20). Size to at least rate × commit latency × 1.2 — e.g. 1000 for 5k msg/s at 100 ms commit | `mqtt.max_inflight` (default 32). **If ≥ ~1000, also raise `force_shutdown.max_mailbox_size`** (default 1000 killed sessions in the MQTT spike) |
 | Queue for an offline/slow client | `max_queued_messages` (default 1000), `max_queued_bytes`; size for outage × rate. **Drops the newest, silently** | `mqtt.max_mqueue_len` (default 1000). **Drops the oldest.** The queue lives in process memory; `force_shutdown.max_heap_size` (default 32 MB) can kill the session |
 | Session survival across broker restart | `persistence true` (verified) | **Default does not survive a restart** (sessions in memory); `mqtt.session_expiry_interval` defaults to 2 h |
 | Message size | `message_size_limit` at or below Thadam's `max_message_bytes` (unlimited by default) | `mqtt.max_packet_size` (default 1 MB) — align with `max_message_bytes` |
@@ -96,11 +96,11 @@ Two structural caveats:
 - **An oversized message cannot be skipped.** The client codec fails the connection instead (and with a persistent session the broker redelivers it every reconnect — an infinite loop). Prevention is the only remedy: keep the broker limit aligned with `max_message_bytes`.
 - **Broker-side overflow is invisible to producers.** Under `ack_mode: on_commit` and `on_full: block`, loss moves silently into these queues. Monitor the broker, the `mqtt.gap*` attributes, and Thadam's metrics.
 
-**Version pin.** Tests, demos, and documentation pin EMQX to the last open-source line, 5.8.x (5.8.6 in S2), by exact tag. Newer Enterprise-licensed images are not used, by owner decision (2026-10-07).
+**Version pin.** Tests, demos, and documentation pin EMQX to the last open-source line, 5.8.x (5.8.6 in the MQTT spike), by exact tag. Newer Enterprise-licensed images are not used.
 
 ## Throughput ceiling
 
-With `ack_mode: on_commit`, one connection is bounded by roughly `window ÷ (commit latency + RTT)`, a model S2 reproduced within 1–6%: about 200–320 msg/s per connection at a 100 ms commit with default windows (20 Mosquitto, 32 EMQX), about 1,700 msg/s at the provisional 10 ms WAL group commit with window 20. Mitigations — producer batching, raised broker limits, MQTT 5 Receive Maximum, `ack_mode: on_receive` — in [delivery guarantees](../concepts/delivery-guarantees.md#throughput-ceiling).
+With `ack_mode: on_commit`, one connection is bounded by roughly `window ÷ (commit latency + RTT)`, a model the MQTT spike reproduced within 1–6%: about 200–320 msg/s per connection at a 100 ms commit with default windows (20 Mosquitto, 32 EMQX), about 1,700 msg/s at the provisional 10 ms WAL group commit with window 20. Mitigations — producer batching, raised broker limits, MQTT 5 Receive Maximum, `ack_mode: on_receive` — in [delivery guarantees](../concepts/delivery-guarantees.md#throughput-ceiling).
 
 ## Metrics and status
 
@@ -110,4 +110,4 @@ Source-side counters feed `thadam_source_messages_total`, `thadam_source_bytes_t
 
 - Keep `client_id` stable; a new id is a new session, and the broker forgets the old one's queue when its expiry passes.
 - A clean shutdown sends DISCONNECT so the persistent session keeps unacknowledged messages; a crash relies on broker redelivery, which is why redelivery duplicates are expected and counted.
-- One connection per source in the MVP (D23). Shared subscriptions are a documented future option with an ordering caveat.
+- One connection per source in the MVP. Shared subscriptions are a documented future option with an ordering caveat.

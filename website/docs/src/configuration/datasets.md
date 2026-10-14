@@ -80,8 +80,8 @@ dedup: { window: 10m, max_keys: 500k }
 
 - Runs at **message level, before `explode`**, so one large message costs one key, not one key per element.
 - Warm-started from the WAL tail `[cursor − window, cursor)` at startup, so dedup survives restarts deterministically.
-- Best-effort by design (ADR-0011 D17): a duplicate arriving after the window, or after `max_keys` eviction, is not detected. Authoritative deduplication belongs downstream (`ReplacingMergeTree`, `QUALIFY`, or `DISTINCT ON`).
-- **`dedup` requires `event_id.key`.** Validation fails with `config.invalid` without it: the default WAL-position ID changes when a message is redelivered, so duplicates would never be recognized (ADR-0011 D17).
+- Best-effort by design (ADR-0011): a duplicate arriving after the window, or after `max_keys` eviction, is not detected. Authoritative deduplication belongs downstream (`ReplacingMergeTree`, `QUALIFY`, or `DISTINCT ON`).
+- **`dedup` requires `event_id.key`.** Validation fails with `config.invalid` without it: the default WAL-position ID changes when a message is redelivered, so duplicates would never be recognized (ADR-0011).
 - Memory shows up in the `thadam validate` estimate as `max_keys × 48 B` (upper bound).
 
 ### `explode` {#explode}
