@@ -92,7 +92,8 @@ The only dependency beyond a Rust toolchain is a container runtime for the messa
 git clone https://github.com/Dineshkarthik/thadam.git
 cd thadam
 cargo build --release -p thadam-cli
-./target/release/thadam version
+export PATH="$PWD/target/release:$PATH"
+thadam version
 ```
 
 **2. Start a local broker.** Mosquitto with persistence enabled (see [ADR-0006](docs/design/adr/0006-mqtt-client.md) for why the settings matter):
@@ -104,7 +105,7 @@ docker run -d --name thadam-mosquitto -p 1883:1883 \
   eclipse-mosquitto:2
 ```
 
-**3. Write a minimal pipeline** as `pipeline.yaml`:
+**3. Write a minimal pipeline** as `pipeline.yaml`, or run `thadam init` to write a commented starter file with the same MQTT-to-Parquet shape (it refuses to overwrite an existing file):
 
 ```yaml
 version: 1
@@ -150,12 +151,25 @@ sinks:
 thadam validate pipeline.yaml
 ```
 
-**5. Run it, then inspect it.**
+**5. Run it, then inspect it.** In one terminal, start the pipeline. It runs until you stop it:
 
 ```bash
 thadam run pipeline.yaml
+```
+
+In a second terminal (set the same `PATH` export from step 1 there), check the admin API and publish a message:
+
+```bash
 thadam status                                  # JSON from the admin API
 curl -s http://127.0.0.1:9464/metrics         # OpenMetrics for Prometheus
+docker exec thadam-mosquitto mosquitto_pub -t robots/robot42/telemetry -q 1 \
+  -m "{\"seq\": 1, \"ts_us\": $(date +%s)000000, \"temp_c\": 41.2}"
+```
+
+Stop `thadam run` in the first terminal with Ctrl-C. It finalizes open files and exits 0. Then list the segments the `local` sink wrote:
+
+```bash
+thadam inspect segments ./demo-data --sink local
 ```
 
 > **Status (see [project status](#project-status-pre-alpha)):** the pipeline above runs end to end today — messages land in Parquet segments under the data directory. The S3 shipper is likewise wired. Replay and the chaos suites are built; the chaos verification run and published benchmark numbers are still open ([ARCHITECTURE.md](ARCHITECTURE.md) section 21), so nothing here is claimed faster or more durable than the [claims register](docs/design/adr/0011-delivery-guarantees-and-claims-register.md) says.

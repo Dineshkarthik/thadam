@@ -108,7 +108,7 @@
               <li class="flow-node"><strong>HTTP</strong><span class="pill">Available</span></li>
               <li class="flow-node"><strong>gRPC</strong><span class="pill">Available</span></li>
               <li class="flow-node"><strong>Modbus TCP</strong><span class="pill">Available</span></li>
-              <li class="flow-node"><strong>SocketCAN</strong><span class="pill">Available</span></li>
+              <li class="flow-node"><strong>SocketCAN</strong><span class="flow-detail">Linux only</span><span class="pill">Available</span></li>
               <li class="flow-node"><strong>OPC UA</strong><span class="flow-detail">Opt-in <code>opcua</code> build feature</span><span class="pill">Available</span></li>
             </ul>
           </div>
@@ -160,7 +160,7 @@
           <tbody>
             <tr><td>Source</td><td>MQTT, with persistent sessions and acknowledgement after WAL commit</td><td><span class="pill">Available</span></td></tr>
             <tr><td>Source</td><td>ROS 2 offline recordings (MCAP)</td><td><span class="pill">Available</span></td></tr>
-            <tr><td>Source</td><td>HTTP, gRPC, Modbus TCP, SocketCAN</td><td><span class="pill">Available</span></td></tr>
+            <tr><td>Source</td><td>HTTP, gRPC, Modbus TCP, SocketCAN</td><td><span class="pill">Available</span> <span class="status-note">SocketCAN is Linux only</span></td></tr>
             <tr><td>Source</td><td>OPC UA, behind the opt-in <code>opcua</code> build feature</td><td><span class="pill">Available</span></td></tr>
             <tr><td>Source</td><td>Live ROS 2 transport (rmw_zenoh)</td><td><span class="pill pill-progress">In progress</span> <span class="status-note">experimental, opt-in build feature</span></td></tr>
             <tr><td>Sink (P0)</td><td>Local Parquet segments</td><td><span class="pill">Available</span></td></tr>
