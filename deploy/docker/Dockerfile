@@ -38,7 +38,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --uid 10001 --no-create-home --home-dir /var/lib/thadam --shell /usr/sbin/nologin thadam \
-    && install -d -o thadam -g thadam /var/lib/thadam \
+    && install -d -m 0700 -o thadam -g thadam /var/lib/thadam \
     && install -d /etc/thadam
 
 COPY --from=build /src/target/release/thadam /usr/local/bin/thadam

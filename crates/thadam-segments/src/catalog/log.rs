@@ -60,10 +60,11 @@ impl LogWriter {
     /// Creates a fresh `catalog.log` with the header frame, and fsyncs. The
     /// parent directory must exist.
     pub(crate) fn create(path: &Path) -> Result<Self, SegmentError> {
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .read(true)
+        let mut opts = OpenOptions::new();
+        opts.create_new(true).write(true).read(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+        let mut file = opts
             .open(path)
             .map_err(|e| SegmentError::io("create", path, e))?;
         Self::write_header(&mut file, path)?;
@@ -321,5 +322,32 @@ mod tests {
         w.append(&[eligible("a", 1)]).unwrap();
         let rep = replay(&path).unwrap();
         assert_eq!(rep.records.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn catalog_log_and_segment_files_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::Arc;
+
+        use arrow_schema::{DataType, Field, Schema};
+        use parquet::file::properties::WriterProperties;
+        use thadam_core::Timestamp;
+
+        use crate::partition::Partition;
+        use crate::writer::OpenFile;
+
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("catalog.log");
+        let _w = LogWriter::create(&log_path).unwrap();
+        assert_eq!(mode(&log_path), 0o600);
+
+        let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int64, false)]));
+        let props = WriterProperties::builder().build();
+        let part = Partition::of(true, Timestamp::from_nanos(0));
+        let _seg = OpenFile::create(dir.path(), 1, "ds", schema, props, part, true).unwrap();
+        let staging = dir.path().join(crate::partition::staging_rel("ds", 1));
+        assert_eq!(mode(&staging), 0o600);
     }
 }

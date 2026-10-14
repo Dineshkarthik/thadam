@@ -426,3 +426,32 @@ async fn segments_without_metadata_are_refused() {
         Err(WalError::Corrupt(_))
     ));
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn wal_files_are_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    let env = Env::new();
+    let (wal, _) = env.open(small_opts(OnFull::Block));
+    let w = wal.start_writer().unwrap();
+    append_all(&w, [batch(0, 1, 1, 50)]).await[0]
+        .as_ref()
+        .unwrap();
+    wal.commit_cursor("c", CursorState::at(WalPos::new(1)))
+        .await
+        .unwrap();
+    drop(w);
+    wal.close().await.unwrap();
+
+    assert_eq!(mode(&env.wal_dir().join("LOCK")), 0o600);
+    assert_eq!(mode(&env.wal_dir().join("wal.json")), 0o600);
+    assert_eq!(mode(&env.wal_dir().join("clean_shutdown")), 0o600);
+    assert_eq!(mode(&env.wal_dir().join("cursors/c.cur")), 0o600);
+    let segs = env.segment_files();
+    assert!(!segs.is_empty());
+    for seg in &segs {
+        assert_eq!(mode(seg), 0o600);
+    }
+}

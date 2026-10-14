@@ -15,7 +15,8 @@ Group=thadam
 ExecStart=/usr/local/bin/thadam run --admin-bind 127.0.0.1:9464 /etc/thadam/pipeline.yaml
 WorkingDirectory=/var/lib/thadam
 StateDirectory=thadam
-StateDirectoryMode=0750
+StateDirectoryMode=0700
+UMask=0077
 
 # Exit 2 (invalid configuration) and 3 (data directory locked or incompatible)
 # do not clear on retry; exit 0 is a clean stop and is not restarted.
@@ -38,10 +39,14 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 ProtectHostname=yes
+ProtectClock=yes
+ProtectProc=invisible
 RestrictSUIDSGID=yes
 RestrictNamespaces=yes
 LockPersonality=yes
+MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
+SystemCallFilter=@system-service
 # AF_NETLINK: glibc getaddrinfo reads interfaces over netlink. Add AF_CAN for the
 # `can` source; see the CAN note in the deployment docs.
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK

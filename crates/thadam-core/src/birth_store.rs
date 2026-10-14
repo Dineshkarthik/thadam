@@ -207,11 +207,11 @@ impl BirthStore {
         let path = self.dir.join(format!("{hash}.birth"));
         let write = || -> io::Result<()> {
             {
-                let mut f = OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(&tmp)?;
+                let mut opts = OpenOptions::new();
+                opts.write(true).create(true).truncate(true);
+                #[cfg(unix)]
+                std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+                let mut f = opts.open(&tmp)?;
                 f.write_all(&body)?;
                 sync_file(&f)?;
             }
@@ -577,5 +577,18 @@ mod tests {
         fs::rename(&dev_path, &node_path).unwrap();
         fs::remove_file(store.dir().join("backup.birth")).unwrap();
         assert_eq!(store.load_all().unwrap_err().code, codes::BUFFER_CORRUPT);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn birth_files_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = store(&dir);
+        store.put(&key(), &record(Some(0), false)).unwrap();
+        let path = store.dir().join(format!("{}.birth", key().hash()));
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 }

@@ -133,8 +133,8 @@ fn io_error(op: &str, path: &Path, e: &io::Error) -> ThadamError {
     )
 }
 
-/// Creates `root` and any missing parents. A `root` this call creates is
-/// owner-only on Unix; parents and an existing `root` keep their modes.
+/// Creates `root` and any missing parents. `root` is owner-only (`0700`) on
+/// Unix, tightening an existing directory if needed; parents keep their modes.
 fn create_data_dir(root: &Path) -> io::Result<()> {
     if let Some(parent) = root.parent() {
         fs::create_dir_all(parent)?;
@@ -143,7 +143,15 @@ fn create_data_dir(root: &Path) -> io::Result<()> {
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
     match builder.create(root) {
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists && root.is_dir() => Ok(()),
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists && root.is_dir() => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(root, fs::Permissions::from_mode(0o700))?;
+            }
+            Ok(())
+        }
         other => other,
     }
 }
@@ -157,13 +165,11 @@ fn create_data_dir(root: &Path) -> io::Result<()> {
 pub fn lock(root: &Path) -> Result<DataDirLock, ThadamError> {
     create_data_dir(root).map_err(|e| io_error("create data directory", root, &e))?;
     let path = root.join(LOCK_FILE);
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&path)
-        .map_err(|e| io_error("open", &path, &e))?;
+    let mut opts = OpenOptions::new();
+    opts.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    let file = opts.open(&path).map_err(|e| io_error("open", &path, &e))?;
     match rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
         Ok(()) => Ok(DataDirLock { _file: file }),
         Err(e) if e == rustix::io::Errno::WOULDBLOCK => Err(data_dir_error(format!(
@@ -516,7 +522,7 @@ mod tests {
         fs::create_dir(&existing).unwrap();
         fs::set_permissions(&existing, fs::Permissions::from_mode(0o750)).unwrap();
         let _again = lock(&existing).unwrap();
-        assert_eq!(mode(&existing), 0o750);
+        assert_eq!(mode(&existing), 0o700);
     }
 
     #[test]

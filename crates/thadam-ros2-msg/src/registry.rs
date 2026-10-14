@@ -12,7 +12,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use thadam_core::{
-    Classify, ErrorDomain, FieldDef, FieldType, Record, ThadamError, Shape, ShapeRef, codes,
+    Classify, ErrorDomain, FieldDef, FieldType, MAX_SHAPE_FIELDS, Record, ThadamError, Shape,
+    ShapeRef, codes,
 };
 
 use crate::cdr;
@@ -286,14 +287,29 @@ fn compile_message(
     stack: &mut Vec<TypeName>,
 ) -> Result<(ShapeRef, Arc<[Node]>, usize), ThadamError> {
     let spec = registered(specs, type_name)?;
-    let mut fields = Vec::with_capacity(spec.fields().len());
-    let mut nodes = Vec::with_capacity(spec.fields().len());
+    let cap = spec.fields().len().min(MAX_SHAPE_FIELDS);
+    let mut fields = Vec::with_capacity(cap);
+    let mut nodes = Vec::with_capacity(cap);
     flatten_fields(specs, spec, "", depth, stack, &mut fields, &mut nodes)?;
     let shape = Shape::new(fields)
         .map(ShapeRef::new)
         .map_err(|err| err.to_thadam_error())?;
-    let min = nodes.iter().map(Node::min_wire_bytes).sum();
+    let min = nodes
+        .iter()
+        .map(Node::min_wire_bytes)
+        .fold(0usize, usize::saturating_add);
     Ok((shape, Arc::from(nodes.as_slice()), min))
+}
+
+fn ensure_field_cap(current: usize, add: usize) -> Result<(), ThadamError> {
+    if current.saturating_add(add) > MAX_SHAPE_FIELDS {
+        return Err(ThadamError::permanent(
+            ErrorDomain::Schema,
+            codes::SCHEMA_INVALID_SHAPE,
+            format!("message flattens to more than {MAX_SHAPE_FIELDS} fields"),
+        ));
+    }
+    Ok(())
 }
 
 /// Flattens `spec`'s fields into `fields`/`nodes` under `prefix` ("" or
@@ -311,22 +327,26 @@ fn flatten_fields(
     for field in spec.fields() {
         let name = format!("{prefix}{}", field.name);
         match &field.ty {
-            TypeKind::Scalar(ScalarType::Primitive { prim, string_bound }) => match prim {
-                Primitive::String | Primitive::WString => {
-                    fields.push(FieldDef::new(name, FieldType::Str));
-                    nodes.push(Node::Str {
-                        wide: *prim == Primitive::WString,
-                        bound: *string_bound,
-                    });
+            TypeKind::Scalar(ScalarType::Primitive { prim, string_bound }) => {
+                ensure_field_cap(fields.len(), 1)?;
+                match prim {
+                    Primitive::String | Primitive::WString => {
+                        fields.push(FieldDef::new(name, FieldType::Str));
+                        nodes.push(Node::Str {
+                            wide: *prim == Primitive::WString,
+                            bound: *string_bound,
+                        });
+                    }
+                    _ => {
+                        fields.push(FieldDef::new(name, scalar_field_type(*prim)));
+                        nodes.push(Node::Prim { prim: *prim });
+                    }
                 }
-                _ => {
-                    fields.push(FieldDef::new(name, scalar_field_type(*prim)));
-                    nodes.push(Node::Prim { prim: *prim });
-                }
-            },
+            }
             TypeKind::Scalar(ScalarType::Named(named)) => {
                 let nested = resolve(spec, named)?;
                 if is_time(&nested) {
+                    ensure_field_cap(fields.len(), 3)?;
                     fields.push(FieldDef::new(format!("{name}.sec"), FieldType::I32));
                     fields.push(FieldDef::new(format!("{name}.nanosec"), FieldType::U32));
                     fields.push(FieldDef::new(name, FieldType::Ts));
@@ -334,6 +354,7 @@ fn flatten_fields(
                 } else {
                     enter(&nested, depth, stack)?;
                     let nested_spec = registered(specs, &nested)?;
+                    ensure_field_cap(fields.len(), nested_spec.fields().len().max(1))?;
                     flatten_fields(
                         specs,
                         nested_spec,
@@ -348,9 +369,11 @@ fn flatten_fields(
             }
             TypeKind::Array { elem, bound } => match elem {
                 ScalarType::Primitive { prim, string_bound } => {
+                    ensure_field_cap(fields.len(), 1)?;
                     push_array(fields, nodes, name, *prim, *string_bound, *bound);
                 }
                 ScalarType::Named(named) => {
+                    ensure_field_cap(fields.len(), 1)?;
                     let nested = resolve(spec, named)?;
                     enter(&nested, depth, stack)?;
                     let (item_shape, item_plan, item_min) =
@@ -513,4 +536,77 @@ fn enter(type_name: &TypeName, depth: usize, stack: &mut Vec<TypeName>) -> Resul
     }
     stack.push(type_name.clone());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    #[test]
+    fn branching_nested_schema_stops_at_max_shape_fields_and_saturates_min_wire_bytes() {
+        let mut registry = Registry::new();
+        // 25 binary-branching levels below MAX_MESSAGE_DEPTH (32) would expand
+        // to 2^26 = 67,108,864 leaf fields without the flatten cap.
+        let levels = 25;
+        for i in 0..levels {
+            let next = i + 1;
+            let body = format!("test_msgs/M{next} left\ntest_msgs/M{next} right\n");
+            registry
+                .register("test_msgs", &format!("M{i}"), &body)
+                .unwrap();
+        }
+        registry
+            .register("test_msgs", &format!("M{levels}"), "int64 a\nint64 b\n")
+            .unwrap();
+
+        let root = TypeName::new("test_msgs", "M0").unwrap();
+        let spec = registered(&registry.specs, &root).unwrap();
+        let mut stack = Vec::new();
+        let mut fields = Vec::new();
+        let mut nodes = Vec::new();
+        let err = flatten_fields(
+            &registry.specs,
+            spec,
+            "",
+            0,
+            &mut stack,
+            &mut fields,
+            &mut nodes,
+        )
+        .unwrap_err();
+        assert_eq!(
+            (err.domain, err.code),
+            (ErrorDomain::Schema, codes::SCHEMA_INVALID_SHAPE)
+        );
+        assert_eq!(fields.len(), MAX_SHAPE_FIELDS);
+        assert!(fields.capacity() <= MAX_SHAPE_FIELDS * 2);
+
+        let err = registry.compile("test_msgs/M0").unwrap_err();
+        assert_eq!(
+            (err.domain, err.code),
+            (ErrorDomain::Schema, codes::SCHEMA_INVALID_SHAPE)
+        );
+
+        // Saturating sum for min_wire_bytes across large fixed-size arrays.
+        registry
+            .register(
+                "test_msgs",
+                "HugeLeaf",
+                "uint64[4294967295] a\nuint64[4294967295] b\n",
+            )
+            .unwrap();
+        registry
+            .register(
+                "test_msgs",
+                "HugeOuter",
+                "test_msgs/HugeLeaf[4294967295] x\ntest_msgs/HugeLeaf[4294967295] y\n",
+            )
+            .unwrap();
+        let outer = TypeName::new("test_msgs", "HugeOuter").unwrap();
+        let mut stack = Vec::new();
+        let (_, _, min) = compile_message(&registry.specs, &outer, 0, &mut stack).unwrap();
+        assert_eq!(min, usize::MAX);
+    }
 }
