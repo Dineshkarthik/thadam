@@ -6,8 +6,7 @@ labels: enhancement
 ---
 
 <!--
-Thadam's scope is deliberately narrow: the MVP boundary and explicit non-goals are in product.md (sections 6 and 33) and ARCHITECTURE.md (M1/M2/M3 milestones).
-Requests that fit the roadmap phases land better than requests for the non-goals (GUI, fleet management, a schema-registry product, video storage, ...).
+Search existing issues first. Describe the problem before the solution, and include a concrete use case.
 -->
 
 ## The problem
@@ -22,11 +21,11 @@ What should Thadam do? If it changes user-facing configuration or behavior, sket
 
 How do you solve it today (other tools, custom code)? Why is that insufficient?
 
-## Scope fit
+## Scope
 
-- [ ] This fits the current milestone (MQTT → WAL → Parquet → object storage)
-- [ ] This fits a later phase per product.md/ARCHITECTURE.md (which one?)
-- [ ] This may expand the project boundary — let's discuss
+- [ ] This adds a capability Thadam does not have yet
+- [ ] This extends an existing connector, transform, or sink (name it below)
+- [ ] This changes existing behavior or a versioned format (WAL, configuration, or connector contract)
 
 ## Evidence offered (optional)
 

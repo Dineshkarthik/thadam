@@ -14,4 +14,11 @@
 - `docs/project-identity.md`: project identity and README copy.
 
 ## Naming / legal note
-Thadam is the selected project identity, not a claim of trademark or domain availability. Check GitHub, crates.io, package registries, domains, and relevant trademark databases before public launch.
+Thadam is the selected project identity, not a claim of trademark or domain availability. Check GitHub, crates.io, package registries, domains, and relevant trademark databases before public launch. The name is provisional until [ADR-0016](../docs/design/adr/0016-naming-and-publishing.md) is accepted.
+
+## License and trademark use
+The files in `thadam-assets/` are covered by the Apache-2.0 [`LICENSE`](../LICENSE) at the root of this repository.
+
+Apache-2.0 does not grant trademark rights. The name "Thadam" and the Thadam logos are governed by this trademark-use policy:
+- Use the name and logos only to refer to Thadam.
+- Do not use them in a way that implies endorsement by, or affiliation with, the Thadam project or its maintainer.

@@ -3,6 +3,7 @@ name = "s3-ros2-live"
 version = "0.0.0"
 edition = "2024"
 publish = false
+license = "Apache-2.0"
 description = "Thadam spike S3 step 1: raw-zenoh subscriber against Jazzy rmw_zenoh"
 
 # Standalone project: the root Thadam workspace excludes `spikes/`.

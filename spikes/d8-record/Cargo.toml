@@ -3,6 +3,7 @@ name = "d8-record"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "Apache-2.0"
 description = "Spike for decision D8/D9: record representation and value type set"
 
 # Standalone project: the root thadam workspace excludes spikes/, so this

@@ -20,6 +20,10 @@ dependencies = [
     "pyarrow>=14",
 ]
 
+[project.urls]
+Homepage = "https://thadam.dineshkarthik.me"
+Repository = "https://github.com/Dineshkarthik/thadam"
+
 [tool.maturin]
 # Mixed Rust/Python layout: the extension module lands at thadam._native
 # inside the pure-Python package under python/.

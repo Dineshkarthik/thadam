@@ -67,6 +67,8 @@ edition = "2024"
 rust-version = "1.89"
 license = "Apache-2.0"
 publish = false
+repository = "https://github.com/Dineshkarthik/thadam"
+homepage = "https://thadam.dineshkarthik.me"
 
 [workspace.dependencies]
 thadam-core = { path = "crates/thadam-core" }

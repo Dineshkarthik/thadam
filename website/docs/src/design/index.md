@@ -37,7 +37,7 @@ Naming: `NNNN-kebab-title.md`; status lifecycle Draft → Proposed → Accepted 
 | 0010 Python SDK boundary | Reserved | Post-MVP. |
 | 0014 Time and clock semantics | Reserved | Folded into ADR-0001 (D15) and ADR-0013 (D14, D16). |
 | 0015 Recording and replay format | Draft | WAL retention window; MCAP is export/import only; `thadam export --mcap` keeps original encodings and records gaps and provenance. |
-| 0016 Naming and publishing | Reserved | Name clearance is pending; all crates are `publish = false`. |
+| [0016 — Naming and publishing](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0016-naming-and-publishing.md) | Draft | Provisional name; clearance is pending; all crates are `publish = false`. |
 | 0017 Plugin mechanism | Reserved | Compile-time features now; out-of-process later; Rust dylibs rejected. |
 | 0019 Transform semantics | Reserved | Folded into ADR-0011 and ARCHITECTURE section 7. |
 

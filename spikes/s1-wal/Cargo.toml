@@ -3,6 +3,7 @@ name = "s1-wal"
 version = "0.0.0"
 edition = "2024"
 publish = false
+license = "Apache-2.0"
 
 [workspace]
 
