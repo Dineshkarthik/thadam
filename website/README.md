@@ -33,7 +33,7 @@ mdbook build website/docs         # user docs only, into website/docs/book/
 3. The brand files the site uses (logos, icon, favicon PNGs, `tokens/thadam.css`) are copied from `thadam-assets/brand/` to `dist/assets/brand/`.
 4. The two favicon copies in `docs/theme/` are compared byte-for-byte with `thadam-assets/brand/`, and the build fails on drift.
 5. A small Python step adds canonical and `og:url` tags to docs pages, writes `sitemap.xml`, and appends the sitemap line to `robots.txt`.
-6. `check.py` verifies the result: required files, titles and viewport meta, every local link and image resolving, canonicals, no `localhost` links, and the sitemap matching the pages.
+6. `check.py` verifies the result: required files, titles and viewport meta, every local link, `#fragment` anchor, and image resolving, canonicals, no `localhost` links, no internal `PR[0-9]+` tokens in visible text, and the sitemap matching the pages.
 
 ## Adding a docs page
 
@@ -54,9 +54,9 @@ Edit files in `thadam-assets/brand/` (SVG sources in `svg/`, tokens in `tokens/t
 - Budget: the homepage HTML plus `site.css` must stay under 30 KB. `check.py` fails above that.
 - `check.py` also verifies JSON-LD parses, OG images and manifest icons exist, every `<img>` has `alt`, and the homepage and theme CSS use no hex colours outside the brand tokens.
 - Claim wording: `check.py` scans the built homepage and every docs page for forbidden claim phrases ("zero data loss", "loses nothing", "exactly-once", "is lost", "guaranteed", and similar). A phrase passes only when it is negated in the sentence before it ("does not claim exactly-once") or appears in a question. Allowed wording comes from the claims register in `docs/design/adr/0011-delivery-guarantees-and-claims-register.md`.
-- Status labels: every homepage status cell, homepage pill, and docs `Status:` line must read Available, In progress, or Planned. The homepage must have exactly one `h1`.
+- Status labels and internal tokens: every homepage status cell, homepage pill, and docs `Status:` line must read Available, In progress, or Planned, and built public pages may not contain `PR[0-9]+` tokens in visible text. The homepage must have exactly one `h1`.
 - Contrast was measured for the text pairs: muted text is about 8:1 on warm white and about 10:1 on graphite. Orange on warm white is about 2.8:1, so it is used only for decorative icons and rules, never for informational graphics or text.
 
 ## Deployment
 
-Deployment is configured outside this repository section: the owner deploys `website/dist` to Cloudflare Pages through GitHub Actions. This folder contains no deploy step, Pages configuration, or secrets. CI builds, checks, and uploads `website/dist` as a workflow artifact only.
+Deployment is configured outside this repository section: the maintainer deploys `website/dist` to Cloudflare Pages through GitHub Actions. This folder contains no deploy step, Pages configuration, or secrets. CI builds, checks, and uploads `website/dist` as a workflow artifact only.

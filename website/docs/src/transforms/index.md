@@ -23,7 +23,7 @@ See also the [configuration reference](../configuration/transforms.md), which ha
 
 ## `on_change` — deadband with heartbeat
 
-**Config: accepted.** Keeps an event only when a watched field changed, or when `heartbeat` of ingest time passed. Lossy by design; not deduplication (ADR-0011 D17). Full key table: [`kind: on_change`](../configuration/transforms.md#on_change).
+**Config: accepted.** Keeps an event only when a watched field changed, or when `heartbeat` of ingest time passed. Lossy by design; not deduplication (ADR-0011). Full key table: [`kind: on_change`](../configuration/transforms.md#on_change).
 
 ```yaml
 - kind: on_change

@@ -12,7 +12,7 @@ Terms as Thadam uses them. Where a term has a formal definition in an ADR, the A
 
 **Batch sink** — Sink contract for transactional batch targets (ClickHouse, NATS): deterministic batches retried under the same batch ID. Compare *segment sink*.
 
-**Capture-first WAL** — The architectural rule (D1) that raw messages are appended to a durable write-ahead log *before* decode, transform, or acknowledgement. See [WAL](concepts/wal-and-replay.md).
+**Capture-first WAL** — The architectural rule (ADR-0003) that raw messages are appended to a durable write-ahead log *before* decode, transform, or acknowledgement. See [WAL](concepts/wal-and-replay.md).
 
 **Chain** — A sink's private pipeline: WAL reader and cursor → router → decode → dataset shaping → transform steps → sink driver. See [per-sink chains](concepts/per-sink-chains.md).
 

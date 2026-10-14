@@ -46,5 +46,5 @@ Repair is recorded (the rewritten `thadam.json`), and it is a per-incident decis
 ## Failure semantics you can rely on
 
 - After a failed fsync, the segment is sealed and the writer stops; no ticket resolves `Ok`, so nothing un-durable is acknowledged. Reopen re-verifies.
-- `kill -9` at any point: sources redeliver the unacknowledged in-flight window (MQTT DUP), the WAL truncates to the last valid frame, cursors resume, segments recover from staging/ready. Evidence: the spike S1 kill-loop and torn-write suites ([reports](../design/index.md)).
+- `kill -9` at any point: sources redeliver the unacknowledged in-flight window (MQTT DUP), the WAL truncates to the last valid frame, cursors resume, segments recover from staging/ready. Evidence: the WAL spike kill-loop and torn-write suites ([reports](../design/index.md)).
 - Exit codes are meaningful and stable: see [exit codes](exit-codes.md).

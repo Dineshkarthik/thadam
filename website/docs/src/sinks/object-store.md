@@ -6,7 +6,7 @@
 
 A file reaches the store only through the commit-then-ship chain (the correctness invariant behind ["exactly one finalized file per WAL range"](../concepts/delivery-guarantees.md)):
 
-1. The `parquet` sink finalizes a file (`close + SHA-256`, `fdatasync`, rename into `ready/`, directory fsync, `Finalized` catalog record), the runtime durably commits the WAL cursor past it, and only then the sink appends an `Eligible` record (D18).
+1. The `parquet` sink finalizes a file (`close + SHA-256`, `fdatasync`, rename into `ready/`, directory fsync, `Finalized` catalog record), the runtime durably commits the WAL cursor past it, and only then the sink appends an `Eligible` record.
 2. The shipper's startup **capability probe** writes a probe object: does the store enforce `If-None-Match: *`, does it return user metadata, and how far is the store clock from the local clock. Results are logged; a skew over five minutes warns and names `thadam_clock_synced`.
 3. Eligible files upload **oldest first** with `upload_concurrency` in-flight.
 4. After each upload the catalog gets an `Uploaded` record, then **local retention** deletes local files per `local_retention` (never before upload).

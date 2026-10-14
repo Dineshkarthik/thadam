@@ -18,7 +18,7 @@ Capture continues into the local WAL within its disk budget; delivery stalls and
 
 ## What throughput can I expect?
 
-Per connection, roughly `broker inflight window ÷ (commit latency + RTT)` with `ack_mode: on_commit` — about 200–320 msg/s with default broker windows at a 100 ms commit, about 1,700 msg/s with Mosquitto's default window at the provisional 10 ms group commit (spike S2; measured on one laptop, ratios transfer, absolute numbers need your environment). The [throughput ceiling](concepts/delivery-guarantees.md#throughput-ceiling) page lists the levers. Published cross-architecture benchmark results arrive with the M1 gate; nothing else is claimed.
+Per connection, roughly `broker inflight window ÷ (commit latency + RTT)` with `ack_mode: on_commit` — about 200–320 msg/s with default broker windows at a 100 ms commit, about 1,700 msg/s with Mosquitto's default window at the provisional 10 ms group commit (MQTT spike; measured on one laptop, ratios transfer, absolute numbers need your environment). The [throughput ceiling](concepts/delivery-guarantees.md#throughput-ceiling) page lists the levers. Published cross-architecture benchmark results arrive with the v0.1 reliability gate; nothing else is claimed.
 
 ## Why another data pipeline instead of Kafka Connect / NiFi / a vendor gateway?
 

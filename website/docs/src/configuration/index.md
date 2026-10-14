@@ -47,7 +47,7 @@ Every struct rejects unknown keys, so adding to this format is a minor release a
 
 | Type | Accepted forms | Canonicalized to | Examples |
 |---|---|---|---|
-| Duration | text with a unit, or — in connector `config` blocks — a whole number of seconds | `humantime` text | `50ms`, `5s`, `10m`, `1h`, `1d` |
+| Duration | top-level keys (`wal`, `datasets`, `transforms`, `max_lag.age`): `humantime` text with a unit (`ns`, `us`, `ms`, `s`, `m`, `h`, `d`). Connector `config:` blocks: whole seconds or `<digits><unit>` — `ms`, `s`, `m`, `h` (`mqtt`, `mqtt_publish`, `http`, `modbus`, `opcua`, `ros2_live`, `clickhouse`, `kafka`, `nats`) or `ms`, `s`, `m`, `h`, `d` (`object_store`, `iceberg`); `parquet`/`quarantine` `rotation.max_age` takes integer seconds only | `humantime` text | `50ms`, `5s`, `10m`, `1h` |
 | Size | `KiB`/`MiB`/`GiB`/`TiB` or `KB`/`MB`/`GB`/`TB` text, or a plain byte count | byte integer | `16MiB`, `2GiB`, `1048576` |
 | Count | integer, or text with `k`/`m` suffix (transform counts also accept `g` inside `thadam-transform`) | integer | `4`, `500k`, `2m` |
 | Field type | `bool`, `i8`…`i64`, `u8`…`u64`, `f32`, `f64` (`str`/`string`, `bytes`, `ts`/`timestamp`), `list<T>` (nesting ≤ 3) | canonical spelling | `f32`, `u64`, `list<f64>` |

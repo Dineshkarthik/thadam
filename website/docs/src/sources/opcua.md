@@ -1,6 +1,6 @@
 # OPC UA source
 
-**Status: Available (behind the opt-in `opcua` Cargo feature).** The `opcua` source connects to one OPC UA server and reads a list of node ids. Built as the `thadam-opcua` crate on [`async-opcua`](https://crates.io/crates/async-opcua) 0.19 (client only, pure Rust, MPL-2.0 — an owner decision; never `open62541`).
+**Status: Available (behind the opt-in `opcua` Cargo feature).** The `opcua` source connects to one OPC UA server and reads a list of node ids. Built as the `thadam-opcua` crate on [`async-opcua`](https://crates.io/crates/async-opcua) 0.19 (client only, pure Rust, MPL-2.0; never `open62541`).
 
 Two modes, chosen with `mode`:
 

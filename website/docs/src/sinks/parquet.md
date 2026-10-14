@@ -25,7 +25,7 @@ sinks:
     kind: parquet
     config:
       datasets: [telemetry]              # selector; empty or absent consumes every declared dataset
-      compression: auto                  # zstd(1) on x86_64, snappy on aarch64 (pending benchmark B6)
+      compression: auto                  # zstd(1) on x86_64, snappy on aarch64 (pending compression benchmark)
       row_group_bytes: 8388608           # 8 MiB (edge profile; integer bytes)
       rotation: { max_bytes: 134217728, max_age: 300 }   # 128 MiB or 300 s (production default; demo uses 60)
       max_open_files: 4                  # LRU-finalize the least recently written file beyond this
@@ -37,16 +37,16 @@ sinks:
 
 ## Datasets and layout
 
-- **One table per dataset.** Device identity is a column, never a partition — 500 robots must not become 500 open writers (D11). Open writers are capped by `max_open_files`; the least-recently-written file is finalized early when the cap is hit.
-- **Ready path:** `ready/<dataset>/date=YYYY-MM-DD/hour=HH/{node_id}_{epoch:016x}_{first:020}_{last:020}.parquet`, with date/hour from `_ingest_time`. `{node_id}` is the pipeline's [`node_id`](../configuration/pipeline.md) unless the sink's `config.node_id` overrides it, so files from nodes with different `node_id`s never share a name; `first` and `last` are the inclusive WAL positions covered. Files written while `clock_synced` was false land under `ready/<dataset>/unsynced/` instead (D16). Open segments live in `staging/<dataset>/<seq>.inprogress` and are renamed into `ready/`.
+- **One table per dataset.** Device identity is a column, never a partition — 500 robots must not become 500 open writers. Open writers are capped by `max_open_files`; the least-recently-written file is finalized early when the cap is hit.
+- **Ready path:** `ready/<dataset>/date=YYYY-MM-DD/hour=HH/{node_id}_{epoch:016x}_{first:020}_{last:020}.parquet`, with date/hour from `_ingest_time`. `{node_id}` is the pipeline's [`node_id`](../configuration/pipeline.md) unless the sink's `config.node_id` overrides it, so files from nodes with different `node_id`s never share a name; `first` and `last` are the inclusive WAL positions covered. Files written while `clock_synced` was false land under `ready/<dataset>/unsynced/` instead. Open segments live in `staging/<dataset>/<seq>.inprogress` and are renamed into `ready/`.
 - **Footer metadata per file:** `thadam.version`, `thadam.dataset`, `thadam.schema_fp`, `thadam.wal_range`, `thadam.config_hash`, `thadam.enrichment_hash`, `thadam.clock_synced`, plus min/max `event_time` statistics — the lineage inputs for replay equivalence. `thadam.config_hash` is the pipeline's [config hash](../configuration/index.md#config-hash-and-identity), the value `thadam validate` prints; the sink's `config:` block cannot set it. `thadam.enrichment_hash` is the SHA-256 over the sorted `dataset sha256` lines of the enrichment tables the sink's chain loaded, where each `sha256` is the digest of that table's file; it is empty when the chain loads none. Quarantine files carry the same two values as the sink they belong to.
-- **Timestamps:** microsecond by default (D14), nanoseconds opt-in per sink. Reader compatibility across DuckDB, pyarrow, Spark, Trino, and Athena is a validation item.
+- **Timestamps:** microsecond by default, nanoseconds opt-in per sink. Reader compatibility across DuckDB, pyarrow, Spark, Trino, and Athena is a validation item.
 - **Writer settings:** row groups sized by bytes (8 MiB edge profile), dictionary encoding on low-cardinality strings, statistics on time columns, bloom filters off, `created_by = "thadam <version>"`.
 - **Rotation:** first of `max_bytes`, `max_rows`, `max_age`, or shutdown.
 
 ## Commit-then-ship (the correctness invariant)
 
-The finalize sequence, D18 in ADR-0011/0013, fixed a duplicate-object defect in the original design:
+The finalize sequence (ADR-0011, ADR-0013) fixed a duplicate-object defect in the original design:
 
 1. Close the Parquet writer (computing SHA-256), `fdatasync` the file.
 2. Rename from `staging/` to `ready/`, fsync the directory, append a `Finalized` record to the catalog.

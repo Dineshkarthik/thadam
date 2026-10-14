@@ -8,7 +8,7 @@
 | Stage 2: MCAP / rosbag2 file source (`thadam-mcap`) | **Available** |
 | Stage 2: `thadam export --mcap` ([`thadam export`](../cli/export.md)) | **Available** |
 | Stage 2, rest: [`examples/ros2-mcap-to-parquet`](https://github.com/Dineshkarthik/thadam/tree/main/examples/ros2-mcap-to-parquet) (MCAP to decoded, validated Parquet and back) | **Available** |
-| Stage 3: live-transport spike (Zenoh-native, sidecar, `r2r`) | **Available** (spike S3: rmw_zenoh primary, bridge mapped) |
+| Stage 3: live-transport spike (Zenoh-native, sidecar, `r2r`) | **Available** (rmw_zenoh primary, bridge mapped) |
 | Stage 4: live ROS 2 source ([`ros2_live`](ros2-live.md)) | **In progress** (rmw_zenoh transport, experimental) |
 
 ## How it works

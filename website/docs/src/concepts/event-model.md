@@ -10,7 +10,7 @@ Thadam's internal representation (defined in `thadam-core`, ADR-0001) is a typed
 
 ## Time: three clocks, never silently merged
 
-Robotic data lives on several clocks, and Thadam keeps them distinct (ADR-0001, D15):
+Robotic data lives on several clocks, and Thadam keeps them distinct (ADR-0001):
 
 | Field | Meaning |
 |---|---|
@@ -42,7 +42,7 @@ Events that cannot be processed (decode, schema, transform, quality failures) be
 
 ## Identity: a hierarchy, as columns
 
-Device identity is an ordered list of `(level, value)` pairs — `site` → `robot` → … → `sensor` — extracted at decode time from templates such as `{topic.2}` or from payload fields. No level is mandatory; `device_id` is just a level. Identity levels become **columns** in every dataset, never partitions or file units: partitioning 500 robots into 500 directory trees would explode open-writer counts and small files, which is exactly the failure mode datasets avoid ([ADR-0013](../design/index.md), D11).
+Device identity is an ordered list of `(level, value)` pairs — `site` → `robot` → … → `sensor` — extracted at decode time from templates such as `{topic.2}` or from payload fields. No level is mandatory; `device_id` is just a level. Identity levels become **columns** in every dataset, never partitions or file units: partitioning 500 robots into 500 directory trees would explode open-writer counts and small files, which is exactly the failure mode datasets avoid ([ADR-0013](../design/index.md)).
 
 ## Datasets: the output unit
 
@@ -50,7 +50,7 @@ A dataset is an output table: a `match` (source and topic), a decode format, an 
 
 ## Event IDs and deduplication
 
-By default the event ID is deterministic per WAL record (`xxh3_128` over the epoch, frame sequence, and record index), so it is stable across replay but **different for a broker redelivery** — which is exactly when duplicates appear. A dataset may instead derive IDs from content with [`event_id: { key: [...] }`](../configuration/datasets.md#event_id) (for example `[site, robot, seq]`); only a content-derived ID survives redelivery, so `dedup` without it is a validation error (ADR-0011 D17). D17 (ADR-0011) fixes the responsibility split: dedup inside Thadam is best-effort over a bounded, warm-started window; authoritative deduplication happens downstream (`ReplacingMergeTree`, `QUALIFY`, `DISTINCT ON`).
+By default the event ID is deterministic per WAL record (`xxh3_128` over the epoch, frame sequence, and record index), so it is stable across replay but **different for a broker redelivery** — which is exactly when duplicates appear. A dataset may instead derive IDs from content with [`event_id: { key: [...] }`](../configuration/datasets.md#event_id) (for example `[site, robot, seq]`); only a content-derived ID survives redelivery, so `dedup` without it is a validation error (ADR-0011). ADR-0011 fixes the responsibility split: dedup inside Thadam is best-effort over a bounded, warm-started window; authoritative deduplication happens downstream (`ReplacingMergeTree`, `QUALIFY`, `DISTINCT ON`).
 
 ## Payloads and media
 

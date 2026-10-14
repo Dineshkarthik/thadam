@@ -116,7 +116,7 @@ Config `version: 1` is deliberately a restricted YAML dialect. The rules, all en
 - **One document per file.** A second `---` is an error.
 - **Duplicate keys are errors.**
 - **Quote identifiers.** YAML reads `014` as a number; write `client_id: "014"`.
-- **Durations need units** (`50ms`, `5s`, `10m`, `1h`, `1d`); sizes use binary or decimal suffixes (`16MiB`, `2GiB`, or a plain byte count); counts may use `k`/`m` suffixes (`500` or `500k`).
+- **Durations:** top-level duration keys (`wal`, `datasets`, `transforms`, `sinks[].max_lag.age`) use `humantime` (`crates/thadam-config/src/scalars.rs`): a unit is required (`ns`, `us`, `ms`, `s`, `m`, `h`, `d`, for example `50ms`, `5s`, `10m`, `1h`, `1d`) and bare numbers are rejected. Connector `config:` blocks parse durations with their own parsers (checked by `thadam validate --against-data-dir` and `thadam run`): `mqtt`, `mqtt_publish`, `http`, `modbus`, `opcua`, `ros2_live`, `clickhouse`, `kafka`, and `nats` accept whole seconds (`30`) or `<digits><unit>` with `ms`, `s`, `m`, or `h` only (`1d` is rejected); `object_store` and `iceberg` accept whole seconds or `ms`, `s`, `m`, `h`, or `d`; `parquet` and `quarantine` `rotation.max_age` take integer seconds only. Sizes use binary or decimal suffixes (`16MiB`, `2GiB`, or a plain byte count); counts may use `k`/`m` suffixes (`500` or `500k`).
 
 ## Config hash and versioning
 

@@ -4,7 +4,7 @@ The write-ahead log [`thadam-wal`](architecture-overview.md#the-crates) is the s
 
 ## Contents
 
-The WAL is a custom segmented append-only log (ADR-0004, validated against SQLite and redb in spike [S1](../design/index.md)):
+The WAL is a custom segmented append-only log (ADR-0004, validated against SQLite and redb in the [WAL spike](../design/index.md)):
 
 - **Segments** (default 16 MiB on the edge profile; `segment_bytes` in [`wal`](../configuration/wal.md)) contain a 64-byte header (`THADMWAL` magic, format version, epoch, base sequence, CRC) followed by frames. A segment is created as a temporary file, sealed, fsynced, and renamed, so a half-written segment never has a valid name. A bad segment header fails the open.
 - **Frames** (max 4 MiB, one per source batch) carry a 24-byte header — magic, version, flags, length, `frame_seq`, a reserved word, and a CRC32C over header and payload — and a prost-encoded raw frame: the source index, the clock-sync flag, a string dictionary, and records of `ingest_time`, attribute references, and payload bytes. An all-zero header is the end-of-data marker.
@@ -16,7 +16,7 @@ One dedicated OS thread owns all writable files. Submissions are grouped: one `w
 
 [`wal.fsync`](../configuration/wal.md#fsync) is one of `always`, `{ interval: <duration> }` (default `10ms`, provisional pending a hardware re-run), or `never`:
 
-- With `fsync` other than `never`, acknowledged data survives a **process crash** (verified by kill-9 loops in spike S1: 2,200 iterations with zero committed-ticket loss, on an arm64 laptop and a Linux VM — the WAL evidence anecdotes; the absolute numbers do not transfer).
+- With `fsync` other than `never`, acknowledged data survives a **process crash** (verified by kill-9 loops in the WAL spike: 2,200 iterations with zero committed-ticket loss, on an arm64 laptop and a Linux VM — the absolute numbers do not transfer).
 - Power-loss survival additionally requires storage that honors flush and is claimed only on flush-honoring industrial SSD or eMMC on Linux — and only once a hardware power-cut rig (500 cycles) has produced evidence. **No power-loss claim is published yet.** `fsync: never` survives a process crash only.
 - After a failed fsync the segment is sealed and the writer stops rather than trusting the page cache ("fsyncgate" rule). No ticket resolves `Ok` after a failed fsync; recovery re-verifies.
 

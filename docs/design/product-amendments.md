@@ -1,34 +1,24 @@
-# Proposed amendments to product.md
+# Amendments to product.md
 
-Note: the owner approved Part A (A.1 to A.11) on 2026-10-07. Part A is applied to `product.md` as of 2026-10-13: A.1 to A.9 and A.11 verbatim, and A.10 (the unchosen ROS 2 alternatives) is not applied. A.11 (structured-predicate filter syntax) was added the same day after ADR-0018 was accepted.
+Date: 2026-10-07 (Part A applied 2026-10-13).
 
-Status: Part A approved by the owner (2026-10-07), including A.11, and applied verbatim to `product.md` on 2026-10-13 (A.1 to A.9 and A.11). Parts B and C are still awaiting owner approval and are not applied. `product.md` is the source of truth; this document now records the amendments and their rationale.
+`product.md` is the source of truth for product direction. This document records the scope amendments (Part A) approved by the maintainer on 2026-10-07 and applied to `product.md` on 2026-10-13 (A.1 to A.9 and A.11 verbatim; A.10 records the unchosen ROS 2 alternatives and is not applied), followed by architecture-alignment amendments (Part B, where the underlying technical decisions are recorded in the accepted ADRs of 2026-10-07 while applying the replacement prose to `product.md` remains Open) and editorial items (Part C, Open).
 
-Date: 2026-10-07. Prepared for blocker B2 (scope freeze) in `docs/design/owner-decisions.md`, with a second, lower-priority part that aligns `product.md` with the architecture decisions in `ARCHITECTURE.md`.
+## Milestone vocabulary
 
-## How to use this document
-
-1. Each amendment names a `product.md` section, quotes what it says now, gives replacement text, and states why.
-2. Part A is required to freeze the MVP scope (A.11 records the filter-syntax decision). Part A depended on whether ROS 2 is in MVP v0.1 or in M2. The owner decided on 2026-10-07 that ROS 2 is M2, which is what the proposed text assumes. Part A.10 is kept only as a record of the alternatives that were not chosen.
-3. Part B aligns the document with accepted architecture. It is not needed to start work, but leaving it unapplied means `product.md` describes designs that have been superseded (for example the position of the buffer in the pipeline).
-4. Part C is editorial.
-5. The owner may approve amendments individually. Mark each one Approved, Rejected, or Modified in the "Owner decision" line, then apply the approved text to `product.md` in one documentation pull request.
-
-## Milestone vocabulary used by the proposed text
-
-The proposed text introduces three milestone names. They come from the implementation planning documents and appear in `ARCHITECTURE.md` section 1.
+The amendments use three milestone names from `ARCHITECTURE.md` section 1:
 
 - **M1 (MVP v0.1):** MQTT to a durable capture log to Parquet segments to S3-compatible storage, with replay and chaos verification.
 - **M2:** ROS 2, MCAP and rosbag2 offline ingestion first, then a live transport.
-- **M3:** ClickHouse, starting only after the M1 gate passes.
+- **M3:** ClickHouse, outside the M1 reliability gate.
 
 ---
 
-# Part A: Scope freeze (required for B2)
+# Part A: Scope freeze (applied 2026-10-13)
 
 ## A.1 Section 31, "MVP definition": objective, sources, transforms, reliability, sinks, examples
 
-**What it says now.**
+**Original text.**
 
 > The MVP is deliberately narrow.
 > **MVP objective:** Demonstrate that one Rust edge runtime can reliably ingest two important robotic/IoT protocols, transform the data, survive outages, and deliver to two modern data targets.
@@ -38,7 +28,7 @@ The proposed text introduces three milestone names. They come from the implement
 > **MVP sinks:** 1. Local durable capture to Parquet segments (P0) 2. S3-compatible object storage for Parquet/raw archives (P0) 3. ClickHouse (P1 early integration, conditional on MVP capacity and target-user validation)
 > **MVP examples:** MQTT -> durable local Parquet -> S3-compatible object storage; ROS 2 -> durable local capture -> replay after reconnect; MQTT -> ClickHouse (P1 analytics example, if included in MVP scope); offline edge -> reconnect -> replay without data loss within the configured retention budget
 
-**Proposed text.**
+**Applied text.**
 
 > The MVP is deliberately narrow. It is delivered in milestones. MVP v0.1 is milestone M1.
 >
@@ -67,32 +57,32 @@ The proposed text introduces three milestone names. They come from the implement
 
 **Rationale.**
 
-- The product document already says P0 is capture plus Parquet and object storage, and says to defer ClickHouse first if capacity is constrained. The unamended list in this section still describes "two protocols" and "two modern data targets", which contradicts that decision.
-- The MVP transform list omits sampling, timestamp correction, and routing, which section 10 lists as P0. The architecture needs routing (datasets and quarantine) and timestamp extraction anyway.
-- "Deduplication" is split. The architecture review found that in-process deduplication loses its state exactly when redelivery happens and cannot be authoritative, and that "remove duplicate values" in use case UC-05 is deadband filtering, a different operation.
+- The product document already says P0 is capture plus Parquet and object storage, and says to defer ClickHouse first if capacity is constrained. The unamended list in this section still described "two protocols" and "two modern data targets", which contradicted that decision.
+- The MVP transform list omitted sampling, timestamp correction, and routing, which section 10 lists as P0. The architecture needs routing (datasets and quarantine) and timestamp extraction.
+- "Deduplication" is split: in-process deduplication loses its state when redelivery happens across a long gap and cannot be authoritative, while "remove duplicate values" in use case UC-05 is deadband filtering, a different operation.
 - "Without data loss" is qualified to the broker's queue limits because `block` does not prevent loss when the broker's persistent-session queue is bounded (Mosquitto defaults to 1000 queued messages [V]).
 
-**Depends on:** the ROS 2 decision (Part A.10), decided: ROS 2 is M2. **Owner decision:** Approved (2026-10-07), with D-B2-1 and D-B2-2.
+**Decision:** Approved by the maintainer (2026-10-07, D-B2-1 and D-B2-2); applied to `product.md` on 2026-10-13.
 
 ## A.2 Section 31, "Sink-priority decision (MVP)": acceptance criteria
 
-**What it says now.**
+**Original text.**
 
 > **Acceptance criteria:** the team can demonstrate a disconnected edge capture, restart recovery, replay/upload, bounded disk behavior, and independently configurable ClickHouse delivery; benchmark claims must be measured rather than assumed.
 
-**Proposed text.**
+**Applied text.**
 
 > **Acceptance criteria (M1 gate):** the team can demonstrate disconnected edge capture, restart recovery, replay and upload, bounded disk behavior with every loss attributed, and quarantine of malformed input, each verified against the producer's own record of what it sent; benchmark claims must be measured rather than assumed.
 >
 > **Acceptance criteria (P1 gate, after M1):** independently configurable ClickHouse delivery that does not change the M1 results. The Parquet and object-storage verification must still pass while ClickHouse is unavailable.
 
-**Rationale.** The M1 criteria that matter most (zero missing acknowledged samples, zero duplicate rows, bounded disk, attributed loss) are defined by the demo plan's scenarios F1 to F8. A criterion that requires ClickHouse cannot be part of an M1 gate if ClickHouse is not in M1.
+**Rationale.** The M1 criteria that matter most (zero missing acknowledged samples, zero duplicate rows, bounded disk, attributed loss) are defined by scenarios F1 to F8. A criterion that requires ClickHouse cannot be part of an M1 gate if ClickHouse is not in M1.
 
-**Owner decision:** Approved (2026-10-07), with D-B2-3.
+**Decision:** Approved by the maintainer (2026-10-07, D-B2-3); applied to `product.md` on 2026-10-13.
 
 ## A.3 Section 46, "Definition of MVP done"
 
-**What it says now.**
+**Original text.**
 
 > **Demo A:** MQTT -> normalize -> filter -> buffer -> ClickHouse
 > **Demo B:** MQTT -> normalize -> Parquet -> S3
@@ -101,7 +91,7 @@ The proposed text introduces three milestone names. They come from the implement
 > **Replay demo:** record -> replay -> pipeline -> destination
 > **Developer experience:** A new developer can run the full demo locally with documented commands.
 
-**Proposed text.**
+**Applied text.**
 
 > The MVP (v0.1, milestone M1) is done only when all of the following work:
 >
@@ -120,15 +110,15 @@ The proposed text introduces three milestone names. They come from the implement
 > - **M2 gate:** ROS 2 -> canonical event -> Parquet (MCAP file input first)
 > - **P1 gate (M3):** MQTT -> ClickHouse, and later ROS 2 -> ClickHouse, once the M1 gate has passed
 
-**Rationale.** Demos A and C currently end in ClickHouse, which contradicts section 13, section 31's sink-priority decision, and the agreed P1 status. The proposed Demo A keeps the original "filter" step and the original Demo B is retained. The demo plan already defines these demos as levels 1 to 4 of one runnable example, `examples/edge-capture`.
+**Rationale.** Demos A and C originally ended in ClickHouse, which contradicted section 13, section 31's sink-priority decision, and the P1 status. These demos correspond to levels 1 to 4 of `examples/edge-capture`.
 
-**Depends on:** the ROS 2 decision, decided: ROS 2 is M2, so Demo C moves to the M2 gate as proposed. **Owner decision:** Approved (2026-10-07), as the rewrite of the section 46 demos to the P0 path that follows from D-B2-1 to D-B2-3.
+**Decision:** Approved by the maintainer (2026-10-07, D-B2-1 to D-B2-3); applied to `product.md` on 2026-10-13.
 
 ## A.4 Section 7, "Protocol strategy": Tier 1 table
 
-**What it says now.** The heading is "Tier 1 - MVP" and the table lists MQTT 3.1.1 / 5 (P0), ROS 2 / DDS-compatible ingestion (P0), HTTP/HTTPS (P0), gRPC (P0), OPC UA (P1), and CAN / CAN-FD (P1).
+**Original text.** The heading was "Tier 1 - MVP" and the table listed MQTT 3.1.1 / 5 (P0), ROS 2 / DDS-compatible ingestion (P0), HTTP/HTTPS (P0), gRPC (P0), OPC UA (P1), and CAN / CAN-FD (P1).
 
-**Proposed text.** Retitle the heading "Tier 1 - Core protocols" and replace the table:
+**Applied text.** Retitle the heading "Tier 1 - Core protocols" and replace the table:
 
 > | Protocol | Role | Priority | Milestone |
 > |---|---|---|---|
@@ -139,15 +129,15 @@ The proposed text introduces three milestone names. They come from the implement
 > | OPC UA | Industrial/plant-floor data | P1 | after M2 |
 > | CAN / CAN-FD | Vehicle/robot embedded bus | P1 | after M2 |
 
-**Rationale.** Section 31 lists only MQTT and ROS 2 as MVP sources and section 32 places HTTP in Phase 1 and ROS 2 in Phase 2. HTTP and gRPC as P0 sources are not in any milestone plan; keeping them P0 contradicts the narrow MVP. HTTP as an admin API surface (health, metrics, status) is unaffected, because it is not a data source.
+**Rationale.** Section 31 lists only MQTT and ROS 2 as MVP sources and section 32 places HTTP in Phase 1 and ROS 2 in Phase 2. HTTP as an admin API surface (health, metrics, status) is unaffected because it is not a data source.
 
-**Owner decision:** Approved (2026-10-07), with D-B2-4.
+**Decision:** Approved by the maintainer (2026-10-07, D-B2-4); applied to `product.md` on 2026-10-13.
 
 ## A.5 Section 10, "Processing model": required transformation types
 
-**What it says now.** P0 lists projection, field rename, field extraction, type conversion, unit conversion, filtering, routing, timestamp correction, metadata enrichment, deduplication, basic aggregation, sampling, downsampling. P1 lists windowing, joins against local/reference metadata, sequence validation, anomaly rules, and others.
+**Original text.** P0 listed projection, field rename, field extraction, type conversion, unit conversion, filtering, routing, timestamp correction, metadata enrichment, deduplication, basic aggregation, sampling, downsampling. P1 listed windowing, joins against local/reference metadata, sequence validation, anomaly rules, and others.
 
-**Proposed text.**
+**Applied text.**
 
 > ### P0
 >
@@ -171,15 +161,15 @@ The proposed text introduces three milestone names. They come from the implement
 > - sequence validation
 > - (unchanged remainder)
 
-**Rationale.** Basic aggregation needs windowing semantics (watermarks, late data, out-of-order input) that the plans explicitly defer; section 10 already puts windowing in P1. Downsampling by decimation does not need windows. Deduplication and change-based filtering are separate operations with different semantics (architecture review section 7).
+**Rationale.** Basic aggregation requires windowing semantics (watermarks, late data, out-of-order input), which section 10 places in P1. Downsampling by decimation does not need windows. Deduplication and change-based filtering are separate operations with different semantics.
 
-**Owner decision:** Approved (2026-10-07), with D-B2-4.
+**Decision:** Approved by the maintainer (2026-10-07, D-B2-4); applied to `product.md` on 2026-10-13.
 
 ## A.6 Section 14, "Pipeline configuration": example
 
-**What it says now.** The YAML example has `sources` with `type: mqtt`, a `transforms` list with `decode`, `normalize_units`, `enrich`, and `filter` steps, a `buffer` block of `type: disk` and `max_size: 20GiB`, and a `clickhouse` sink with `endpoint` and `table`. It ends: "The configuration format must remain stable and versionable."
+**Original text.** The YAML example had `sources` with `type: mqtt`, a `transforms` list with `decode`, `normalize_units`, `enrich`, and `filter` steps, a `buffer` block of `type: disk` and `max_size: 20GiB`, and a `clickhouse` sink with `endpoint` and `table`. It ended: "The configuration format must remain stable and versionable."
 
-**Proposed text.** Replace the example (the filter step uses the structured-predicate form decided in ADR-0018, see A.11; the exact key spellings are frozen in PR5 and PR9):
+**Applied text.** Replace the example (the filter step uses the structured-predicate form decided in ADR-0018, see A.11):
 
 ```yaml
 version: 1
@@ -235,15 +225,15 @@ Followed by: "The configuration format must remain stable and versionable. The c
 
 **Rationale.**
 
-- The example's only sink is ClickHouse, which is P1.
-- `buffer` becomes `wal` because the architecture stores raw messages before any processing, and `on_full` has no default (the operator must choose).
-- `decode` is a dataset property and datasets are the unit of output (ADR-0013). The unit symbol `degC` in the sketch must be checked against the unit vocabulary in the transform design (UCUM codes such as `Cel`) [V].
+- The original example's only sink was ClickHouse, which is P1.
+- `buffer` becomes `wal` because the architecture stores raw messages before any processing, and `on_full` has no default.
+- `decode` is a dataset property and datasets are the unit of output (ADR-0013).
 
-**Owner decision:** Approved (2026-10-07), with D-B2-3. ADR-0012 and ADR-0018 were accepted on 2026-10-07; the filter example now uses the structured form (A.11). The remaining key spellings (`kind`, `where`, `wal`) are frozen in PR5 and PR9, so the syntax shown is the working form until the first fixture set is published.
+**Decision:** Approved by the maintainer (2026-10-07, D-B2-3, ADR-0012, ADR-0018); applied to `product.md` on 2026-10-13.
 
 ## A.7 Section 40, "Developer experience"
 
-**What it says now.**
+**Original text.**
 
 > ```bash
 > git clone ...
@@ -253,7 +243,7 @@ Followed by: "The configuration format must remain stable and versionable. The c
 > Then: `SELECT * FROM robot_telemetry ORDER BY event_time DESC;`
 > The project should provide the demo broker, sample producer, and destination locally.
 
-**Proposed text.**
+**Applied text.**
 
 > ```bash
 > git clone ...
@@ -268,15 +258,15 @@ Followed by: "The configuration format must remain stable and versionable. The c
 > ```
 > The project should provide the demo broker, sample producer, and a local destination (a local Parquet directory, with an S3-compatible store as the second step).
 
-**Rationale.** The target workflow ends in ClickHouse, which is P1. The M1 equivalent needs no database: DuckDB reads the Parquet files directly. The exact file glob and command names are to be confirmed when the demo is built [V]. A ClickHouse variant moves to the P1 demo (`examples/edge-analytics`).
+**Rationale.** The original workflow ended in ClickHouse, which is P1. The M1 workflow reads the Parquet files directly with DuckDB.
 
-**Owner decision:** Approved (2026-10-07), with D-B2-3.
+**Decision:** Approved by the maintainer (2026-10-07, D-B2-3); applied to `product.md` on 2026-10-13.
 
 ## A.8 Section 32, "Phase roadmap": Phases 1 and 2
 
-**What it says now.** Phase 1 (MVP runtime): MQTT, HTTP, object store, ClickHouse, disk buffer, basic transforms, replay, metrics. Phase 2 (Robotics): ROS2, DDS/Zenoh evaluation, trajectory/pose structures, frame metadata, better timestamps.
+**Original text.** Phase 1 (MVP runtime): MQTT, HTTP, object store, ClickHouse, disk buffer, basic transforms, replay, metrics. Phase 2 (Robotics): ROS2, DDS/Zenoh evaluation, trajectory/pose structures, frame metadata, better timestamps.
 
-**Proposed text.**
+**Applied text.**
 
 > ## Phase 1 - MVP runtime (M1)
 >
@@ -301,50 +291,43 @@ Followed by: "The configuration format must remain stable and versionable. The c
 > - ClickHouse
 > - HTTP and gRPC sources, as demand dictates
 
-**Rationale.** Aligns the roadmap with sections 13 and 31 and with the milestone plan. HTTP moves out of Phase 1 for the reason in A.4.
+**Rationale.** Aligns the roadmap with sections 13 and 31 and with the milestone plan.
 
-**Owner decision:** Approved (2026-10-07), with D-B2-1 to D-B2-4.
+**Decision:** Approved by the maintainer (2026-10-07, D-B2-1 to D-B2-4); applied to `product.md` on 2026-10-13.
 
 ## A.9 Section 5, use case UC-05: "remove duplicate values" and "window"
 
-**What it says now.**
+**Original text.**
 
 > 1000 Hz sensor -> quality validation -> remove duplicate values -> window -> downsample to 100 Hz -> transmit reduced stream
 
-**Proposed text.**
+**Applied text.**
 
 > 1000 Hz sensor -> quality validation -> remove unchanged values (deadband) -> downsample to 100 Hz by decimation -> transmit reduced stream. Windowed aggregation (P1) can be added after the validation step.
 
 **Rationale.** "Remove duplicate values" describes value-based, lossy, per-stream change filtering, not message deduplication. "Window" implies windowed aggregation, which is P1 (A.5).
 
-**Owner decision:** Approved (2026-10-07), with D-B2-4.
+**Decision:** Approved by the maintainer (2026-10-07, D-B2-4); applied to `product.md` on 2026-10-13.
 
 ## A.10 The ROS 2 decision, and the alternatives that were not chosen
 
-**Decided by the owner (2026-10-07):** ROS 2 is a P0 product capability delivered in M2, not in MVP v0.1 (decision D-B2-2 in `docs/design/owner-decisions.md`). Text in A.1, A.3, A.4, and A.8 above reflects this. The rest of this section records what would have changed under the other options and is not to be applied.
+**Decision (2026-10-07):** ROS 2 is a P0 product capability delivered in M2, not in MVP v0.1 (D-B2-2 in `docs/design/owner-decisions.md`). Text in A.1, A.3, A.4, and A.8 reflects this. The rest of this section records what would have changed under the other options and is not applied to `product.md`:
 
-Had the owner chosen to include MCAP offline ingestion in v0.1:
-
-- A.1: MVP sources add "2. ROS 2 via MCAP and rosbag2 file input (offline). Live ROS 2 transport is delivered in M2." The M1 example list adds "ROS 2 MCAP file -> Parquet".
-- A.3: the M1 definition adds "Demo C: ROS 2 MCAP file -> canonical event -> Parquet". Live transport stays an M2 gate.
-- A.4: the ROS 2 row reads "M1 (MCAP file input); M2 (live transport)".
-- A.8: Phase 1 adds "ROS 2 offline file ingestion".
-- Cost, from the plans: a schema-driven CDR decoder and message-definition parser (`thadam-ros2-msg`) plus an MCAP source, a few reviewable pull requests, and an `thadam export --mcap` command. This delays the M1 gate and adds the `mcap` dependency to the MVP.
-
-Had the owner chosen live ROS 2 in v0.1, the plans would not have supported it: the live-transport spike has not run, the leading Rust options are rated experimental or low-medium maturity in the ecosystem review, and the preferred route depends on ROS distributions that are not yet tiered. This option would also invalidate the readiness gate's schedule estimate.
+- Under option B (MCAP offline ingestion in v0.1): A.1 would add "2. ROS 2 via MCAP and rosbag2 file input (offline)" to MVP sources; A.3 would add "Demo C: ROS 2 MCAP file -> canonical event -> Parquet" to M1; A.4 would list "M1 (MCAP file input); M2 (live transport)"; and A.8 would add "ROS 2 offline file ingestion" to Phase 1.
+- Under option C (live ROS 2 in v0.1): rejected because live transport required spike S3 and experimental middleware bindings.
 
 ## A.11 Section 14, "Pipeline configuration": filter syntax (structured predicates)
 
-Added 2026-10-07 after the owner accepted ADR-0018.
+Added 2026-10-07 after ADR-0018 was accepted.
 
-**What it says now.** The `transforms` list in the section 14 example has a filter step written as an expression string:
+**Original text.** The `transforms` list in the section 14 example had a filter step written as an expression string:
 
 > ```yaml
 > - type: filter
 >   expression: "quality == 'good'"
 > ```
 
-**Proposed text.** Replace the filter step with the structured-predicate form (this supersedes the `expr:` line shown in the A.6 text if the owner applied A.6 before this entry):
+**Applied text.** Replace the filter step with the structured-predicate form:
 
 > ```yaml
 > transforms:
@@ -355,17 +338,15 @@ Added 2026-10-07 after the owner accepted ADR-0018.
 >
 > Conditions are structured predicates: a `field`, an operator (`eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `min`/`max`), and a value, combined with `all`, `any`, and `not`. Thadam does not evaluate free-form expression strings in v0.1. The `expr:` key is reserved for a future expression language.
 
-If section 14 keeps its original `type` and `buffer` key names, the owner may apply only the filter step above and leave the key renaming to A.6.
+**Rationale.** ADR-0018 (Accepted 2026-10-07): structured predicates are schema-checked at `thadam validate`, allocation-free, bounded in cost, and keep `f32`, `u64`, and null semantics explicit. CEL is reserved for a future ADR.
 
-**Rationale.** ADR-0018 (Accepted 2026-10-07): structured predicates are schema-checked at `thadam validate`, allocation-free, bounded in cost, and keep `f32`, `u64`, and null semantics in Thadam's hands. `quality` is a struct, so the condition names the status as `quality.status`. CEL is reserved for a future ADR, and each structured construct has an exact CEL equivalent so a later addition is additive.
-
-**Owner decision:** Approved (2026-10-07), with the ADR-0018 decision (B7).
+**Decision:** Approved by the maintainer (2026-10-07, D-B7-2); applied to `product.md` on 2026-10-13.
 
 ---
 
-# Part B: Alignment with accepted architecture (recommended, not blocking)
+# Part B: Alignment with accepted architecture
 
-These edits make `product.md` consistent with `ARCHITECTURE.md`. Apply them when the corresponding ADRs are accepted; if an ADR is rejected, the matching amendment is dropped or revised.
+These amendments align `product.md` with the decisions in `ARCHITECTURE.md` and the accepted ADRs. The underlying technical decisions were made on 2026-10-07 (and 2026-10-14 for [ADR-0016](adr/0016-naming-and-publishing.md)); applying the replacement text to `product.md` remains **Open**.
 
 ## B.1 Section 8, "Canonical event model"
 
@@ -385,11 +366,11 @@ These edits make `product.md` consistent with `ARCHITECTURE.md`. Apply them when
 > ├── payload            (decoded record, raw bytes, or object reference)
 > └── attributes         (namespaced protocol metadata)
 > ```
-> `schema_id` belongs to the dataset or record shape, not each event. Coordinate frame information is a payload field following a well-known schema convention. Processing time is not carried per event. Where it is recorded (per batch in lineage metadata, or per file in footer metadata) is not yet specified. The original plan stored it per batch and the implementation plan dropped it **[OPEN, ADR-0001]**. The `clock_synced` state is recorded per batch. Never silently overwrite device time with edge time, and never treat a non-UTC device clock (monotonic since boot, simulation time, TAI) as UTC without an explicit mapping.
+> `schema_id` belongs to the dataset or record shape, not each event. Coordinate frame information is a payload field following a well-known schema convention. Processing time is not carried per event; where it is recorded (per batch in lineage metadata, or per file in footer metadata) remains open (`ARCHITECTURE.md` O10, ADR-0001). The `clock_synced` state is recorded per batch. Never silently overwrite device time with edge time, and never treat a non-UTC device clock (monotonic since boot, simulation time, TAI) as UTC without an explicit mapping.
 
-**Rationale.** Decisions D8 to D10, D15 (ADR-0001). Per-event schema references and frame metadata were removed to cut memory and avoid protocol leakage; device and asset identity were merged into one hierarchical path.
+**Rationale.** Decisions D8 to D10 and D15 (ADR-0001). Per-event schema references and frame metadata were removed to cut memory and avoid protocol leakage; device and asset identity were merged into one hierarchical path.
 
-**Owner decision:** ______________
+**Decision:** Underlying model decided in ADR-0001 (Accepted 2026-10-07; D-B6-3, D-B6-4, D-B6-5). `process_time` placement (O10) and applying this amendment text to `product.md`: Open.
 
 ## B.2 Section 10, "Processing model": position of the buffer
 
@@ -416,7 +397,7 @@ These edits make `product.md` consistent with `ARCHITECTURE.md`. Apply them when
 
 **Rationale.** Decision D1 (ADR-0003): capture before processing means a misconfigured filter loses nothing, replay is a cursor rewind, and the on-disk format does not depend on the in-memory model. The "dead-letter" stage becomes the quarantine writer.
 
-**Owner decision:** ______________
+**Decision:** Capture-first WAL placement decided in ADR-0003 (Accepted 2026-10-07, D1). Applying this amendment text to `product.md`: Open.
 
 ## B.3 Section 12, "Buffering architecture"
 
@@ -428,9 +409,9 @@ These edits make `product.md` consistent with `ARCHITECTURE.md`. Apply them when
 - Add: "The buffer stores raw source messages before any decoding. A full disk is handled by an explicit, operator-chosen policy (`block` or `drop_oldest`); there is no default, and under either policy loss is counted and visible."
 - Candidate approaches: "1. custom segmented append-only log (provisional); 2. SQLite in WAL mode (fallback); 3. redb or an LSM store. Parquet segment files are the P0 sink output, not the buffer, because the file footer is written only at close."
 
-**Rationale.** D1, D2, D4 (ADR-0004). Parquet cannot be appended durably at low latency. SQLite was added to the candidate list by the architecture review, and the ecosystem review found no maintained segmented-log crate. Spike S1 has reported and recommends the custom segmented log with SQLite as the fallback, but ADR-0004 stays Draft until the S1 re-run on reference hardware, so this amendment still does not name a final engine. The example configuration above uses `interval: 10ms`, the provisional fsync default recommended by S1 (the earlier 50 ms default capped per-source throughput); it is not a frozen default.
+**Rationale.** D1, D2, D4 (ADR-0004, ADR-0011). Parquet cannot be appended durably at low latency. Spike S1 (`docs/design/spikes/S1-wal.md`) confirmed the custom segmented log with SQLite as the fallback, while ADR-0004 stays Draft until the S1 re-run on reference hardware.
 
-**Owner decision:** ______________
+**Decision:** Explicit `on_full` policy decided 2026-10-07 (D-B3-1, ADR-0011 Accepted); custom segmented WAL implemented (`thadam-wal`), with ADR-0004 remaining Draft pending the reference-hardware re-run. Applying this amendment text to `product.md`: Open.
 
 ## B.4 Section 19, "Connector contract"
 
@@ -442,7 +423,7 @@ These edits make `product.md` consistent with `ARCHITECTURE.md`. Apply them when
 
 **Rationale.** D5 and D6 (ADR-0002). A push contract invites blocking the protocol loop, which breaks MQTT keepalive; one sink trait hides two incompatible acknowledgement models.
 
-**Owner decision:** ______________
+**Decision:** Pull `Source` and split `BatchSink`/`SegmentSink` contracts decided in ADR-0002 (Accepted 2026-10-07; D-B6-1, D-B6-2). Applying this amendment text to `product.md`: Open.
 
 ## B.5 Section 22, "Data quality"
 
@@ -452,9 +433,9 @@ These edits make `product.md` consistent with `ARCHITECTURE.md`. Apply them when
 
 > Every event carries event-level quality (status, flags, reason). Batch-level state is recorded as lineage. Field-level quality is not supported in the MVP; a message with several measurements can be expanded to one event per measurement, where each event has its own quality. Bad records are routed to quarantine storage and counted in metrics; alerting is delegated to the metrics system.
 
-**Rationale.** D10 and the open question on quality granularity (decision D-B3-3). The per-measurement example in the product document only fits single-measurement messages or exploded events. The owner decided on 2026-10-07 (D-B3-3) that quality is event-level only for the MVP, which is what this amendment states.
+**Rationale.** D10 and D-B3-3 (ADR-0001). The per-measurement example in the product document fits single-measurement messages or exploded events.
 
-**Owner decision:** ______________
+**Decision:** Event-level quality for the MVP decided 2026-10-07 (D-B3-3, ADR-0001 Accepted). Applying this amendment text to `product.md`: Open.
 
 ## B.6 Section 23, "Time synchronization"
 
@@ -470,9 +451,9 @@ These edits make `product.md` consistent with `ARCHITECTURE.md`. Apply them when
 >
 > Clock offset estimation and clock quality are reserved and deferred until an estimation method is chosen.
 
-**Rationale.** D15 (ADR-0001). No estimation method exists, and edge devices without a real-time clock boot with wrong wall time, so synchronization state must be recorded rather than assumed.
+**Rationale.** D15 (ADR-0001). Edge devices without a real-time clock boot with wrong wall time, so synchronization state must be recorded rather than assumed.
 
-**Owner decision:** ______________
+**Decision:** Time model decided in ADR-0001 (Accepted 2026-10-07, D15). Applying this amendment text to `product.md`: Open.
 
 ## B.7 Section 26, "Resource constraints"
 
@@ -480,12 +461,12 @@ These edits make `product.md` consistent with `ARCHITECTURE.md`. Apply them when
 
 **Proposed text.**
 
-> - "local SSD" becomes "local SSD or eMMC that honors flush; consumer SD cards are not a supported target for durability claims" (owner decision D-B3-5, 2026-10-07: industrial SSD or eMMC that honors flush is the supported baseline).
+> - "local SSD" becomes "local SSD or eMMC that honors flush; consumer SD cards are not a supported target for durability claims" (D-B3-5, 2026-10-07).
 > - Add: "Thadam-owned buffers are bounded by configuration. Total memory is measured and published per workload under container memory limits."
 
-**Rationale.** D21 and the claims register in ADR-0011: Thadam cannot bound memory used inside third-party libraries and the allocator. Flash endurance depends on storage media; the owner set the supported baseline on 2026-10-07 (D-B3-5).
+**Rationale.** D21 and the claims register in ADR-0011: Thadam cannot bound memory used inside third-party libraries and the allocator, and flash endurance depends on storage media (D-B3-5).
 
-**Owner decision:** ______________
+**Decision:** Storage baseline (D-B3-5) and memory claim wording (D21, ADR-0011 Accepted) decided 2026-10-07. Applying this amendment text to `product.md`: Open.
 
 ## B.8 Section 27, "Reliability requirements"
 
@@ -498,9 +479,9 @@ These edits make `product.md` consistent with `ARCHITECTURE.md`. Apply them when
 - Add to "Avoid claiming universally": power-loss survival (claimed only with a flush-honoring device and hardware evidence), ordering beyond receive order per connection, byte-identical replay, and authoritative deduplication inside the runtime.
 - Add: "Every public reliability claim must appear in the claims register (ADR-0011) with its conditions."
 
-**Rationale.** The architecture review's claims register (section 11), now ADR-0011.
+**Rationale.** The claims register in ADR-0011.
 
-**Owner decision:** ______________
+**Decision:** Claims register and conditions decided in ADR-0011 (Accepted 2026-10-07). Applying this amendment text to `product.md`: Open.
 
 ## B.9 Section 25, "Security"
 
@@ -512,43 +493,45 @@ These edits make `product.md` consistent with `ARCHITECTURE.md`. Apply them when
 > - Admin API: binds to loopback by default. A non-loopback bind requires a bearer token read from a file.
 > - TLS uses rustls with the `ring` provider. The dependency policy is in ADR-0020.
 
-**Rationale.** The MVP non-goals in ARCHITECTURE.md section 1 and ADR-0020.
+**Rationale.** `ARCHITECTURE.md` sections 1 and 16, and ADR-0020.
 
-**Owner decision:** ______________
+**Decision:** Security and toolchain policy decided in ADR-0020 (Accepted 2026-10-07). Applying this amendment text to `product.md`: Open.
 
 ## B.10 Sections 15, 29, and 18: CLI name and repository structure
 
-- **Sections 15 and 29** use the command name `robotic-data`. Propose `thadam` (provisional until ADR-0016 clears the name).
-- **Section 18** shows a repository named `robotic-data-plane` with a long list of per-protocol and per-sink concept crates. Replace the tree with a pointer: "The accepted repository and crate structure is in `ARCHITECTURE.md` section 9" and keep only the top-level layout (`docs/`, `crates/`, `apps/`, `examples/`, `benchmarks/`). The sentence "The actual structure may change after the architecture review" is replaced by that pointer.
+- **Sections 15 and 29** use the command name `robotic-data`. Propose `thadam` (provisional until [ADR-0016](adr/0016-naming-and-publishing.md), Draft, clears the name).
+- **Section 18** shows a repository named `robotic-data-plane` with a long list of per-protocol and per-sink concept crates. Replace the tree with a pointer: "The accepted repository and crate structure is in `ARCHITECTURE.md` section 9" and keep only the top-level layout (`docs/`, `crates/`, `apps/`, `examples/`, `tools/`, `sdk/`, `website/`).
 
-**Rationale.** The architecture review replaced 17 concept crates with a smaller set split by dependency weight (D20), and the implementation plan settled on ten library crates plus the CLI.
+**Rationale.** ADR-0003 (D20) replaced the 17 concept crates with a workspace split by dependency weight, and [ADR-0016](adr/0016-naming-and-publishing.md) (Draft) records the provisional `thadam` name.
 
-**Owner decision:** ______________
+**Decision:** Crate layout decided in ADR-0003 (Accepted 2026-10-07, D20) and provisional name recorded in [ADR-0016](adr/0016-naming-and-publishing.md) (Draft 2026-10-14). Applying this amendment text to `product.md`: Open.
 
 ## B.11 Section 44, "Initial ADR candidates"
 
-**What it says now.** ADR-001 to ADR-010, as listed in product.md.
+**What it says now.** ADR-001 to ADR-010, as listed in `product.md`.
 
 **Proposed text.** Replace the list with the current index (full detail in `ARCHITECTURE.md` section 17):
 
-> - ADR-0000 ADR process
-> - ADR-0001 Canonical event model (includes internal representation and time semantics)
-> - ADR-0002 Connector contract
-> - ADR-0003 Execution and process model
-> - ADR-0004 Durable buffer
-> - ADR-0006 MQTT client
-> - ADR-0007 ROS 2 strategy
-> - ADR-0008 ClickHouse sink
-> - ADR-0011 Delivery guarantees and claims register
-> - ADR-0012 Config format and YAML crate
-> - ADR-0013 Parquet segment layout
-> - ADR-0018 Filter and expression language
-> - ADR-0020 Dependency security and toolchain policy
-> - Reserved, not yet written: 0009 object-store architecture, 0010 Python SDK boundary, 0015 recording and replay format, 0016 naming and publishing, 0017 plugin mechanism, 0019 transform semantics. Numbers 0005 and 0014 were folded into ADR-0001 and ADR-0013.
+> - ADR-0000 ADR process (Proposed)
+> - ADR-0001 Canonical event model (Accepted)
+> - ADR-0002 Connector contract (Accepted)
+> - ADR-0003 Execution and process model (Accepted)
+> - ADR-0004 Durable buffer (Draft)
+> - ADR-0006 MQTT client (Accepted)
+> - ADR-0007 ROS 2 strategy (Draft)
+> - ADR-0008 ClickHouse sink (Draft)
+> - ADR-0011 Delivery guarantees and claims register (Accepted)
+> - ADR-0012 Config format and YAML crate (Accepted)
+> - ADR-0013 Parquet segment layout (Accepted)
+> - ADR-0015 Recording and replay format (Draft)
+> - [ADR-0016 Naming and publishing](adr/0016-naming-and-publishing.md) (Draft)
+> - ADR-0018 Filter and expression language (Accepted)
+> - ADR-0020 Dependency security and toolchain policy (Accepted)
+> - Reserved, not yet written: 0009 object-store architecture, 0010 Python SDK boundary, 0017 plugin mechanism, 0019 transform semantics. Numbers 0005 and 0014 were folded into ADR-0001 and ADR-0013.
 
-**Rationale.** The product document's numbering (ADR-005 Arrow vs protobuf, ADR-009 object store) no longer matches the decisions: the representation question was resolved inside the event-model ADR, and the delivery, layout, config, and toolchain decisions need their own records.
+**Rationale.** The product document's initial ADR numbering no longer matches the ADR directory.
 
-**Owner decision:** ______________
+**Decision:** ADR index reflects the accepted and draft ADRs in `docs/design/adr/`. Applying this amendment text to `product.md`: Open.
 
 ---
 
@@ -556,18 +539,24 @@ These edits make `product.md` consistent with `ARCHITECTURE.md`. Apply them when
 
 ## C.1 Duplicate use-case number (section 5)
 
-Section 5 has two items headed "UC-04" (Factory machine -> analytics, and Offline edge buffering). The planning documents refer to UC-05 (data reduction) and UC-06 (replay), so renumbering later items would break those references. Proposed: rename the first "UC-04A: Factory machine -> analytics" and the second "UC-04B: Offline edge buffering".
+Section 5 has two items headed "UC-04" (Factory machine -> analytics, and Offline edge buffering). The design documents refer to UC-05 (data reduction) and UC-06 (replay), so renumbering later items would break those references. Proposed: rename the first "UC-04A: Factory machine -> analytics" and the second "UC-04B: Offline edge buffering".
+
+**Decision:** Open.
 
 ## C.2 Kafka listed under P1 and P2 (section 13)
 
-Section 13 lists Kafka as a P1 sink ("Useful as a streaming/interoperability sink...") and again under P2. Proposed: keep the P1 entry and delete the P2 entry, or move both to a single position the owner prefers.
+Section 13 lists Kafka as a P1 sink ("Useful as a streaming/interoperability sink...") and again under P2. Proposed: keep the P1 entry and delete the P2 entry.
+
+**Decision:** Open.
 
 ## C.3 Example directory names
 
-Earlier plans named examples `mqtt-to-parquet`, `mqtt-to-s3`, `offline-replay`, and `mqtt-to-clickhouse`. The demo plan consolidates M1 into one example, `examples/edge-capture`, with levels 1 to 4, and names the P1 follow-on `examples/edge-analytics`. Product section 18 (examples) and section 40 should use those names.
+Earlier drafts named examples `mqtt-to-parquet`, `mqtt-to-s3`, `offline-replay`, and `mqtt-to-clickhouse`. The repository consolidates M1 into `examples/edge-capture` (with levels 1 to 4) and `examples/ros2-mcap-to-parquet` for M2, and names the P1 ClickHouse follow-on `examples/edge-analytics`. `product.md` section 18 (examples) and section 40 (already updated by A.7) should use those names.
+
+**Decision:** Open.
 
 ---
 
 # What this document does not change
 
-The product thesis, the target users, the boundaries of scope, the data classes, the principle that Thadam is Rust-first and open source, the design principles in section 36, the security stance of building no identity provider, and the long-term vision are unchanged. The ClickHouse sink stays a first-class P1 integration, as the product document already says in sections 13 and 31; these amendments only remove the places where ClickHouse was still required for the MVP to be "done".
+The product thesis, the target users, the boundaries of scope, the data classes, the principle that Thadam is Rust-first and open source, the design principles in section 36, the security stance of building no identity provider, and the long-term vision are unchanged. The ClickHouse sink stays a first-class P1 integration, as `product.md` states in sections 13 and 31.

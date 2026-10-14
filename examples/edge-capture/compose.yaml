@@ -1,4 +1,4 @@
-# Thadam edge-capture demo topology (PR15; plan section 2, S3 adapted to
+# Thadam edge-capture demo topology (S3 adapted to
 # SeaweedFS: MinIO stopped publishing community images in late 2025).
 #
 #   mosquitto ──edge── simulator (writes oracle to the `oracle` volume)
@@ -6,10 +6,10 @@
 #   toxiproxy ──edge (mqtt 21883) ──┐          ┌── cloud ── seaweedfs (+ init)
 #       └─────────────cloud (s3 29000) ────────┘
 #
-# Thadam itself runs NATIVELY in this milestone (`make run-native`) and
+# Thadam itself runs NATIVELY (`make run-native`) and
 # reaches the broker and the S3 gateway only through the published
 # Toxiproxy ports (localhost:21883 / localhost:29000), so the chaos scripts
-# (PR18) will affect native runs too. The simulator publishes DIRECTLY to
+# affect native runs too. The simulator publishes DIRECTLY to
 # the broker, so injection affects Thadam's consumption, never production,
 # and the oracle stays a clean record of what was sent.
 #
@@ -54,7 +54,7 @@ services:
     ports:
       - "127.0.0.1:21883:21883"        # mqtt proxy (native run)
       - "127.0.0.1:29000:29000"        # s3 proxy (native run)
-      - "127.0.0.1:8474:8474"          # control API (chaos scripts, PR18)
+      - "127.0.0.1:8474:8474"          # control API (chaos scripts)
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -64,7 +64,7 @@ services:
     build:
       context: ../..
       dockerfile: tools/thadam-simulator/Dockerfile
-    restart: "no"                       # chaos scripts own the lifecycle (PR18)
+    restart: "no"                       # chaos scripts own the lifecycle
     networks: [edge]
     command:
       - run

@@ -163,4 +163,4 @@ Prints the same help as `--help` for the binary or a subcommand (`thadam help ru
 
 ## Roadmap subcommands (planned)
 
-`product.md` and ARCHITECTURE.md section 21 sketch additional subcommands as later PRs, **not implemented today**: `--suggest-schema` on `thadam inspect`, and benchmark tooling (`tools/thadam-bench`, not a CLI subcommand). This page will grow with them.
+`product.md` and ARCHITECTURE.md section 21 sketch additional tooling **not implemented today**: `--suggest-schema` on `thadam inspect`, and benchmark tooling (`tools/thadam-bench`, not a CLI subcommand). This page will grow with them.
