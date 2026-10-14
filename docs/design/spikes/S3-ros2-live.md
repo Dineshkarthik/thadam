@@ -9,7 +9,7 @@
 | ROS subject | ROS 2 Jazzy, `ros:jazzy-ros-base` + `ros-jazzy-rmw-zenoh-cpp` 0.2.11-1noble.20260915.184907 |
 | Rust subject | `zenoh` **=1.10.1** exact pin, `default-features = false` + `transport_tcp` (no TLS, no QUIC, no ws, no unstable feature) |
 
-Every number below comes from a recorded run in `results/`. Where something was not measured, it says so. ARM (Pi 5) results are **NOT MEASURED** — the owner measures ARM on reference hardware later; this Mac is a reference run only.
+Every number below comes from a recorded run; raw run output is not committed, so regenerate it with `scripts/run-capture.sh`. Where something was not measured, it says so. ARM (Pi 5) results are **NOT MEASURED** — the owner measures ARM on reference hardware later; this host is a reference run only.
 
 ---
 
@@ -26,7 +26,7 @@ Every number below comes from a recorded run in `results/`. Where something was 
 
 | Item | Value |
 |---|---|
-| Host | Apple Silicon (arm64), arm64, macOS |
+| Host | arm64 laptop, macOS |
 | Container runtime | Docker Desktop |
 | Toolchain | rustc/cargo 1.99.0 (b940084d7 2026-09-28), rustfmt 1.10.0, clippy (same toolchain) |
 | Base image | `ros:jazzy-ros-base` (Docker Hub, pinned by tag in `docker/Dockerfile`; built image `s3-ros2-zenoh:jazzy-1` = sha256:b0ff655972a6, 303 MB) |
@@ -176,7 +176,7 @@ Latency under backlog: p50 6.3 s `/imu`, 12.1 s `/joint_states` `/tf` (queue dra
 | transient_local `/tf_static` behaves as configured (late join) | **PASS** (exactly-once via cache query; 0 without the query) | §6.1–6.3 |
 | Jazzy via zenoh-bridge-ros2dds + Fast DDS (required) | step 2 — NOT MEASURED here | §9 |
 | Lyrical + rmw_zenoh / Lyrical bridge / Humble bridge / Cyclone variants | NOT MEASURED (step 1 scope = Jazzy) | — |
-| ARM Pi 5: 1 kHz IMU + 100 Hz joint_states + 30 Hz /tf at <25 % of one core, no unaccounted drops | **NOT MEASURED** (owner reference hardware; this run is the Mac reference: no unaccounted drops, 6.9 % of one Apple Silicon core) | §6.1 |
+| ARM Pi 5: 1 kHz IMU + 100 Hz joint_states + 30 Hz /tf at <25 % of one core, no unaccounted drops | **NOT MEASURED** (owner reference hardware; this run is the arm64 laptop reference: no unaccounted drops, 6.9 % of one core) | §6.1 |
 | `Gap` marker / counted-drop plumbing | **PASS** at measurement level (missing counted per (gid, seq); gap events surfaced in summary JSON) | §6.4 |
 
 ## 7. Dependency weight
@@ -212,7 +212,7 @@ Latency under backlog: p50 6.3 s `/imu`, 12.1 s `/joint_states` `/tf` (queue dra
 1. **File-edit racing in the dev environment silenced several code edits** (detected via the compiler); all source was rewritten whole and re-verified with `cargo build`/`clippy`/`fmt` — final state is authoritative in git status.
 2. **clap negative argument**: `--clock-offset-ns -801416` parses as a flag; fixed by `--flag=value` form in `run-capture.sh`.
 3. **Publisher exit at 09:19:50**: `s3-sensor-pub` exited code 1 immediately after the graph-wide `**/@adv/**` probe triggered a burst of AdvancedCache rejected-reply warnings. Correlation is certain (timestamps match the probe run to the second); mechanism is not (no traceback in the retained log tail; container was replaced before full logs were pulled). Operational lesson already encoded: never issue broad `@adv` wildcard queries; scope late-join queries to one topic and set `_anyke` so replies are accepted on first contact.
-4. My own `docker kill <image-filter>` at 09:39 took the router down mid-investigation; stack was restarted and all reported runs are afterward.
+4. A `docker kill <image-filter>` at 09:39 took the router down mid-investigation; stack was restarted and all reported runs are afterward.
 5. Previous run's conclusion "client mode receives nothing" was wrong — it was measured while the port was unreachable; re-measured here both ways (§4).
 
 ## 9. Recommendation for step 2 (zenoh-bridge-ros2dds + Fast DDS, Jazzy)
@@ -263,7 +263,7 @@ Evidence: `results/sniff-bridge-raw*.jsonl` (~6.7 k + 3 k samples), `results/pro
 | Type name | in key (`pkg::msg::dds_::Type_`) | **not in key**; `route/topic/*` admin entries carry `ros2_type` |
 | RIHS01 type hash | in key | **not in key; recoverable** from DDS writer admin entries: endpoint QoS `user_data` bytes contain `typehash=RIHS01_<64hex>` (Jazzy Fast DDS). Recovered hashes for /imu, /joint_states, /tf, /tf_static **are byte-identical to step 1** — decoder keying is transport-independent |
 | Per-sample attachment | 33 B: i64 seq, i64 source ts ns, u8 gid_len + 16 B GID | **none** (0 attachments in ~13 k samples). An HLC timestamp is present on every sample but stamped **by the bridge at ingress** (`…/57a9ed`), not at DDS publish time — unusable for end-to-end latency |
-| Publisher GID | attachment | nowhere on the data path (all-zero in our records); admin space knows DDS GUIDs |
+| Publisher GID | attachment | nowhere on the data path (all-zero in the records); admin space knows DDS GUIDs |
 | Per-publisher sequence | attachment seq (starts at 1) | **not forwarded** (no attachment; zenoh `source_sn` not set — its accessor is `unstable`-gated client-side so it stays unchecked, a dep-policy note not a blocker). **Exact drop accounting from zenoh transport metadata alone is impossible through the bridge** |
 | Source timestamp | attachment (publisher clock) | absent → latency uses the decoded `header.stamp` (validated in step 1 to agree with attachment stamps <0.1 ms) |
 | Discovery | `@ros2_lv/<domain>/...` liveliness tokens (`MP` carries topic/type/hash/QoS) | **no liveliness tokens** (`@ros2_lv/0/**` probe: 0 replies). Admin space `@/<zid>/ros2/**` (queryables, read=true default): `config`, `version`, `route/topic/{pub,sub}/<topic>` (payload JSON: `ros2_name`, `ros2_type`, `zenoh_key_expr`, `is_active`, `local_nodes`, `remote_routes`), `dds/<participant>/{writer,reader}/<gid>/{rt,rq,rr}/<n>` (`topic_name`, `type_name`, full QoS, `user_data` hash). `@`-chunk hermeticity means the ZID must be known (spike pins `-i`; production: config entry) |
@@ -307,7 +307,7 @@ The owner criterion needs counted drops on the best_effort sensor topic under ov
 
 ¹ Publisher ground truth vs payload-seq window; the publisher's own 5 s log granularity bounds startup-region precision (§11.5.1's ±5 s window rule). "Tail" = published during the run but still buffered in the congested chain when the 60 s capture ended (discarded at session close; client-side cannot distinguish from dropped).
 
-**Key behavioral difference from rmw_zenoh**: once the pipes filled, the bridge chain **blocked end-to-end** — mid-stream delivery was dense (zero gaps on all topics) with backlog latency growing to ~29–40 s, and loss concentrated in the startup catch-up burst. In step 1 the router egress dropped mid-stream (548 / 685 / 205 counted). Fast DDS `best_effort` loss semantics therefore do **not** survive this relay under sustained subscriber backpressure in our topology: you get effective-blocking + edge truncation instead of steady mid-stream thinning. Whether that is acceptable is an ADR-0007 decision input, not a code bug — and the payload-counter accounting proved exact in both regimes (every published message lands in exactly one bucket: received, startup-destroyed, tail-at-cutoff).
+**Key behavioral difference from rmw_zenoh**: once the pipes filled, the bridge chain **blocked end-to-end** — mid-stream delivery was dense (zero gaps on all topics) with backlog latency growing to ~29–40 s, and loss concentrated in the startup catch-up burst. In step 1 the router egress dropped mid-stream (548 / 685 / 205 counted). Fast DDS `best_effort` loss semantics therefore do **not** survive this relay under sustained subscriber backpressure in this topology: you get effective-blocking + edge truncation instead of steady mid-stream thinning. Whether that is acceptable is an ADR-0007 decision input, not a code bug — and the payload-counter accounting proved exact in both regimes (every published message lands in exactly one bucket: received, startup-destroyed, tail-at-cutoff).
 
 - Capture process under overload: avg 2.1 % CPU, RSS 22 MiB (bounded by channel capacities; no growth). Bridge container: avg 3.9 % CPU (max 9.2 %), RSS 8.6 MiB — it idles on its blocked egress.
 
@@ -349,7 +349,7 @@ What a **user** would set in the config surface: `transport: rmw_zenoh | bridge`
 | Config steps | ZENOH_CONFIG_OVERRIDE endpoints on ROS side; host client endpoint | bridge CLI (`-i` pin, domain, listen, scout off) + ROS_DOMAIN_ID/DISTRO env + RMW choice on publishers; **admin ZID needed by every discovery client** |
 | Failure surface | router down ⇒ all traffic stops; publisher crash ⇒ its @adv cache gone with it | **bridge down ⇒ ALL ROS traffic stops and its transient_local cache is lost**; DDS discovery flap ⇒ phantom topics; Fast DDS ↔ CycloneDDS interop sits in the data path (two DDSI vendors) up to the bridge |
 | Throughput shape | router-assisted drops at congestion edges | extra relay hop (+8 % CPU, +8 MiB) and end-to-end blocking under overload (§11.5.2) |
-| QoS fidelity | exact (we attach at the rmw layer) | reliability/durability survive; **best_effort thinning does not** (blocks instead); best_effort on ARM is exactly the owner-criterion topic, so this matters |
+| QoS fidelity | exact (attaches at the rmw layer) | reliability/durability survive; **best_effort thinning does not** (blocks instead); best_effort on ARM is exactly the owner-criterion topic, so this matters |
 
 ## 11.8 Problems and caveats (step 2)
 
@@ -472,7 +472,7 @@ Same mechanism class as Jazzy step 1 (router-egress drop under sustained backpre
 | Jazzy + Cyclone DDS 0.10.5 via bridge | best effort | PASS (§12.3.5) | PASS (blocks) | PARTIAL — zero mid-stream gaps, edge loss only | PASS | **PASS w/ caveats** |
 | Humble + Fast DDS 2.6 via bridge | best effort | PASS (§12.3.6) | PASS (blocks) | PARTIAL — same | PASS w/ note | **PASS w/ caveats + no RIHS01 from endpoints (name-only keying)** |
 | hiroz / roslibrust | optional | — | — | — | — | **NOT RUN** (unchanged from §10; lowest-value item) |
-| ARM Pi 5/Jetson: 1 kHz IMU + 100 Hz joint_states + 30 Hz /tf at <25 % of one core, no unaccounted drops | required | — | — | — | — | **NOT MEASURED** here (owner reference hardware; recipe in `spikes/s3-ros2-live/ARM.md`; Mac reference: 5.7–7.5 % avg of one Apple Silicon core, 0 unaccounted drops, every combo) |
+| ARM Pi 5/Jetson: 1 kHz IMU + 100 Hz joint_states + 30 Hz /tf at <25 % of one core, no unaccounted drops | required | — | — | — | — | **NOT MEASURED** here (owner reference hardware; recipe in `spikes/s3-ros2-live/ARM.md`; laptop reference: 5.7–7.5 % avg of one core, 0 unaccounted drops, every combo) |
 
 RIHS01 hash comparison (owner question "do they differ from Jazzy?"): **No** — byte-identical for `Imu`/`JointState`/`TFMessage` across Jazzy rmw_zenoh, Lyrical rmw_zenoh, Jazzy Fast DDS 2.14, Lyrical Fast DDS 3.6.2, Jazzy Cyclone 0.10.5. Humble endpoints advertise no hash at all. The vendored `.msg` texts therefore decode every combination measured, unchanged.
 

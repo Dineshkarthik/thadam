@@ -1,6 +1,6 @@
 # Spike S3 step 3 — ARM reference run (owner follow-up)
 
-The spike runs on this Mac are the x86-class reference. The owner criterion
+The spike runs on the development laptop are the x86-class reference. The owner criterion
 that still needs ARM evidence is:
 
 > 1 kHz IMU + 100 Hz joint_states + 30 Hz /tf at **<25 % of one core**, with
@@ -39,7 +39,7 @@ docker build -f docker/Dockerfile.humble  -t s3-ros2-zenoh:humble-1  .
 docker pull eclipse/zenoh-bridge-ros2dds:1.10.1
 
 # Host-side capture binary (path deps to ../../crates/<…> — keep repo layout)
-export CARGO_TARGET_DIR=$PWD/target/s3-spike
+export CARGO_TARGET_DIR=$PWD/target
 cargo build --release
 ```
 
@@ -76,16 +76,16 @@ Note: `docker/run.sh <setup> down` removes all four `s3-*` containers and the
 
 | Owner criterion | Where in the artifacts | PASS shape |
 |---|---|---|
-| 1 kHz IMU (best_effort) + 100 Hz joint_states + 30 Hz /tf received | `*.json` `topics[].received` vs `topics[].expected_by_seq`; publisher ground truth in `*.publog` | ≈59 k/6 k/1.8 k over 60 s (publisher is rclpy-timer limited to ≈984 Hz imu, same as Mac reference) |
+| 1 kHz IMU (best_effort) + 100 Hz joint_states + 30 Hz /tf received | `*.json` `topics[].received` vs `topics[].expected_by_seq`; publisher ground truth in `*.publog` | ≈59 k/6 k/1.8 k over 60 s (publisher is rclpy-timer limited to ≈984 Hz imu, same as laptop reference) |
 | No unaccounted drops | `*.json` `missing_by_seq` + `gap_events` (rmw: `seq_source=attachment`; bridge: `seq_source=payload` + `*.publog` deltas) | baseline: `missing=0`, `gap_events=0`; overload: every published message lands in exactly one of {received, counted-gap, startup-burst, tail-undrained} — repeat the arithmetic shown in the report's §11.5.2 footnote |
-| <25 % of one core (subscriber) | `*.ps` rows: column 1 = %CPU, column 2 = RSS KiB; averaged | `mean(cpu) < 25.0`; record max too (Mac reference: 6.2–7.5 % avg, ≤9.1 % max) |
-| bounded memory | same file, column 2 | flat RSS, no growth trend (Mac reference: 10–21 MiB) |
+| <25 % of one core (subscriber) | `*.ps` rows: column 1 = %CPU, column 2 = RSS KiB; averaged | `mean(cpu) < 25.0`; record max too (laptop reference: 6.2–7.5 % avg, ≤9.1 % max) |
+| bounded memory | same file, column 2 | flat RSS, no growth trend (laptop reference: 10–21 MiB) |
 | late-join control (nice-to-have) | `capture` `--only /tf_static` §3 recipe equivalent | rmw: exactly 1 replayed sample through the `@adv` query; bridge: 1 via route-activation replay |
 
 The sampling loop in `scripts/run-capture.sh` uses `ps -o %cpu=,rss= -p` —
 POSIX, works on Linux. `%cpu` on Linux ps is lifetime-average of the
 process, so also report `docker stats`-style first/last deltas if you want
-interval CPU (Mac runs used `ps`, so Pi numbers stay comparable if you use
+interval CPU (laptop runs used `ps`, so Pi numbers stay comparable if you use
 the same script unchanged).
 
 ## 6. What to send back

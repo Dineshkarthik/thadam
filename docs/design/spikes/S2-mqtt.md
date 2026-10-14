@@ -31,8 +31,8 @@ Every number below comes from a recorded run in `results/`. Where something was 
 
 | Item | Value |
 |---|---|
-| Host | Apple Silicon (arm64), 18 cores, 48 GiB, macOS (arm64) |
-| Container runtime | Docker Desktop (Linux VM linuxkit, 18 vCPU, 7.7 GiB); brokers reach the host through its port forwarder |
+| Host | arm64 laptop, 18 cores, 48 GiB, macOS |
+| Container runtime | Docker Desktop (Linux VM, aarch64, 18 vCPU, 7.7 GiB); brokers reach the host through its port forwarder |
 | Toolchain | rustc/cargo 1.95.0; `tokio` 1; `rumqttc` 0.25.1 |
 | Mosquitto | `eclipse-mosquitto:2` = Mosquitto 2.1.2, `sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408` |
 | EMQX | `emqx/emqx:5.8.6` (Apache-2.0 build), `sha256:a1e3d10fa1dcc8c94325b815a93b5b5974253a97cb36470b44e47d5d3ef9cd13` |
@@ -82,9 +82,8 @@ Nothing is extrapolated. Where a mechanism was not investigated (for example Mos
 
 ### 3.5 Run history (for honesty)
 
-* The first Q5/E1 run was **discarded**: my script killed a subshell instead of the subscriber, so the "killed" client kept running and fought the restarted one for the same client ID. Fixed in `scripts/run_all.sh` (direct PID, kill verification); Q2 to Q5, E1 and v5 were re-run. The Mosquitto Q1 and Q6 results are from the first run (unaffected).
+* The first Q5/E1 run was **discarded**: the script killed a subshell instead of the subscriber, so the "killed" client kept running and fought the restarted one for the same client ID. Fixed in `scripts/run_all.sh` (direct PID, kill verification); Q2 to Q5, E1 and v5 were re-run. The Mosquitto Q1 and Q6 results are from the first run (unaffected).
 * The Mosquitto Q3 random-drop runs used a publisher backlog cap of 10,000; the committed script now uses 3,000 for both brokers (needed for EMQX). The difference is not material to the result.
-
 ---
 
 ## 4. Brokers and settings used
@@ -124,7 +123,7 @@ Receive rate (msg/s) of **one connection**, `on_commit`-style acks with commit l
 
 * **The ceiling model holds.** At `L` ≥ 50 ms the window is the only constraint and the result is 95–98% of nominal on both brokers. The gap at 10 ms is timer and RTT overhead: the measured mean ack delay was 10.7–11.0 ms (not 10.0 ms; Tokio timer granularity) and RTT p50 was 0.16 ms. Using `window / (mean measured delay + 0.16 ms)` (Mosquitto), the achieved fraction is 94.3–95.9% at 10 ms, 98.2–98.6% at 50 ms, 98.5–98.8% at 100 ms.
 * **max unacked = broker window** in every cell where the window binds (20, 100, 1000). The observed value is a direct, free measurement of the effective window.
-* **At `L` = 0 the limit is the client/broker, not the window**: roughly 62k–90k msg/s per connection on this machine; max unacked stayed far below the window for 1000 (564 and 497).
+* **At `L` = 0 the limit is the client/broker, not the window**: roughly 62k–90k msg/s per connection on the arm64 laptop; max unacked stayed far below the window for 1000 (564 and 497).
 * **Manual vs auto ack at `L` = 0**: 70k–76k vs 62k–87k on Mosquitto, 34k–86k vs 40k–91k on EMQX; no consistent difference across the three windows (single samples), so manual acks add no large fixed cost.
 * **EMQX window 1000 / `L` = 10 ms: not window-bound.** After the fix in E3 the recorded run gave 52.7k msg/s with a mean of 543 unacked (not 1000), against a 100k nominal ceiling; two earlier manual runs (not in `results/`) gave 44.8k and 42.5k (mean 441 unacked). EMQX's per-session delivery rate was the binding limit there; not investigated further.
 
@@ -220,7 +219,7 @@ QoS 0 filler publishes were also lost (35 of 40 with `now_or_never`). **No error
 
 * **Works correctly**: the broker accepted every stripped ack (zero redelivery on a fresh persistent session), the window kept advancing, and QoS 2 completed (rumqttc answers PUBREL with PUBCOMP internally).
 * **Payload memory need not be retained until commit.** Retaining the full `Publish` cost about 1.27× the payload bytes (likely because the payload `Bytes` pin their read-buffer allocations; not investigated); stripping costs almost nothing. This also supports the plan's rule about not pinning read chunks.
-* The EMQX QoS 2 run delivered only 100 of 150 because EMQX's default `max_awaiting_rel` (100) throttles the *publisher's* QoS 2 flow in my harness; it is not a subscriber defect (an earlier run with count 3000 delivered 202). The messages that did flow were acked and completed correctly.
+* The EMQX QoS 2 run delivered only 100 of 150 because EMQX's default `max_awaiting_rel` (100) throttles the *publisher's* QoS 2 flow in the harness; it is not a subscriber defect (an earlier run with count 3000 delivered 202). The messages that did flow were acked and completed correctly.
 
 ### 5.5 Q5: persistent session, kill -9, queue limits
 
@@ -248,7 +247,7 @@ rumqttc reports `ConnAck.session_present` accurately in all five observed cases.
 |---|---|---|---|---|
 | Mosquitto | subscriber offline | 100 | **first** 100 (seq 0–99): newest dropped | broker log `Outgoing messages are being dropped for client ...` (once) |
 | Mosquitto | subscriber connected but withholding acks | 140 | first 140 (seq 0–139) | same log line |
-| EMQX | subscriber offline | 100 | **last** 100 (seq 900–999): oldest dropped | warning `dropped_msg_due_to_mqueue_is_full` (log-throttled: one line per run in our logs) |
+| EMQX | subscriber offline | 100 | **last** 100 (seq 900–999): oldest dropped | warning `dropped_msg_due_to_mqueue_is_full` (log-throttled: one line per run in the captured logs) |
 | EMQX | subscriber connected but withholding acks | 120 | first 20 (in flight) + last 100 (seq 900–999) | same warning |
 
 **Silent to the producer in all four cases.** This confirms the architecture review's claim that `on_full: block` moves loss to the broker invisibly. Also observed: with Mosquitto's *default* config (`max_queued_messages` 1000, window 20) and a withholding subscriber, 1040 of 5070 were delivered; both Mosquitto "withholding" observations (100/20 → 140, 1000/20 → 1040) fit `max_queued_messages + 2 × max_inflight_messages`, while the offline case fits `max_queued_messages`. The mechanism was not investigated; do not compute with it.
@@ -334,7 +333,7 @@ All numbers recomputed from a shallow clone (depth 200, 209 commits, oldest 2023
 | MQTT 3.1.1 path (src minus v5; includes shared options, TLS, proxy, websocket) | 25 | ≈5,784 |
 | `rumqttc/tests` | 2 | 896 |
 
-No `unsafe` in `rumqttc/src`. For comparison, `rumqttd/src` is 14,078 lines (not relevant to us).
+No `unsafe` in `rumqttc/src`. For comparison, `rumqttd/src` is 14,078 lines (not relevant here).
 
 **Test coverage**
 
@@ -353,12 +352,12 @@ No `unsafe` in `rumqttc/src`. For comparison, `rumqttd/src` is 14,078 lines (not
 | #250 "Automatic reconnect and subscribed topics?" | no auto-resubscribe | Confirmed (§5.7 E1) |
 | #926, #814 | keepalive/throttling reports | Not reproduced |
 
-**Community continuation.** crates.io shows an actively maintained fork, `thehouseisonfire/rumqtt` (published as `rumqttc-next`, `rumqttc-v4-next` and `rumqttc-v5-next`, all 0.34.0, updated 2026-08-13, created Feb–Mar 2026, about 145k recent downloads; MSRV 1.88; repo pushed 2026-10-07; 27 stars, 4 open issues/PRs). Its README describes it as a fork started "in response to a period of upstream inactivity", with separate 3.1.1 and 5 clients, tracked operation outcomes and manual acknowledgements. Its changelog is 1,265 lines and moving fast (0.27.0 on 2026-02-19 to 0.34.0 on 2026-08-13). **I did not run the S2 harness against it**; this is metadata only.
+**Community continuation.** crates.io shows an actively maintained fork, `thehouseisonfire/rumqtt` (published as `rumqttc-next`, `rumqttc-v4-next` and `rumqttc-v5-next`, all 0.34.0, updated 2026-08-13, created Feb–Mar 2026, about 145k recent downloads; MSRV 1.88; repo pushed 2026-10-07; 27 stars, 4 open issues/PRs). Its README describes it as a fork started "in response to a period of upstream inactivity", with separate 3.1.1 and 5 clients, tracked operation outcomes and manual acknowledgements. Its changelog is 1,265 lines and moving fast (0.27.0 on 2026-02-19 to 0.34.0 on 2026-08-13). The S2 harness was not run against it; this is metadata only.
 
 **Fork readiness assessment**
 
 * A *v3.1.1-only* fork carries about 5.8k lines (no `unsafe`, Apache-2.0, small dependency set: `bytes`, `flume`, `tokio-util`, `fixedbitset`, rustls bits). That is a tractable surface for a small team.
-* The defects we hit are all avoidable in a wrapper, except one: **skipping an oversized packet (E2) needs a codec patch.** That is the first concrete fork trigger.
+* The defects hit so far are all avoidable in a wrapper, except one: **skipping an oversized packet (E2) needs a codec patch.** That is the first concrete fork trigger.
 * The v5 module is larger (8.3k lines) and thinner on tests (37 unit tests, no integration tests); do not take on v5 maintenance for the MVP.
 
 ---
@@ -392,7 +391,7 @@ Rationale: the library does what the design needs (ordered manual acks, `Bytes` 
 
 | Setting | Mosquitto | EMQX 5.8 |
 |---|---|---|
-| Inflight window | `max_inflight_messages` (default 20). Size ≥ `rate × commit_latency × 1.2` (for example 1000 for 5k msg/s at 100 ms) | `mqtt.max_inflight` (default 32). **If ≥ ~1000, also raise `force_shutdown.max_mailbox_size`** (default 1000): the default killed the session in our test |
+| Inflight window | `max_inflight_messages` (default 20). Size ≥ `rate × commit_latency × 1.2` (for example 1000 for 5k msg/s at 100 ms) | `mqtt.max_inflight` (default 32). **If ≥ ~1000, also raise `force_shutdown.max_mailbox_size`** (default 1000): the default killed the session in testing |
 | Queue for offline/slow client | `max_queued_messages` (default 1000), `max_queued_bytes`; size for outage × rate. **Drops newest, silently** (log line only) | `mqtt.max_mqueue_len` (default 1000). **Drops oldest** (throttled warning). Queue lives in process memory: `force_shutdown.max_heap_size` (default 32MB) kills the session |
 | Session survival across broker restart | `persistence true` (verified `session_present=true` after restart); client expiry unset or long | **Default config does not survive restart** (sessions in memory); `mqtt.session_expiry_interval` default 2h |
 | Message size | `message_size_limit` ≤ Thadam `max_message_bytes` | `mqtt.max_packet_size` (default 1MB) |
@@ -407,7 +406,7 @@ Accept ADR-006 (keep rumqttc) when the PR12 conformance suite passes, in CI, aga
 
 Re-open the decision and fork (or switch) if **any** of these happens:
 
-1. We need to skip or quarantine an oversized packet instead of failing the connection (requires a codec patch).
+1. Skip or quarantine an oversized packet instead of failing the connection (requires a codec patch).
 2. A reproducible ack/loss correctness defect appears that the wrapper cannot work around.
 3. A security advisory in rumqttc's dependency closure stays unfixed upstream for more than 30 days.
 4. A required dependency bump breaks the conformance suite and upstream does not respond.
@@ -443,8 +442,8 @@ A v3.1.1-only vendored copy is about 5.8k lines; the estimate should be refreshe
 ## 9. Limitations
 
 * **Environment is not the target.** macOS arm64 laptop with brokers in a Docker Desktop VM behind a port forwarder; no real edge hardware, no real fsync (commit latency is simulated), no cellular-class RTT. Absolute msg/s at `L` = 0 are machine-specific; the *ratios* to the ceiling are the transferable result.
-* **Single sample per Q1 cell**; no variance estimate. The machine was shared with other agents' work during runs (RTT p50 varied 95–160 µs).
-* **Q1 supply**: publishers share the CPU with the subscriber. No cell was supply-limited by my own check, but at `L` = 0 the client/broker limit may include contention.
+* **Single sample per Q1 cell**; no variance estimate. The host was shared with other work during runs (RTT p50 varied 95–160 µs).
+* **Q1 supply**: publishers share the CPU with the subscriber. No cell was supply-limited by the spike's own check, but at `L` = 0 the client/broker limit may include contention.
 * **Two broker versions only** (Mosquitto 2.1.2, EMQX 5.8.6), single node, anonymous, no TLS, no retained messages, no shared subscriptions.
 * **Q3 cannot reach every await point.** The random-drop runs and the write-blocked runs together demonstrate the hazard but do not prove which other points are safe. The write-blocked test used `AtMostOnce` fillers to fill the send buffer.
 * **EMQX results are bounded by its heap/mailbox limits** (§5.1); the 5.10.x series was only smoke-tested (observation in `results/emqx/emqx-5.10.5-observation.txt`).

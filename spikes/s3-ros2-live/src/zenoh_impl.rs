@@ -62,7 +62,7 @@ impl ZenohTransport {
     /// router (subscriptions routed through it) and receives all topics at
     /// full rate; the client never advertises a listener, so there is
     /// nothing for the container peers to try (and fail) to dial through
-    /// Docker Desktop's NAT. PEER mode measurably FAILS in this topology:
+    /// Docker port forwarding (NAT; e.g. Docker Desktop). PEER mode measurably FAILS in this topology:
     /// the rmw_zenoh sessions gossip broken locators (e.g. tcp/[::1]:xxxxx,
     /// their container-local listener), `zenoh::open` returns after the
     /// scouting delay without a working peering, and an 8 s sniff saw zero

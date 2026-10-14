@@ -2,7 +2,7 @@
 [stack default KiB] parens n=95: len=196 compile OK 557.916µs, execute 2.125µs -> Bool(true) | exit 0
 [stack default KiB] parens n=100: len=206 compile ERR after 548.042µs: ERROR: <input>:1:97: Syntax error: OtherError(ParseError { source: None, pos: (96, -1), msg: "Recursion limit of 96 exceeded", expr_id: 0, source_info: None }) | exit 0
 [stack default KiB] parens n=1000: len=2006 compile ERR after 703.083µs: ERROR: <input>:1:97: Syntax error: OtherError(ParseError { source: None, pos: (96, -1), msg: "Recursion limit of 96 exceeded", expr_id: 0, source_info: None }) | exit 0
-[stack default KiB] parens n=100000: no result line (thread 'main' (8713431) panicked at <cargo-home>/registry/src/index.crates.io-1949cf8c6b5b557f/cel-0.15.0/src/parser/parser.rs:106:17: Formatting argument out of range ) | exit 101
+[stack default KiB] parens n=100000: no result line (thread 'main' (8713431) panicked at <cargo-registry>/cel-0.15.0/src/parser/parser.rs:106:17: Formatting argument out of range ) | exit 101
 [stack default KiB] and n=100: len=796 compile OK 487.167µs, execute 4.125µs -> Bool(true) | exit 0
 [stack default KiB] and n=1000: len=7996 compile OK 2.355125ms, execute 13.959µs -> Bool(true) | exit 0
 [stack default KiB] and n=100000: len=799996 compile OK 218.047458ms, execute 1.346833ms -> Bool(true) | exit 0

@@ -8,13 +8,13 @@
 | Subject | Sparkplug B (Sparkplug spec 3.0.0, `spBv1.0` namespace) decode + OPC UA PubSub (OPC UA Part 14) desk research |
 | Recommendation in one line | Build `decode: sparkplug_b` in the transform chain (structured in §5); do **not** build OPC UA PubSub now (§6) |
 
-Everything below either ran on this machine (quoted) or is marked as desk research. No data left the machine: the broker was a local container, no cloud resources were touched, and crate/doc lookups were limited to crates.io, GitHub raw docs, and the RustSec database via `cargo deny`.
+Everything below either ran locally against a local broker container (quoted) or is marked as desk research. No data left the machine: no cloud resources were touched, and crate/doc lookups were limited to crates.io, GitHub raw docs, and the RustSec database via `cargo deny`.
 
 ## 1. Environment
 
 | Item | Value |
 |---|---|
-| Host | Apple Silicon, macOS (arm64) |
+| Host | arm64 laptop, macOS |
 | Toolchain | rustc/cargo 1.99.0 (`b940084d7e`, the repo-pinned toolchain), rustfmt 1.10.0, cargo-deny 0.20.2 |
 | Container runtime | Docker 29.8.2 |
 | Broker | `eclipse-mosquitto:2` = Mosquitto 2.1.2, `sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408`, anonymous listener, `127.0.0.1:18883` |
@@ -23,7 +23,7 @@ Everything below either ran on this machine (quoted) or is marked as desk resear
 ## 2. What was built (`spikes/sparkplug-eval/`)
 
 ```text
-proto/sparkplug_b.proto   vendored from Eclipse Tahu (eclipse-tahu/tahu, sparkplug_b/sparkplug_b.proto), EPL-2.0 header intact — see §4.5 license note
+proto/sparkplug_b.proto   spike-only copy from Eclipse Tahu (eclipse-tahu/tahu, sparkplug_b/sparkplug_b.proto), EPL-2.0 header intact, not committed — see §4.5 license note
 build.rs                  protox compile (pure Rust, no protoc) + prost-build — the thadam-grpc pattern
 src/topic.rs              spBv1.0 topic namespace parser (unit-tested)
 src/decode.rs             stateful consumer: BIRTH tables, bdSeq sessions, seq-gap detection, DEATH staleness (unit-tested)
@@ -38,7 +38,7 @@ Dependencies (all version-consistent with the root workspace): `prost` 0.14.4, `
 
 ### 3.1 Wire format and prost
 
-The payload is one protobuf message (`Payload { timestamp, metrics[], seq, uuid, body }`) in proto2 syntax with `oneof value` per metric and a top-level `DataType` enum. prost decodes it as-is; `protox` compiles the vendored `.proto` with no `protoc` binary. One limitation to record: the proto declares `extensions N to max` ranges (third-party extension points). prost has no proto2-extension API, so extension fields decode as unknown and are skipped. Sparkplug B core metrics never use them; if a deployment proves to need them, we would have to revisit (open question O-6).
+The payload is one protobuf message (`Payload { timestamp, metrics[], seq, uuid, body }`) in proto2 syntax with `oneof value` per metric and a top-level `DataType` enum. prost decodes it as-is; `protox` compiles the vendored `.proto` with no `protoc` binary. One limitation to record: the proto declares `extensions N to max` ranges (third-party extension points). prost has no proto2-extension API, so extension fields decode as unknown and are skipped. Sparkplug B core metrics never use them; if a deployment proves to need them, the decoder would have to be revisited (open question O-6).
 
 ### 3.2 Protocol facts that drive the design (verified against the spec, TCK ids in brackets)
 
@@ -87,7 +87,7 @@ n=12: indicative, not a benchmark. The shape of the result matters more than the
 
 - `cargo deny check` with the spike's `deny.toml` (mirror of `deny.toml` policy): **advisories ok, bans ok, licenses ok, sources ok** (output in §7). One non-error warning: the `target-lexicon` exception inherited from the root file is unmatched in this tree.
 - Tree sizes measured here: 38 unique crates in the runtime tree, 65 with build deps. But the *marginal* weight for the workspace is what matters: `prost`, `bytes`, `prost-build`, `protox` are **already in the root `Cargo.lock`** (via `tonic*`/`protox` for `thadam-grpc`). A chain decoder adds **zero new third-party crates** — just the generated `Payload` type (a few hundred lines) and the state machine.
-- License caveat: the vendored `sparkplug_b.proto` is **EPL-2.0** (Eclipse Tahu). It is a schema file, not a crate, so `cargo deny` does not see it — but ADR-0020 currently allows EPL-2.0 "only after legal review" (stated for `paho`). This is an owner-decision blocker for merging, not for the spike; alternatives are in open question O-1.
+- License caveat: the spike's vendored `sparkplug_b.proto` is **EPL-2.0** (Eclipse Tahu) and is not committed; the shipped `thadam-sparkplug` proto is Thadam-authored. It is a schema file, not a crate, so `cargo deny` does not see it — but ADR-0020 currently allows EPL-2.0 "only after legal review" (stated for `paho`). This is an owner-decision blocker for merging, not for the spike; alternatives are in open question O-1.
 
 ## 4. Design analysis for Thadam
 
@@ -174,7 +174,7 @@ datasets:
 
 **Build Sparkplug B decode; defer OPC UA PubSub.**
 
-- A: (owner decision O-1) settle the `.proto` license; then move `proto` + `build.rs` shape into the workspace — either a tiny `thadam-sparkplug` crate (proto + decoder, mirroring `thadam-ros2-msg`'s role) or a module in `thadam-transform`. I recommend the crate: the same decoder will be wanted by a future MCP/export path without the full chain.
+- A: (owner decision O-1) settle the `.proto` license; then move `proto` + `build.rs` shape into the workspace — either a tiny `thadam-sparkplug` crate (proto + decoder, mirroring `thadam-ros2-msg`'s role) or a module in `thadam-transform`. The crate is recommended: the same decoder will be wanted by a future MCP/export path without the full chain.
 - B: decoder crate — port `topic.rs`/`decode.rs` from this spike, intern metric names (`Sym`), emit `Value::Record` instead of printing; add the birth store (new small keyed-bytes store in `thadam-core` beside `SchemaStore`, or generalize it — open question O-2).
 - C: chain wiring — `DecodeSpec::SparkplugB`, one decoder per chain, runtime passes `<data_dir>/sparkplug/births/`; quality-flag mapping per §4.3.
 - D: MQTT docs — point Sparkplug users at `match.topic: "spBv1.0/#"` datasets; no source changes needed.
@@ -226,7 +226,7 @@ $ docker ps -a
 
 ## 8. Open questions for the owner
 
-- **O-1 (blocking for merge): EPL-2.0 on `sparkplug_b.proto`.** Options: (a) legal review of the vendored Tahu file (same posture as ADR-0020's `paho` deferral); (b) author a Thadam-licensed `.proto` from the field numbers the spec publishes — field numbers and message layout are protocol constants, not copyrightable expression, and the spec chapters are the normative source; (c) depend on `sparkplug-rs` 0.5.1 (EPL-2.0, same review needed) or `lb-sparkplugb-rs` 0.1.1 (Apache-2.0/MIT, single author, 0.1.x). The spike used (a)-style vendoring.
+- **O-1 (blocking for merge): EPL-2.0 on `sparkplug_b.proto`.** Options: (a) legal review of the vendored Tahu file (same posture as ADR-0020's `paho` deferral); (b) author a Thadam-licensed `.proto` from the field numbers the spec publishes — field numbers and message layout are protocol constants, not copyrightable expression, and the spec chapters are the normative source; (c) depend on `sparkplug-rs` 0.5.1 (EPL-2.0, same review needed) or `lb-sparkplugb-rs` 0.1.1 (Apache-2.0/MIT, single author, 0.1.x). The spike used (a)-style vendoring, and that copy is not committed; the shipped `thadam-sparkplug` proto is Thadam-authored.
 - **O-2:** birth store: new keyed-bytes store next to `SchemaStore`, or generalize `StoredSchema` to carry non-UTF-8 bodies? (SchemaStore's `text: String` cannot hold protobuf bytes.)
 - **O-3:** should NDEATH/DDEATH emit marker events (default: no)? and `emit_birth_events` default (proposal: true)?
 - **O-4:** one decoder per chain (shared across that chain's datasets) — OK, or must two datasets never share Sparkplug state?

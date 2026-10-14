@@ -3,7 +3,7 @@
 
 Spike S3 helper. The rmw_zenoh attachment source timestamp and the ROS
 `header.stamp` are stamped with the container clock; the subscriber stamps
-recv_time with the Mac host clock. To compare them, sample the container
+recv_time with the host clock. To compare them, sample the container
 clock over a persistent `docker exec` shell and keep the minimum-RTT sample
 (the lowest round trip is the least delayed one); the offset estimate error
 is at most about rtt_min / 2 and is reported so the capture summary can be

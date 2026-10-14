@@ -6,7 +6,7 @@
 #   ros:lyrical-ros-base, pulled 2026-10-12, Ubuntu 26.04 "resolute".
 FROM ros:lyrical-ros-base@sha256:f79cd486fa218596747c45d00ca42101b0303fc6d94ed5adb72145cd6f54b86c
 
-# Opt-in corporate-proxy hook (same pattern as docker/Dockerfile).
+# Opt-in TLS-intercepting-proxy hook (same pattern as docker/Dockerfile).
 COPY docker/secrets/ /tmp/s3-secrets/
 RUN set -e; \
     if [ -f /tmp/s3-secrets/ca.pem ]; then \

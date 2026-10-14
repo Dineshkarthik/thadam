@@ -24,7 +24,7 @@ Headline findings, all measured in this spike:
 
 | Item | Value |
 |---|---|
-| Host | Apple Silicon (arm64), 18 cores, 48 GB, macOS, arm64 |
+| Host | arm64 laptop, 18 cores, 48 GB, macOS |
 | Toolchain | rustc/cargo 1.99.0 (pinned by the repository's `rust-toolchain.toml`); Rust 1.88.0 installed separately for the MSRV check |
 | Crates (exact) | `serde_norway` 0.9.42, `serde_yaml_ng` 0.10.0, `serde-saphyr` 1.3.0 (parser `granit-parser` 1.3.0), `serde_path_to_error` 0.1.20, `serde` 1.0.229, `serde_json` 1.0.151, `humantime` 2.4.0, `bytesize` 2.7.0 |
 | Date of evaluation | 2026-10-07 (crates.io API, GitHub API 13 unauthenticated calls, RustSec advisory-db clone at commit `b0797f5`, 2026-10-07) |
