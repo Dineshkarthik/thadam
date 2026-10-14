@@ -58,6 +58,8 @@ If capacity tightens, cut in this order: ClickHouse, then live ROS 2. M1 is neve
 
 ### Explicit non-goals for the MVP
 
+*(Historical original MVP v0.1 boundary; several connectors, the Python SDK, the Iceberg registrar, and windowing have since been built in the workspace — see [section 21](#21-implementation-sequence) and `docs/design/readiness.md` for current status.)*
+
 GUI, cloud control plane, fleet management, remote configuration, Kubernetes operator, HTTP/gRPC/OPC UA/CAN/Modbus/Kafka/NATS/MQTT-publishing connectors, Iceberg/Delta/Snowflake/BigQuery, windowing and aggregation, joins, watermarks, WASM operators, ML inference, hot config reload, multiple pipelines per process, priority buffer queues, a dynamic plugin system, a schema registry product, application-level encryption at rest (document LUKS or filesystem encryption instead), command and control message transport, a video storage path, a Python SDK, and publishing crates before the naming ADR (ADR-0016, not yet written).
 
 ---
@@ -119,7 +121,7 @@ Each decision has an ID (D1 to D24) from the architecture review. A decision is 
 - **D17 Deduplication is best-effort in Thadam and authoritative downstream (ADR-0011).** Warm-start from the WAL tail. Deadband and on-change are separate transforms.
 - **D18 Commit the cursor, then ship (ADR-0011, ADR-0013).** Fixes a duplicate-object bug in the original design.
 - **D19 Filter language (ADR-0018). Decided by the owner 2026-10-07 (B7).** Structured YAML predicates (`field`, operator, value, with `all`, `any`, `not`) for the MVP. CEL is reserved for a future ADR, and the `expr:` key is reserved for it.
-- **D20 Ten library crates plus the CLI in the MVP workspace, split by dependency weight; `thadam-clickhouse` joins at M3 (section 9).**
+- **D20 Workspace split by dependency weight (section 9).** Started with ten library crates plus the CLI for the MVP core and has grown to 27 workspace members as connectors, tools, and the Python SDK landed.
 - **D21 Memory claim wording (ADR-0011).** Thadam-owned buffers are bounded by configuration; total RSS is measured and published per workload.
 - **D22 `serde_json::Value` at the connector configuration boundary (ADR-0012).** The YAML crate is `serde-saphyr` with `strict_booleans: true`, and `serde_norway` is the documented fallback (owner decision 2026-10-07, B7).
 - **D23 Single MQTT connection in the MVP (ADR-0006).** Shared subscriptions are a documented future option with an ordering caveat.
@@ -244,7 +246,7 @@ Clauses every source implementation must satisfy, each tested by the conformance
 
 - **BatchSink** (ClickHouse, a single object PUT): the runtime forms deterministic batches on frame boundaries, retries the same `BatchId`, and advances the cursor on success. The only sink capability is the delivery class: `AtLeastOnce` or `IdempotentBatch`.
 - **SegmentSink** (Parquet, NDJSON for debugging): the sink owns open state and reports a watermark. The runtime advances a cursor only to a committed watermark, at frame granularity.
-- **Implementation note (2026-10-08, commit `f2c2282`):** `append` originally took an `EventBatch` (the sketch the ADR-0002 decision was signed against). It now takes a `SegmentBatch` (`thadam-core`): the segment driver passes each chain read as one `append`, covering a single WAL range with the events grouped by dataset in declaration order (empty datasets included). Rejects index the events in that flattened order (datasets in declaration order, WAL order within each; `SegmentBatch::events` iterates the same way), and quarantine rows arrive under `QUARANTINE_DATASET` (`"_quarantine"`). `BatchSink` is unchanged: `BatchSink::write` takes a `SinkBatch` with no dataset id, so the batch driver concatenates the datasets' events; the same grouping for `thadam-clickhouse` (one table per dataset) is open work needed before PR20.
+- **Implementation note (`SegmentBatch`):** `append` originally took an `EventBatch` (the sketch the ADR-0002 decision was signed against). It now takes a `SegmentBatch` (`thadam-core`): the segment driver passes each chain read as one `append`, covering a single WAL range with the events grouped by dataset in declaration order (empty datasets included). Rejects index the events in that flattened order (datasets in declaration order, WAL order within each; `SegmentBatch::events` iterates the same way), and quarantine rows arrive under `QUARANTINE_DATASET` (`"_quarantine"`). `BatchSink` is unchanged: `BatchSink::write` takes a `SinkBatch` with no dataset id, so each batch-sink entry selects a single dataset in `config.datasets`.
 - **The shipper is not a sink.** It is a service that consumes finalized segments through the catalog (section 8).
 - **Errors.** Every error carries `Transient`, `Permanent`, or `Fatal` retry class. Transient errors retry with the same `BatchId`. Permanent per-event errors become rejects routed to quarantine. Fatal errors mark the component `Failed`.
 - **Configuration boundary.** Factories receive `serde_json::Value` (D22), with typed structs inside each connector. No YAML types cross the boundary.
@@ -254,13 +256,13 @@ Clauses every source implementation must satisfy, each tested by the conformance
 
 ## 6. The capture WAL
 
-Owner ADRs: ADR-0003 (placement) and ADR-0004 (engine and format, Draft). Crate: `thadam-wal`. Spike S1 has reported, and the layout below is its recommendation adopted as built. **The format is frozen only when ADR-0004 is accepted, and ADR-0004 stays Draft until the S1 re-run on x86 NVMe and ARM eMMC is done**, because the format becomes permanent once released and S1 ran without reference hardware. The owner decided to build the WAL now and re-validate on reference hardware later, so `thadam-wal` is implemented (PR6 and PR7, `0c4cf6f`) with a versioned but not frozen format v1.
+Owner ADRs: ADR-0003 (placement) and ADR-0004 (engine and format, Draft). Crate: `thadam-wal`. Spike S1 has reported, and the layout below is its recommendation adopted as built. **The format is frozen only when ADR-0004 is accepted, and ADR-0004 stays Draft until the S1 re-run on x86 NVMe and ARM eMMC is done**, because the format becomes permanent once released and S1 ran without reference hardware. The owner decided to build the WAL now and re-validate on reference hardware later, so `thadam-wal` is implemented with a versioned but not frozen format v1.
 
 ### Contents and format (S1 recommendation; not frozen)
 
 All integers are little-endian.
 
-- **Segment header (64 bytes):** magic `THADMWAL` at `[0, 8)`, `format_version u16` at `[8, 10)`, a reserved `u16`, `epoch u64` at `[12, 20)`, `base_seq u64` at `[20, 28)`, `created_unix u64` at `[28, 36)`, zeros to byte 60, and a CRC32C of bytes `[0, 60)` at `[60, 64)`. Segments are 64 MiB by default and 16 MiB on the edge profile. A segment is created as a temporary file, header written, fsynced, renamed, and the directory fsynced, so a half-written segment never has a valid name; it is truncated to its data when sealed. A bad segment header fails the open (the only exception is an empty last segment).
+- **Segment header (64 bytes):** magic `THADMWAL` at `[0, 8)`, `format_version u16` at `[8, 10)`, a reserved `u16`, `epoch u64` at `[12, 20)`, `base_seq u64` at `[20, 28)`, `created_unix u64` at `[28, 36)`, zeros to byte 60, and a CRC32C of bytes `[0, 60)` at `[60, 64)`. Segments default to 16 MiB in `thadam-config` (`wal.segment_bytes`, the edge profile; `thadam-wal`'s library default is 64 MiB). A segment is created as a temporary file, header written, fsynced, renamed, and the directory fsynced, so a half-written segment never has a valid name; it is truncated to its data when sealed. A bad segment header fails the open (the only exception is an empty last segment).
 - **Frame:** a 24-byte header, `magic u16 | version u8 | flags u8 | len u32 | frame_seq u64 | reserved u32 (must be 0) | crc32c u32`, followed by a prost-encoded `RawFrame { source_idx, clock_synced, dict: repeated string, records: repeated RawRecord { ingest_time_ns, attr_refs, payload: bytes } }`. **This resolves open item O9:** the earlier "24 bytes but the fields total 20" inconsistency came from omitting the reserved word. The CRC32C covers header bytes `[0, 20)` followed by the payload. There is no separate header CRC and no resynchronization inside a sealed segment: a corrupt frame is quarantined from that frame on and surfaced as `Gap::Corrupt`. The end-of-data marker is an all-zero 24-byte header (the magic is non-zero). S1 did not exercise the prost payload; its encode and decode cost and its field numbers are validated before the format is frozen.
 - **One frame per source batch**, capped at `frame_max_bytes` (4 MiB). A message larger than `max_message_bytes` (default 8 MiB) is rejected at the source with a counted drop where the protocol allows it. For MQTT it is not possible (the client library fails the connection), so the packet-size limit is aligned with `max_message_bytes` instead (section 10, ADR-0006).
 - The WAL stores raw messages only. It never decodes events and never depends on the canonical model.
@@ -277,7 +279,7 @@ All integers are little-endian.
 - **Retention.** Whole segments are deleted once every required sink's cursor has passed them, subject to `retain_for` (a reprocessing window bounded by the disk budget). Each sink sets `required` (default `true`) and, for a required sink, an optional `max_lag` (`{ bytes: <size> }` or `{ age: <duration> }`; section 15 has the exact keys). A `required: false` sink never holds retention back and sees a `Gap::Evicted` if it falls behind eviction. A required sink that exceeds `max_lag` is evicted from retention, which is an explicit, counted loss for that sink. All time-based decisions use monotonic durations and WAL offsets.
 - **Disk budget and `on_full`.** `DiskBudget` has per-category atomics (WAL, segments, quarantine). `block` withholds acknowledgements, which moves loss risk to the broker. `drop_oldest` evicts the oldest segments, surfaces `Gap::Evicted` records to readers, and increments `thadam_wal_evicted_bytes_total`. Under either policy the loss is counted and visible. This is the single place inside Thadam where data can be lost.
 - **Gaps.** `Gap::Corrupt`, `Gap::Evicted`, and `Gap::Missing` (positions never durably written, or skipped so no position at or below a durable cursor is reused) reach readers as items, never as silent skips.
-- **Implementation notes (PR6 and PR7, `0c4cf6f`; ADR-0004).** The WAL root is `data_dir/wal`, holding `LOCK`, `wal.json` (kind, format versions, epoch, node and machine binding), `segments/`, and `cursors/`; the runtime owns `data_dir/thadam.json`. Retention never deletes the newest segment, because it carries the sequence high-water mark across restarts. After a failed write or fsync the writer truncates what was not acknowledged and stops, and the WAL must be reopened. A `failpoints` cargo feature exposes fault injection to other crates. Format v1 is versioned but not frozen.
+- **Implementation notes (`thadam-wal`; ADR-0004).** The WAL root is `data_dir/wal`, holding `LOCK`, `wal.json` (kind, format versions, epoch, node and machine binding), `segments/`, and `cursors/`; the runtime owns `data_dir/thadam.json`. Retention never deletes the newest segment, because it carries the sequence high-water mark across restarts. After a failed write or fsync the writer truncates what was not acknowledged and stops, and the WAL must be reopened. A `failpoints` cargo feature exposes fault injection to other crates. Format v1 is versioned but not frozen.
 - **Recovery.** Section 11.
 
 ### Not exposed
@@ -329,7 +331,7 @@ Each sink has a chain: WAL reader, dataset router, decode, normalize, transform 
 - `filter`: language per ADR-0018.
 - Enrichment from a static YAML or CSV file whose hash is recorded in lineage.
 
-### API shape and decisions made in PR8 and PR9 (`424c2cc`)
+### API shape and implementation decisions (`thadam-transform`)
 
 From the `thadam-transform` crate documentation and source.
 
@@ -364,7 +366,7 @@ A dataset is an output table: a `match` (source and topic), a decode format, an 
 - **Unknown fields:** strict mode quarantines, lenient mode drops and counts, and an optional `_unmapped` column can capture them.
 - **Evolution rules (Iceberg-compatible):** add optional columns, widen `int` to `long` and `float` to `double`, never rename or narrow. Anything else is a new dataset version (`dataset@v2`). The Iceberg registrar applies these by field ID and also follows a rename; it stops fatally on narrowing, an ID reused with another type, or a required-ness change (`docs/design/iceberg-append.md`).
 - **Unsigned integers** follow a per-sink unsigned policy (`ArrowOptions.unsigned`). The default is `Native` (`UInt8` to `UInt64`); `Signed` maps to the next wider signed type, with `u64` staying `Int64` and a value above `i64::MAX` rejected (`schema.narrowing`). Reader support for unsigned logical types is still **[V]**.
-- **Field IDs.** Every column is written with a stable Parquet field ID (`PARQUET:field_id`) from the first release. This makes a later Iceberg `fast_append` stage cheap, with no rewrite. The assignment policy (O5, closed in PR13, ADR-0013): envelope and lineage IDs 1 to 99 are fixed by `thadam-arrow` (format v1); identity level IDs are explicit in 100 to 199; declared top-level field IDs are explicit, required, and in 1000 to 4,194,303; nested IDs (list elements and record children) are derived from the parent ID and tree position, starting at 8,388,608. IDs are never reused after a field is removed (the configuration owner enforces this; `thadam-arrow` rejects duplicates and out-of-range IDs). `_wal_record_idx` (O4) is not written and ID 13 is reserved for it. Other encoding choices: `sample_idx` is `UInt16`, list elements are named `element`, and `thadam.schema_fp` is a 16-byte SHA-256-based fingerprint over a canonical, versioned column encoding (ADR-0013, "PR13 implementation decisions"). The pipeline configuration has no key for field IDs or level IDs yet.
+- **Field IDs.** Every column is written with a stable Parquet field ID (`PARQUET:field_id`) from the first release. This makes a later Iceberg `fast_append` stage cheap, with no rewrite. The assignment policy (O5, closed in `thadam-arrow`, ADR-0013): envelope and lineage IDs 1 to 99 are fixed by `thadam-arrow` (format v1); identity level IDs are explicit in 100 to 199; declared top-level field IDs are explicit, required, and in 1000 to 4,194,303; nested IDs (list elements and record children) are derived from the parent ID and tree position, starting at 8,388,608. IDs are never reused after a field is removed (the configuration owner enforces this; `thadam-arrow` rejects duplicates and out-of-range IDs). `_wal_record_idx` (O4) is not written and ID 13 is reserved for it. Other encoding choices: `sample_idx` is `UInt16`, list elements are named `element`, and `thadam.schema_fp` is a 16-byte SHA-256-based fingerprint over a canonical, versioned column encoding (ADR-0013). Explicit field `id`s (`datasets[].fields[].id`) and identity level `id`s (`datasets[].identity.<level>.id`) are configured in `thadam-config` and round-trip through `thadam-segments`.
 
 ### Parquet file layout
 
@@ -415,27 +417,37 @@ A segment sink with a fixed schema: `_wal_epoch`, `_wal_pos`, `_ingest_time`, `s
 
 ## 9. Crate map and dependency rules
 
-Ten library crates plus the CLI form the MVP workspace (eleven members). `thadam-clickhouse` is an eleventh library crate that joins at M3. The split follows dependency weight and change rate (D20). All crates are `publish = false` until the naming ADR (ADR-0016, not yet written).
+The workspace comprises 27 members (`crates/*`, `apps/thadam-cli`, `tools/*`, and `sdk/python`), split by dependency weight and change rate (D20). All crates are `publish = false` until the naming ADR (ADR-0016, not yet written).
 
 ```text
-crates/thadam-core          model, errors, positions, connector traits, clock, shutdown, disk budget
+crates/thadam-core          model, errors, positions, connector traits, clock, shutdown, disk budget, schema/birth stores
 crates/thadam-config        YAML to typed PipelineSpec, interpolation, diagnostics, JSON Schema
 crates/thadam-wal           capture WAL: writer thread, readers, cursors, retention, recovery
 crates/thadam-transform     sync and pure: router, decoders, shapes, steps, chain compiler
 crates/thadam-runtime       drivers, supervisor, shutdown, replay, observability, admin API
 crates/thadam-arrow         Event to Arrow RecordBatch, dataset schema mapping, field IDs
-crates/thadam-segments      Parquet and NDJSON segment sink, catalog, quarantine writer
+crates/thadam-segments      Parquet segment sink, catalog, quarantine writer
 crates/thadam-object-store  S3-compatible shipper over the segment catalog
-crates/thadam-mqtt          MQTT source (rumqttc)
-crates/thadam-testkit       memory connectors, conformance suites, fake clock, crash harness
-crates/thadam-clickhouse    P1 BatchSink; excluded from the default build and workspace until M3
+crates/thadam-iceberg       Apache Iceberg REST table registrar service (P2, Cargo feature `iceberg`, Rust 1.94)
+crates/thadam-mqtt          MQTT source and `mqtt_publish` batch sink (rumqttc + in-process TLS relay)
+crates/thadam-http          HTTP `listen` and `poll` source (axum + reqwest)
+crates/thadam-grpc          gRPC `Publish`/`PublishStream` source (tonic + prost)
+crates/thadam-mcap          MCAP / rosbag2 file source and `McapExporter`
+crates/thadam-ros2-msg      ROS 2 `.msg` parser and CDR decoder
+crates/thadam-ros2-live     live ROS 2 source over `rmw_zenoh` (Cargo feature `ros2-live`, experimental)
+crates/thadam-modbus        Modbus TCP polling source (tokio-modbus)
+crates/thadam-can           Linux SocketCAN source (`raw` and DBC `decoded`)
+crates/thadam-opcua         OPC UA `subscribe` and `poll` source (Cargo feature `opcua`)
+crates/thadam-sparkplug     Sparkplug B `spBv1.0` protobuf decoder
+crates/thadam-nats          NATS JetStream batch sink (async-nats)
+crates/thadam-kafka         Apache Kafka batch sink (rskafka)
+crates/thadam-clickhouse    ClickHouse batch sink (P1, default-on Cargo feature `clickhouse`)
+crates/thadam-testkit       memory connectors, conformance suites, fake clock, crash harness (dev only)
 apps/thadam-cli             binary `thadam`; the only composition root
-tools/thadam-simulator      synthetic fleet to MQTT, with a send-oracle manifest
+tools/thadam-simulator      synthetic fleet to MQTT, with a send-oracle manifest and verifier
 tools/thadam-bench          scenario runner and result collection
-tests/e2e                  docker and process-level end-to-end and crash tests
+sdk/python                 `thadam-python` PyO3 extension (excluded from `default-members`)
 ```
-
-ROS 2 crates (`thadam-ros2-msg`, a source crate, and an MCAP source) are added when M2 starts.
 
 ```mermaid
 flowchart TD
@@ -471,7 +483,7 @@ flowchart TD
 - Connector crates never depend on `thadam-runtime`. Only `apps/thadam-cli` composes everything.
 - Arrow appears only in `thadam-arrow`, `thadam-segments`, and `thadam-clickhouse`, and only as sub-crates (`arrow-array`, `arrow-schema`, `arrow-buffer`, `arrow-ipc`), never the umbrella `arrow` crate. Arrow types never appear in `thadam-core`, `thadam-transform`, or `thadam-runtime` APIs.
 - `thadam-testkit` is never a production dependency.
-- `thadam-clickhouse` and ROS 2 crates are excluded from the workspace until their milestones start.
+- All 27 members are in the workspace; `sdk/python` is excluded from `default-members` so plain Cargo commands do not require a Python toolchain, and `opcua`, `ros2-live`, and `iceberg` are behind opt-in Cargo features on `thadam-cli` (`clickhouse` is on by default).
 - Workspace policy: `unsafe_code = "forbid"` (filesystem syscalls go through `rustix`'s safe API), `clippy::unwrap_used` and `clippy::expect_used` denied outside tests, `missing_docs` warn, `#[non_exhaustive]` on public enums and config structs, and `panic = "unwind"` in release builds so task-boundary panic isolation works.
 
 ### Ambiguity found while consolidating (O1)
@@ -563,7 +575,7 @@ Exit codes: 0 ok, 1 runtime failure, 2 invalid configuration, 3 data directory l
 
 ### Startup recovery
 
-1. **Data directory.** `flock` on `data_dir/LOCK`, failing fast with exit 3. Read `data_dir/thadam.json` (owned by the runtime, `ThadamJson`; the split with `wal.json` is settled in PR10, `e2dd744`): the pipeline name; the config hash with its algorithm version and, when the configuration changed, the previous hash; the runtime format version (this file and the data-directory layout); the cursor layout version; the catalog format version expected of `thadam-segments`; and a WAL binding (the WAL directory and the epoch the sink state was written against). A different pipeline name or WAL epoch is refused with exit code 3 unless `--repair` is given; a changed config hash is accepted and recorded; a newer format version is always refused. The WAL separately holds its own `flock` and identity in `data_dir/wal` (`LOCK` and `wal.json`: the WAL kind and the WAL, frame, and cursor format versions, `epoch`, and the `node_id`/`machine_id` binding), checked when the WAL opens. Identity lives once, in `wal.json`; the epoch in `thadam.json`'s binding is a reference, kept because sink state stores bare WAL positions, which are meaningless across epochs (a replaced `wal/` with surviving `sinks/` state would silently skip new data). Earlier drafts listed the WAL, cursor, `epoch`, `node_id`, and `machine_id` fields under `thadam.json`; the WAL now owns those in `wal.json`.
+1. **Data directory.** `flock` on `data_dir/LOCK`, failing fast with exit 3. Read `data_dir/thadam.json` (owned by the runtime, `ThadamJson`): the pipeline name; the config hash with its algorithm version and, when the configuration changed, the previous hash; the runtime format version (this file and the data-directory layout); the cursor layout version; the catalog format version expected of `thadam-segments`; and a WAL binding (the WAL directory and the epoch the sink state was written against). A different pipeline name or WAL epoch is refused with exit code 3 unless `--repair` is given; a changed config hash is accepted and recorded; a newer format version is always refused. The WAL separately holds its own `flock` and identity in `data_dir/wal` (`LOCK` and `wal.json`: the WAL kind and the WAL, frame, and cursor format versions, `epoch`, and the `node_id`/`machine_id` binding), checked when the WAL opens. Identity lives once, in `wal.json`; the epoch in `thadam.json`'s binding is a reference, kept because sink state stores bare WAL positions, which are meaningless across epochs (a replaced `wal/` with surviving `sinks/` state would silently skip new data). Earlier drafts listed the WAL, cursor, `epoch`, `node_id`, and `machine_id` fields under `thadam.json`; the WAL now owns those in `wal.json`.
 2. **WAL.** Validate segment headers; a bad header fails the open (except for an empty last segment). Scan the last segment frame by frame, checking magic, version, the reserved word, length, `frame_seq` continuity, and CRC32C; cost is bounded by the last segment (5 to 12 ms in S1). At the first failure, truncate to the end of the last valid frame, fsync, and **start a new segment** so stale frames cannot be resurrected (S1's mutant test showed that appending in place resurrects them). A corrupt frame in a sealed segment is quarantined and recorded as a `Gap`, with no resynchronization. **Open and recovery do not allocate**: the next segment is created lazily on the first append.
 3. **Cursors.** Load each cursor. A missing cursor uses the sink's `start_from`. A cursor with the wrong epoch is refused. A cursor at or beyond `next_seq` (for example after a power loss under `interval` or `never`) is not refused: recovery always skips ahead to cursor + 1 and reports the skipped range, which readers see as `Gap::Missing`, so no sequence number at or below a durable cursor is reused.
 4. **Segment sinks.** Delete `staging/*.inprogress`. Replay `catalog.log`. Scan `ready/` for files missing from the catalog and read their footer. Advance the cursor to the highest contiguous finalized range end and commit it. Only then mark covered files eligible.
@@ -617,15 +629,15 @@ One `ThadamError { domain, code, message, retry, severity, context }`. Domains f
 
 ### Consolidated metric names
 
-This list merges the implementation plan and the demo plan. Where they drifted, the demo plan's labels are used.
+Implemented in `crates/thadam-runtime/src/observability.rs` (`PrometheusMetrics`, 46 series total, pinned by `crates/thadam-runtime/tests/prometheus_metrics.rs`):
 
-- **Intake:** `thadam_source_messages_total`, `thadam_source_bytes_total`, `thadam_source_dropped_total{reason}`, `thadam_source_connected`, `thadam_source_backpressure_seconds_total`, `thadam_ack_oldest_age_seconds`, plus two names added from S2 **[A, final names fixed in PR11 and PR12]**: `thadam_source_unacked_max` (the observed maximum unacknowledged count, which equals the broker window) and `thadam_source_stale_acks_total` (acks dropped because they belong to an older connection epoch).
-- **Durability:** `thadam_wal_commit_seconds`, `thadam_wal_fsync_seconds`, `thadam_wal_disk_bytes`, `thadam_wal_budget_bytes`, `thadam_wal_evicted_bytes_total`, `thadam_recovery_seconds`, `thadam_recovery_truncated_bytes`.
-- **Processing:** `thadam_chain_events_total{sink,dataset,outcome}` with outcome one of `written`, `filtered`, `deduped`, `rejected`, `exploded`, `late`; `thadam_chain_unmatched_total{sink}`; `thadam_chain_panic_total{sink}`; `thadam_rejects_total{sink,domain}`; `thadam_quality_flags_total{dataset,flag}`; `thadam_retry_total{component}`.
-- **Segments:** `thadam_segment_files{state}` and `thadam_segment_bytes{state}` with state one of `staging`, `finalized`, `eligible`, `uploaded`, `deleted`; `thadam_segment_finalize_seconds`; `thadam_sink_lag_bytes`; `thadam_sink_lag_seconds`.
-- **Shipping:** `thadam_ship_bytes_total`, `thadam_ship_uploads_total{outcome}` with outcome one of `ok`, `conflict_equal`, `retry`, `fatal`; `thadam_ship_retry_age_seconds`; `thadam_ship_upload_seconds`. (The demo plan's chaos scenario F1 also names `thadam_ship_retry_total`; it is dropped in favor of the `retry` outcome.)
-- **Health:** `thadam_component_state{component,state}`, `thadam_clock_synced`, `thadam_log_dropped_total`, plus process RSS and CPU.
-- **P1 (ClickHouse):** `thadam_batch_write_seconds`, `thadam_batch_bisect_total`, `thadam_sink_delivery_class{class}`.
+- **Intake:** `thadam_source_messages_total{source}`, `thadam_source_bytes_total{source}`, `thadam_source_dropped_total{source,reason}`, `thadam_source_restart_total{source}`, `thadam_source_connected{source}`, `thadam_source_backpressure_seconds_total{source}`, `thadam_ack_oldest_age_seconds{source}`, `thadam_source_unacked_max{source}` (the observed maximum unacknowledged count, which equals the broker window), `thadam_source_stale_acks_total{source}` (acks dropped because they belong to an older connection epoch), and `thadam_source_ack_latency_seconds{source}`.
+- **Durability:** `thadam_wal_commit_seconds`, `thadam_wal_fsync_seconds`, `thadam_wal_disk_bytes`, `thadam_wal_budget_bytes`, `thadam_wal_maintained_deleted_bytes_total`, `thadam_wal_evicted_bytes_total`, `thadam_recovery_seconds`, `thadam_recovery_truncated_bytes`.
+- **Processing:** `thadam_chain_events_total{sink,dataset,outcome}` with outcome one of `written`, `filtered`, `deduped`, `rejected`, `exploded`, `late`; `thadam_chain_unmatched_total{sink}`; `thadam_chain_panic_total{sink}`; `thadam_rejects_total{sink,domain}`; `thadam_quality_flags_total{dataset,flag}`; `thadam_wal_gap_total{sink,kind}` (`corrupt`, `evicted`, `missing`); `thadam_quarantined_total{sink}`; `thadam_rejects_dropped_total{sink}`.
+- **Delivery and batch sinks:** `thadam_cursor_committed_total{sink}`, `thadam_batch_written_total{sink}`, `thadam_batch_written_events_total{sink}`, `thadam_batch_write_seconds{sink}`, `thadam_batch_bisect_total{sink}`, `thadam_sink_delivery_class{sink,class}`, `thadam_retry_total{component}`.
+- **Segments:** `thadam_segment_files{sink,state}` and `thadam_segment_bytes{sink,state}` with state one of `staging`, `finalized`, `eligible`, `uploaded`, `deleted`; `thadam_segment_finalize_seconds{sink}`; `thadam_sink_lag_bytes{sink}`; `thadam_sink_lag_seconds{sink}`.
+- **Shipping:** `thadam_ship_bytes_total{sink}`, `thadam_ship_uploads_total{sink,outcome}` with outcome one of `ok`, `conflict_equal`, `retry`, `fatal`; `thadam_ship_retry_age_seconds{sink}`; `thadam_ship_upload_seconds{sink}`. (The demo plan's chaos scenario F1 also names `thadam_ship_retry_total`; it is dropped in favor of the `retry` outcome.)
+- **Health and build identity:** `thadam_component_state{component,state}`, `thadam_clock_synced`, `thadam_log_dropped_total`, `thadam_build_info{version,config_hash,node_id,pipeline}`.
 
 Every metric name is snapshot-tested.
 
@@ -638,7 +650,7 @@ Owner ADRs: ADR-0012 (format and YAML crate, Accepted 2026-10-07) and ADR-0018 (
 - **Lifecycle:** load YAML (`version: 1`), interpolate `${env:X}` and `${file:/path}`, deserialize with `deny_unknown_fields`, run connector-specific validation through the registry, check capabilities, compile into a plan. `thadam validate` stops after validation and prints all diagnostics (path, line, hint) plus the memory estimate. A config hash and the format versions are stored in `data_dir/thadam.json`.
 - **Never `serde_yaml`** (deprecated). The YAML crate is `serde-saphyr` (1.x, `strict_booleans: true`, duplicate keys an error, `reject_unsupported_tags: true`, a tightened parse budget; ADR-0012). `serde_norway` is the documented fallback. `serde-saphyr` declares Rust 1.89, which is why the workspace MSRV is 1.89.
 - **Parse limits and rejected YAML features (PR5, ADR-0012 "PR5 outcomes").** The parse budget is **50,000 nodes and depth 32** (the ADR-0012 spike suggested about 10,000 nodes; the demo uses a few thousand and about 7 levels), plus a 1 MiB file cap. Anchors, aliases, merge keys, and custom tags are rejected with a diagnostic at their position.
-- **CLI.** `thadam validate <path>` checks a file and prints the memory estimate; `--allow-unresolved` turns an unset `${env:}` or unreadable `${file:}` into a warning so a file can be checked on a machine without the secrets. `thadam schema` prints the JSON Schema of the configuration file for editors. `thadam version` prints version and format information.
+- **CLI.** `thadam init [path]` writes a commented starter `pipeline.yaml` with `wal.on_full: block`. `thadam validate <path>` checks a file and prints the memory estimate; `--allow-unresolved` turns an unset `${env:}` or unreadable `${file:}` into a warning so a file can be checked on a machine without the secrets, and `--against-data-dir` runs connector/chain validation plus read-only data-directory compatibility checks. `thadam schema` prints the JSON Schema of the configuration file for editors. `thadam version` prints version and format information.
 - **Identity levels are an ordered list.** A dataset's `identity:` mapping is read in the order written (the parsed value is sorted by name; `thadam-config` restores the written order) and kept as an ordered list in the typed spec. Its order is part of the config hash, and it must stay an ordered list when handed to `thadam-transform` (section 7).
 - **Filters** are structured predicates (`where: { field: quality.status, eq: good }`, with `all`, `any`, `not`), not expression strings (ADR-0018). `expr:` is reserved for a future expression language. The key spellings (`kind`, `where`, `wal`) are frozen with the first fixture sets in PR5 and PR9.
 - **Secrets** are supplied externally through `${env:}` or `${file:}` and wrapped in `Secret<T>`.
@@ -646,7 +658,7 @@ Owner ADRs: ADR-0012 (format and YAML crate, Accepted 2026-10-07) and ADR-0018 (
 - **Top-level shape:** `version`, `pipeline`, `sources`, `wal`, `quarantine`, `datasets`, `transforms`, `sinks`, `runtime`, `observability`. The planned `examples/edge-capture/thadam/pipeline.s3.yaml` from the demo plan is the reference sketch.
 - **Options present in the demo YAML that the implementation plan did not list**, now in the PR5 scope: `required: true` on fields, `time.max_skew`, `explode: {path, index_field}`, `event_id: {key}` and `dedup: {window, max_keys}` at the dataset level, `^/` parent paths, `convert_to`, `validate` and `on_change` transforms, a `quarantine` block, `compression: auto`, `max_open_files`, per-sink `max_disk`, `finalize_on_shutdown`, `timestamp_unit`, `local_retention {mode, keep_for}`, `conditional_put: auto`, `runtime.memory_target`.
 - **Transform-to-sink binding (O2, resolved in PR5):** `transforms[].sinks: [ids]` restricts a step to those sinks; absent means every sink (for example the P1 demo downsamples IMU for ClickHouse only).
-- **Per-sink WAL consumer policy (PR10 follow-up `f2c2282`, defined in `thadam-config::SinkSpec`).** Next to `id`, `kind`, and `config`, a sink entry takes:
+- **Per-sink WAL consumer policy (defined in `thadam-config::SinkSpec`).** Next to `id`, `kind`, and `config`, a sink entry takes:
   - `required` (default `true`): whether the WAL keeps data until this sink has consumed it. A `required: false` sink is an optional consumer; it never holds retention back, so a reader that falls behind eviction sees a WAL gap (`Gap::Evicted`).
   - `max_lag`: how far a **required** sink may fall behind before it stops holding WAL data back. One key, `{ bytes: <size> }` or `{ age: <duration> }`, never both; a value of zero is invalid. `max_lag` on a `required: false` sink is refused at validation (it never holds retention, so there is nothing to limit).
   - `start_from`: `earliest` (the default) or `latest`. It applies only to a sink with no committed WAL cursor; `latest` commits that cursor at the current durable end during startup, so a restart cannot skip data. A sink that already has a cursor always resumes from it.
@@ -658,12 +670,12 @@ Owner ADRs: ADR-0012 (format and YAML crate, Accepted 2026-10-07) and ADR-0018 (
 
 Owner ADR: ADR-0020, from the maturity review section 14.
 
-- **MSRV:** Rust 1.89 (`rust-version` in the root `Cargo.toml`). `arrow`, `parquet`, and `ros2-client` need 1.88; `serde-saphyr` (ADR-0012) needs 1.89, which sets the floor; the P1 crates (`clickhouse`, `socketcan`) also need 1.89. It rises to 1.94 only if Iceberg or Delta (P2) lands. Policy: track stable minus two and never go below the highest dependency MSRV. A pinned stable toolchain builds releases. Thadam ships binaries, so edge distributions never compile it.
-- **Minimum secure versions** (enforced through blocking `cargo deny` advisories): `rustls` 0.23.45 or later, `bytes` 1.11.1 or later, `tokio` 1.44.2 or later, `lz4_flex` 0.11.6 or later (or 0.12.1 or later), `pyo3` 0.29 or later, `object_store` 0.10.2 or later.
-- **TLS provider:** rustls with `ring`. `aws-lc-sys` and `openssl-sys` are banned. `ring`'s unmaintained advisory was withdrawn. Revisit if FIPS is required. `reqwest`, `rumqttc`, and `object_store` are built with `default-features = false` and explicit features. For `rumqttc` the pinned set is no features at all, plus `tokio-rustls` with `ring` used by `thadam-mqtt`'s own TLS relay (ADR-0006 amendment, 2026-10-07): its default features pull `aws-lc-rs`, and every TLS feature, `use-rustls-no-provider` included, pins `rustls-webpki` 0.102.8 with four RustSec advisories and no fix. S2 had confirmed `cargo tree -i aws-lc-sys`, `openssl-sys`, and `native-tls` all report no match on the earlier `use-rustls-no-provider` set. A Docker-gated TLS and mTLS test exists (`thadam-mqtt` `docker_e2e`); a recorded run is still to be confirmed.
-- **License allow-list:** Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, Unicode-3.0, Zlib. MPL-2.0 is added when OPC UA lands. EPL-2.0 (paho) only after legal review. Zenoh is dual-licensed; Thadam elects Apache-2.0.
-- **Bans:** `aws-lc-sys`, `openssl-sys`, `serde_yaml`. Duplicate versions warn. Sources: crates.io only.
-- **Fuzzing:** untrusted-input parsers (the JSON decoder in PR8, and later CDR and DBC parsers) need `cargo fuzz` targets. The WAL frame decoder is also a recommended target **[A]**.
+- **MSRV:** Rust 1.89 (`rust-version` in the root `Cargo.toml`). `arrow`, `parquet`, and `ros2-client` need 1.88; `serde-saphyr` (ADR-0012) needs 1.89, which sets the workspace floor; the P1 crates (`clickhouse`, `socketcan`) also need 1.89. The opt-in `thadam-iceberg` crate (P2) declares `rust-version = "1.94"` for upstream `iceberg` 0.10.1. CI checks `cargo +1.89 check --workspace --exclude thadam-python --exclude thadam-iceberg --locked`. Policy: track stable minus two and never go below the highest dependency MSRV. A pinned stable toolchain builds releases. Thadam ships binaries, so edge distributions never compile it.
+- **Minimum secure versions** (enforced through blocking `cargo deny` advisories): `rustls` 0.23.45 or later, `bytes` 1.11.1 or later, `tokio` 1.44.2 or later, `lz4_flex` 0.11.6 or later (or 0.12.1 or later; `zenoh-transport`'s `^0.10` is time-boxed to 2027-04-01 with compression disabled), `pyo3` 0.29 or later, `object_store` 0.10.2 or later.
+- **TLS provider:** rustls with `ring`. `aws-lc-sys` and `openssl-sys` are banned. `ring`'s unmaintained advisory was withdrawn. Revisit if FIPS is required. `reqwest`, `rumqttc`, and `object_store` are built with `default-features = false` and explicit features. For `rumqttc` the pinned set is no features at all, plus `tokio-rustls` with `ring` used by `thadam-mqtt`'s own TLS relay (ADR-0006 amendment, 2026-10-07): its default features pull `aws-lc-rs`, and every TLS feature, `use-rustls-no-provider` included, pins `rustls-webpki` 0.102.8 with four RustSec advisories and no fix. S2 had confirmed `cargo tree -i aws-lc-sys`, `openssl-sys`, and `native-tls` all report no match on the earlier `use-rustls-no-provider` set. Docker-gated TLS and mTLS tests exist (`thadam-mqtt` `docker_e2e` and `docker_publish`).
+- **License allow-list:** Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, Unicode-3.0, Zlib, plus scoped `deny.toml` MPL-2.0 exceptions for `async-opcua*` and `option-ext` (behind the default-off `opcua` and `ros2-live` features). EPL-2.0 (paho) only after legal review. Zenoh is dual-licensed; Thadam elects Apache-2.0.
+- **Bans:** `aws-lc-sys`, `openssl-sys`, `serde_yaml` (with narrow `deny.toml` exceptions for `async-opcua-core` and `zenoh-config` behind the opt-in `opcua` and `ros2-live` features). Duplicate versions warn. Sources: crates.io only.
+- **Fuzzing:** six `cargo fuzz` targets run in the `fuzz-smoke` CI job: `thadam-transform` (`chain_process`, `spec_compile`, `text_parsers`), `thadam-ros2-msg` (`msg_parse`, `cdr_decode`), and `thadam-sparkplug` (`decoder_handle`). The WAL frame decoder remains a recommended future target **[A]**.
 - **Credential handling:** `Secret<T>` everywhere, never in logs.
 - **Runtime hardening:** loopback admin bind by default, bearer token required otherwise, least-privilege bucket policy in the demo (`PutObject`, `GetObject`, `AbortMultipartUpload` only), encryption at rest through LUKS or filesystem encryption, and CRC32C is an integrity check, not tamper protection.
 
@@ -794,122 +806,100 @@ Places where the current plans disagreed and how this document resolves them.
 
 This replaces the implementation plan's PR list (itself a revision of the original plan's PR list) with the demo `[IMPL]` items and the maturity-review changes folded in. PR numbers follow the implementation plan, because the readiness gate refers to them. Spikes are throwaway work whose reports live in `docs/design/spikes/`.
 
-### Status (updated 2026-10-11, through `e9e94f7`; Iceberg rows added 2026-10-13)
+### Status (updated 2026-10-14, through `HEAD`)
 
-| Work | Status | Commit |
-|---|---|---|
-| PR1 workspace scaffold and CI guardrails | Done | `079b2c6` |
-| PR2 docs baseline | Done | `ba0bb03` |
-| PR3 `thadam-core`, PR4 core traits and `thadam-testkit` | Done (wave 1) | `31bbbab` |
-| PR5 `thadam-config`, CLI `validate` | Done (wave 2) | `8cc03a2` |
-| PR6 and PR7 `thadam-wal` | Done (wave 2); format versioned, not frozen, ADR-0004 Draft | `0c4cf6f` |
-| PR8 and PR9 `thadam-transform` | Done (wave 2) | `424c2cc` |
-| PR13 `thadam-arrow` | Done (wave 2) | `4fa3802` |
-| PR12 `thadam-mqtt` | Done (wave 2) | `2a681ce` |
-| PR10 `thadam-runtime` core (wave 3) | Done | `e2dd744` |
-| Contract and sink-policy follow-up: segment-sink appends grouped by dataset, per-sink `required`/`max_lag`/`start_from` | Done | `f2c2282` |
-| PR11 observability, admin API, `thadam run`, `thadam status` | Done | `8e5ccab`..`8e32cb9` |
-| PR14 Parquet segments | Done | `6b8a975` |
-| PR15 simulator + demo | Done | `9a494d8` |
-| PR16 S3 shipper | Done | `9489a30` |
-| PR17 replay/inspect | Done | `b9e248f` |
-| PR18 verifier | Done | `ee615f3` |
-| chaos | Done | `62cde5f` |
-| benchmark harness | Done | `bf4b979` |
-| HTTP source | Done | `6df7b71` |
-| gRPC source | Done | `eba6136` |
-| Python SDK | Done | `b2b591e` |
-| ROS 2 decoder | Done | `4eb9230` |
-| metrics hook | Done | `5fa9bdb` |
-| ROS 2 MCAP source | Done | `d60552b` |
-| ClickHouse sink | Done | `b5f9b83` |
-| Modbus TCP source | Done | `7847caa` |
-| NATS JetStream sink | Done | `c810236` |
-| SocketCAN source | Done | `2bdc25d` (vcan tests run in the `can-vcan` CI job) |
-| Connector registration and CI | Done | `f2d10ce` |
-| MQTT publish sink | Done | `d0570b1` |
-| Iceberg registrar (`kind: iceberg`, P2, experimental; `fast_append` of shipped segments) | Done | `bf7596b` |
-| Iceberg step 2: schema evolution by field ID, conflict test, HTTPS catalog test | Done (experimental) | on top of `9ae1e17` |
-| MCAP exporter and `thadam export --mcap` (ADR-0015, Draft) | Done | `edcdcc1`, `8c7ad90`, `bf9d874`, `592c3ba` |
-| ROS 2 fuzz targets (`msg_parse`, `cdr_decode`) | Done (CI job pending) | `fc37847` |
-| WAL hardware bench script and runbook | Done (tooling; ADR-0004 hardware runs pending) | `e4e8bd6` |
-| Quarantine staging: quarantine no longer holds the sink cursor | Done | `6a56578` |
-| `pose` and `joint_state` steps, `INVALID` quality flag, robotics conventions | Done | `b29abfd` |
-| `time` from a message attribute (`time.attr`) | Done | `63760de` |
-| ROS 2 chain decode (`decode: ros2`) and data-directory schema store | Done | `ae87272` |
-| Dotted dataset field names and validate-time `pose` checks | Done | `f2d7af5` |
-| Export resolves schema text from the schema store | Done | `592c3ba` |
-| `examples/ros2-mcap-to-parquet` and `thadam run --exit-when-sources-finish` | Done | `e9e94f7` |
-
-A test-only follow-up, `4857bcc` ("Gate WAL crash-loop kills on child readiness"), stabilizes the `thadam-wal` crash-loop test. `f2c2282` ("Group segment-sink appends by dataset and add sink consumer policies") is PR10's follow-up; it also settled the per-sink consumer-policy keys in `thadam-config` (section 15) and the `SegmentSink::append` signature (section 5).
+| Component / milestone | Status |
+|---|---|
+| Workspace scaffold, CI guardrails, and docs baseline | Done |
+| `thadam-core` model, errors, traits, `SchemaStore`, `BirthStore`, and `thadam-testkit` | Done |
+| `thadam-config` and CLI (`init`, `validate` with `--against-data-dir`, `schema`, `version`) | Done |
+| `thadam-wal` writer, readers, cursors, retention, `on_full` | Done (format v1 versioned, not frozen; ADR-0004 Draft) |
+| `thadam-transform` chain (`json`/`ros2`/`sparkplug_b` decoders, all 11 transform steps including experimental `window` with all 11 aggregates) | Done (`window` experimental) |
+| `thadam-arrow` encoder with stable Parquet field IDs | Done |
+| `thadam-mqtt` source and `mqtt_publish` batch sink (with in-process TLS relay) | Done |
+| `thadam-runtime` core, supervisor, shutdown, recovery, observability, admin API, `thadam run`, `thadam status`, consolidated 46 Prometheus metrics | Done |
+| `thadam-segments` Parquet segment sink, catalog, fsynced quarantine staging | Done |
+| `thadam-object-store` S3-compatible shipper and object-key collision validation | Done |
+| `thadam replay` and `thadam inspect` (`wal`, `cursors`, `segments`, `sample`) | Done (`--suggest-schema` deferred) |
+| `tools/thadam-simulator`, `examples/edge-capture`, oracle verifier, chaos suites, `tools/thadam-bench` | Done (M1 gate chaos run and reference-hardware benchmark numbers open) |
+| Additional sources: `thadam-http`, `thadam-grpc`, `thadam-modbus`, `thadam-can`, `thadam-opcua` (Cargo feature `opcua`) | Done |
+| Additional batch sinks: `thadam-nats` (JetStream), `thadam-kafka` (`rskafka`), `thadam-clickhouse` (P1, default-on Cargo feature `clickhouse`) | Done |
+| Offline ROS 2: `thadam-ros2-msg`, `thadam-mcap`, `thadam export --mcap` (ADR-0015 Draft), `examples/ros2-mcap-to-parquet` | Done |
+| Live ROS 2: `thadam-ros2-live` (`kind: ros2_live` over `rmw_zenoh`, Cargo feature `ros2-live`, ADR-0007 stage 4) | In progress (experimental) |
+| Sparkplug B: `thadam-sparkplug` (`decode: sparkplug_b` and per-sink `BirthStore`) | Done |
+| Apache Iceberg registrar: `thadam-iceberg` (`kind: iceberg`, steps 1 to 3: `fast_append`, schema evolution by field ID, catalog auth and mTLS; Cargo feature `iceberg`, P2) | In progress (experimental) |
+| Deployment tooling (`deploy/docker/Dockerfile`, `deploy/systemd/thadam.service`, `deploy/apply-config.sh` with rollback) | Done |
+| Python SDK (`sdk/python`) | Done |
+| `cargo fuzz` targets (6 targets across `thadam-transform`, `thadam-ros2-msg`, `thadam-sparkplug`) and `fuzz-smoke` CI job | Done |
+| WAL hardware bench script and runbook (`scripts/wal-hw-bench.sh`, `docs/design/wal-hardware-runbook.md`) | Done (tooling; ADR-0004 hardware runs pending) |
 
 ### Gates (production code starts only after READY)
 
-READY requires: the docs baseline (PR2) committed with ADRs 0001, 0002, 0003, 0011, 0013, 0020 Accepted (the acceptances were made 2026-10-07; the docs baseline is committed as `ba0bb03`); owner sign-off on B2, B3, B6, and B7 (all done 2026-10-07); S1 and S2 reports in (done) with ADR-0004 and ADR-0006 Accepted (ADR-0006 done 2026-10-07; ADR-0004 waits on the S1 hardware re-run); ADR-0012 and ADR-0018 decided (done 2026-10-07); and everything in this section folded into the PR scopes (done). See `docs/design/owner-decisions.md` and the current verdict in `docs/design/readiness.md`. Net effect after wave 2: PR1 to PR9, PR12, and PR13 are done; PR6 and PR7 were built ahead of ADR-0004's acceptance, so only the WAL format freeze waits on the hardware re-run; the owner still applies the product-amendments Part A to `product.md`.
+READY requires: the docs baseline committed with ADRs 0001, 0002, 0003, 0011, 0012, 0013, 0018, 0020 Accepted (all accepted 2026-10-07); owner sign-off on B2, B3, B6, and B7 (all done 2026-10-07); S1 and S2 reports in (done) with ADR-0004 and ADR-0006 Accepted (ADR-0006 done 2026-10-07; ADR-0004 waits on the S1 hardware re-run); and the approved Part A amendments applied to `product.md` (done 2026-10-13). See `docs/design/owner-decisions.md` and `docs/design/readiness.md`. Only the WAL format freeze waits on the reference-hardware re-run.
 
 ### Foundation (no unresolved decision)
 
-- **PR1: workspace scaffold and CI guardrails** (done, `079b2c6`; re-verified in the integration pass of 2026-10-07: `cargo fmt --check`, `cargo build --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace --no-tests=pass`, `cargo deny check`, `scripts/check-deps.sh`, and its `--self-test` all pass, and the `spikes/*` projects are excluded from the workspace). A root `clippy.toml` (`allow-unwrap-in-tests`, `allow-expect-in-tests`) was added so the `unwrap_used` and `expect_used` denials do not block the first test. Eleven workspace members (the ten library crates and the CLI), `rust-toolchain.toml`, lints, `deny.toml`, `scripts/check-deps.sh` with self-test, nextest, x86_64 and aarch64 CI, and `docs/design/adr/0000-adr-process.md`.
-  - Folded from ADR-0020: MSRV 1.89 as `rust-version` (raised from 1.88 on 2026-10-07, re-verified the same day), advisories blocking, license allow-list without MPL-2.0 or EPL-2.0, bans on `aws-lc-sys`, `openssl-sys`, `serde_yaml`, a `cargo tree` guard that fails if `aws-lc-sys` appears, sources limited to crates.io.
-  - Acceptance: CI green on both architectures; the guard self-test fails on the violating fixture; a scratch-branch check shows `aws-lc-sys` or `serde_yaml` fails `cargo deny`.
-- **PR2: docs baseline** (done, `ba0bb03`). `ARCHITECTURE.md`, ADRs, `docs/design/product-amendments.md`, `owner-decisions.md`, `version-inventory.md`, and `product.md` under version control through the owner's approval.
+- **PR1: workspace scaffold and CI guardrails** (done). Root `clippy.toml` (`allow-unwrap-in-tests`, `allow-expect-in-tests`), `rust-toolchain.toml`, lints, `deny.toml`, `scripts/check-deps.sh` with `--self-test`, nextest, x86_64 and aarch64 CI, and `docs/design/adr/0000-adr-process.md`.
+  - Folded from ADR-0020: MSRV 1.89 as `rust-version` (`thadam-iceberg` 1.94), advisories blocking, license allow-list, bans on `aws-lc-sys`, `openssl-sys`, `serde_yaml` (with scoped exceptions for opt-in features), sources limited to crates.io.
+- **PR2: docs baseline** (done). `ARCHITECTURE.md`, ADRs, `docs/design/product-amendments.md`, `owner-decisions.md`, `version-inventory.md`, and `product.md` under version control with Part A applied.
 
 ### Spikes and sign-offs, in parallel with PR1 and PR2
 
 - **S1: WAL** (`docs/design/spikes/S1-wal.md`). **Reported 2026-10-07.** Gates PR6 and PR7. The custom log is confirmed and the frame layout is recommended as built; ADR-0004 stays Draft until the **S1 re-run on x86 NVMe and ARM eMMC** and the other items in ADR-0004 ("Remaining before this ADR can leave Draft") are done, and only then is the format frozen.
-- **S2: MQTT** (`docs/design/spikes/S2-mqtt.md`). **Reported 2026-10-07.** Gates PR12. It ran the ack-window curve against Mosquitto 2.1.2 and EMQX 5.8.6, keepalive under stall, `poll` cancel-safety (not cancel-safe), payload-stripped acks (work), persistent sessions, ack order, MQTT 5 smoke, and a fork-readiness review. Output: ADR-0006 (Accepted by the owner 2026-10-07) with the five wrapper rules, the exit criteria, and the fallback order (a maintained fork such as `rumqttc-next`, then `ntex-mqtt`, then `paho-mqtt` only after legal review). The EMQX licensing question is settled: CI, tests, demos, and documentation use the last open-source build, 5.8.x (S2 ran 5.8.6); newer Enterprise-licensed images are not used. Follow-ups: S2b against `rumqttc-next`, TLS and mTLS, and a repeat on ARM.
+- **S2: MQTT** (`docs/design/spikes/S2-mqtt.md`). **Reported 2026-10-07.** Gates PR12. It ran the ack-window curve against Mosquitto 2.1.2 and EMQX 5.8.6, keepalive under stall, `poll` cancel-safety (not cancel-safe), payload-stripped acks (work), persistent sessions, ack order, MQTT 5 smoke, and a fork-readiness review. Output: ADR-0006 (Accepted by the owner 2026-10-07) with the five wrapper rules, the exit criteria, and the fallback order (a maintained fork such as `rumqttc-next`, then `ntex-mqtt`, then `paho-mqtt` only after legal review). The EMQX licensing question is settled: CI, tests, demos, and documentation use the last open-source build, 5.8.x (S2 ran 5.8.6); newer Enterprise-licensed images are not used. Follow-ups: S2b against `rumqttc-next` and a repeat on ARM.
 - **D8 microbenchmark** (`docs/design/spikes/D8-record-representation.md`). **Reported 2026-10-07.** Supports representation B with an opaque `Record` and the extended value set.
 - **Owner decisions B2, B3, B6, and B7:** all done 2026-10-07.
-- **ADR-0012 before PR5. ADR-0018 before PR9** and before any demo YAML is published: both Accepted 2026-10-07 (`serde-saphyr`; structured predicates). Their remaining details are PR5 and PR9 implementation details.
+- **ADR-0012 before PR5. ADR-0018 before PR9** and before any demo YAML is published: both Accepted 2026-10-07 (`serde-saphyr`; structured predicates).
 
 ### M1: P0 core
 
-- **PR3: `thadam-core` model and errors.** **Done** (`31bbbab`, together with PR4). Shape-shared records behind an opaque `Record` (`ShapeKey`, `get_at`, `set_at`, slow-path `get` and `iter`; no public fields), extended values, simplified times with `TimeDomain` and `clock_synced`, quality, identity, positions, error model, `DiskBudget`. Resolve O1 (declared-field types in core) and O8 (`SinkBatch`, with PR4). Evaluate the 24-byte `Value` layout against `Utf8Bytes(Bytes)` and record the result in ADR-0001; state the typed-array ownership rule. Tests: invariants, `Event` size budget (128 bytes excluding heap), proptest, error-code snapshot, `loom` on `DiskBudget`, and a test that fails if `Record` leaks a public field or an `Arc<Shape>` comparison. B6 is signed and ADR-0001 is Accepted (2026-10-07).
-- **PR4: core traits and `thadam-testkit`.** **Done** (`31bbbab`, together with PR3). `Source`, `BatchSink`, `SegmentSink`, factories, `SinkBatch`, memory connectors, `FakeClock`, conformance suites (liveness, cancel-safety, ack ordering, epoch-scoped handles and the stale-ack scenario, the protocol task never awaiting the runtime, lost-token watchdog, panic isolation), plus the `async_trait` and ack-tracker benchmarks. B6 is signed and ADR-0002 is Accepted (2026-10-07).
-- **PR5: `thadam-config`, `thadam validate`, `thadam version`.** **Done** (`8cc03a2`; the CLI also has `thadam schema` and `validate --allow-unresolved`). Depends on ADR-0012 (Accepted: `serde-saphyr` with `strict_booleans: true`, MSRV 1.89, `serde_norway` fallback) and PR3. Scope includes the demo configuration options listed in section 15, the explicit-`on_full` rule, and the ADR-0012 "PR5 implementation details" (key spelling, O2, hash scope, interpolation edge cases, parse budget, anchors and merge keys, path-to-span index). Tests: fixture diagnostics, secret redaction, JSON Schema snapshot, config hash stability.
-- **PR6: `thadam-wal` writer and recovery.** **Done** (`0c4cf6f`, together with PR7), with the format versioned but not frozen: the owner decided to build the WAL now and re-validate on reference hardware later, so ADR-0004 stays Draft (see "Implementation notes (PR6 and PR7)" in ADR-0004 for the deviations). Originally: depends on ADR-0004 accepted, which needs the S1 re-run on reference hardware. Implements the S1 layout and its corrections: lazy segment allocation with delete-before-allocate (open never allocates), no page-cache trust after a failed fsync (`O_DIRECT` or `posix_fadvise(DONTNEED)`, or seal at the last good fsync offset and let sources redeliver), no preallocation on macOS, readers and cursors bounded by the durable end, no sequence reuse at or below a durable cursor, a bad segment header fails the open, and the default `interval(10ms)`. Adds failpoints behind a feature: `wal::after_write_before_fsync`. Acceptance: zero committed-ticket loss across 1,000 crash iterations; no stale-frame resurrection; no ticket resolves after a failed fsync; an ENOSPC test on a loop device in which consumers drain and reclaim on a full disk.
-- **PR7: WAL readers, cursors, retention, `on_full`.** **Done** (`0c4cf6f`, together with PR6). Monotonic retention, `Gap`, `retain_for`, `required`/`max_lag`. Acceptance: disk stays at or below budget plus one segment.
-- **PR8: `thadam-transform` part 1.** **Done** (`424c2cc`, together with PR9). Router, JSON decode to declared shapes, event IDs including content-derived `event_id.key`, time extraction with domains and `max_skew` flagging, rename, project, cast, units including `convert_to` with element-wise conversion on typed arrays. Decoder fuzz target (ADR-0020). Determinism tests.
-- **PR9: `thadam-transform` part 2.** **Done** (`424c2cc`, together with PR8). Depends on ADR-0018 (Accepted: structured predicates; CEL reserved) and the ADR-0018 "PR9 implementation details" (filter key spelling, namespace, literal typing, null semantics, cost limits). Dataset-level dedup before `explode` with warm start, `explode` with `index_field`, the `^/` parent-path syntax, `validate` (flag and status assignment), `on_change` with heartbeat, sampling, filter, enrichment with a recorded file hash.
-- **PR10: `thadam-runtime` core.** **Done** (`e2dd744`; "Add thadam-runtime core: drivers, supervisor, shutdown, recovery"). Registry, SourceDriver with ordered ack FIFO, ChainTask, SegmentDriver, BatchDriver, supervisor, shutdown, maintenance, startup recovery. It settled the `thadam.json`/`wal.json` split of section 11 (identity in `wal.json`; `thadam.json` references the WAL epoch only as a binding) and closed contract gaps found while building the crate: the `SegmentBatch` grouped append and the per-sink `required`/`max_lag`/`start_from` policies landed in the `f2c2282` follow-up; grouping `BatchSink::write` per dataset stays open for `thadam-clickhouse` (PR20). Tests: crash-between-steps matrix (finalize, cursor commit, eligible, upload, delete), panic isolation, RSS bound under a stalled sink.
-- **PR11: observability, admin API, `thadam run`, `thadam status`.** **In progress.** The runtime's hooks are in place (`PipelineHandle::status` snapshots and the `MetricsSink` callback); the metrics registry, tracing setup, the admin HTTP API, and the CLI commands build on them. Consolidated metric names (section 14) with a snapshot test. The `test-clock` feature (reads `THADAM_TEST_CLOCK_SYNCED`), never enabled in release builds; a build guard checks that.
-- **PR12: `thadam-mqtt`.** **Done** (`2a681ce`). Depends on ADR-0006 (Accepted). EMQX in the CI matrix and demos is pinned to an exact 5.8.x tag (currently 5.8.6), never a newer Enterprise-licensed image. `rumqttc` `=0.25.1` with no features (every TLS feature pins a vulnerable `rustls-webpki`; ADR-0006 amendment 2026-10-07) and TLS terminated in `thadam-mqtt` through an in-process relay with `tokio-rustls` `ring`; the five wrapper rules and three configuration requirements (section 10); `expected_broker_window`, `max_incoming_packet_size` derived from `max_message_bytes`, `protocol: v311` default and `v5` experimental. Acceptance, against both Mosquitto and EMQX in CI: no loss of QoS 1 messages across kill -9 while publishing continues (within broker queue limits, duplicates counted); no disconnect under a 3x keepalive stall; ack ordering; `SESSION_LOST` detection with resubscribe; the stale-ack scenario loses 0 messages; the oversize configuration test; QoS 0 overflow accounting; a lint or test that fails on any `select!`, `timeout`, or `now_or_never` around `poll`; and a TLS and mTLS handshake with `ring`.
-- **PR13: `thadam-arrow`.** **Done** (`4fa3802`). Dataset schema, `BatchEncoder`, envelope and lineage columns, **stable Parquet field IDs** (ADR-0013, assignment policy O5, closed in PR13). Tests: type matrix, field-ID round trip, timestamp units, fingerprint stability.
-- **PR14: `thadam-segments`.** Parquet sink, catalog, quarantine, budget eviction, `unsynced/`. Adds failpoints `segments::after_rename_before_catalog` and `segments::before_cursor_commit`. Tests: finalize failpoint matrix, footer rebuild, reader compatibility (DuckDB, pyarrow, Spark) nightly, field IDs present in written files.
-- **PR15: simulator and demo Level 1 (`examples/edge-capture`, first Parquet in 10 minutes).** Includes the seeded fleet, the oracle, and `thadam-simulator verify` (shells out to DuckDB SQL or uses the `duckdb` crate, which is a dev tool and outside the dependency rules **[V]**). Acceptance: clean clone to first DuckDB result in under 10 minutes with prebuilt images.
-- **PR16: `thadam-object-store` shipper and demo Level 2.** MinIO behind Toxiproxy, least-privilege policy. Adds failpoints `ship::after_put_before_mark` and `ship::mid_multipart`. Tests: MinIO plus a second store, Toxiproxy outage, slow and lossy link, crash mid-multipart, conflict and probe paths.
-- **PR17: `thadam replay` and `thadam inspect`, demo Level 4.** `replay --output` writes to a separate directory or prefix, never production; the optional S3 replay prefix requires PR16. Time-based `--from` per section 20. `inspect wal|cursors|segments|sample`, `--suggest-schema`. Tests: row-set equivalence, corrected filter recovering dropped data.
-- **PR18: crash suites, benchmarks, claims register, demo Level 3, M1 gate.** Builds the `thadam:failpoints` image and runs the F6 failpoint scenarios, nightly kill -9 and LazyFS suites, the chaos scripts F1 to F10 (which push Prometheus and Grafana annotations and collect Mosquitto `$SYS` metrics), `thadam-bench` scenarios M1 to M7, first published results on x86_64 and ARM64, the version inventory and claims register published. **M1 gate acceptance:** the demo acceptance list: time to first Parquet under 10 minutes; F1 to F6 pass `make verify` (zero missing acknowledged samples, zero duplicate rows, zero duplicate or partial objects); F7 disk never exceeds budget plus one segment and every loss is attributed; F8 quarantine equals injected malformed counts; replay recovers filtered data with row-set equivalence; every metric present; M1 to M6 published for both architectures.
+- **PR3: `thadam-core` model and errors.** **Done.** Shape-shared records behind an opaque `Record` (`ShapeKey`, `get_at`, `set_at`, slow-path `get` and `iter`; no public fields), extended values, simplified times with `TimeDomain` and `clock_synced`, quality, identity, positions, error model, `DiskBudget`. Resolves O1 (declared-field types in core) and O8 (`SinkBatch`, with PR4). Evaluates the `Value` size bound and states the typed-array ownership rule. Tests: invariants, `Event` size budget (128 bytes excluding heap), proptest, error-code snapshot, `loom` on `DiskBudget`, and a test that fails if `Record` leaks a public field or an `Arc<Shape>` comparison. B6 is signed and ADR-0001 is Accepted (2026-10-07).
+- **PR4: core traits and `thadam-testkit`.** **Done.** `Source`, `BatchSink`, `SegmentSink`, factories, `SinkBatch`, memory connectors, `FakeClock`, conformance suites (liveness, cancel-safety, ack ordering, epoch-scoped handles and the stale-ack scenario, the protocol task never awaiting the runtime, lost-token watchdog, panic isolation), plus the `async_trait` and ack-tracker benchmarks. B6 is signed and ADR-0002 is Accepted (2026-10-07).
+- **PR5: `thadam-config`, `thadam init`, `thadam validate`, `thadam version`.** **Done** (the CLI also has `thadam schema`, `validate --allow-unresolved`, and `validate --against-data-dir`). Depends on ADR-0012 (Accepted: `serde-saphyr` with `strict_booleans: true`, MSRV 1.89, `serde_norway` fallback) and PR3. Scope includes the demo configuration options listed in section 15, the explicit-`on_full` rule, and the ADR-0012 "PR5 outcomes" (key spelling, O2, hash scope, interpolation edge cases, parse budget, anchors and merge keys, path-to-span index). Tests: fixture diagnostics, secret redaction, JSON Schema snapshot, config hash stability.
+- **PR6: `thadam-wal` writer and recovery.** **Done**, with the format versioned but not frozen: the owner decided to build the WAL now and re-validate on reference hardware later, so ADR-0004 stays Draft (see "Implementation notes (PR6 and PR7)" in ADR-0004 for the deviations). Implements the S1 layout and its corrections: lazy segment allocation with delete-before-allocate (open never allocates), no page-cache trust after a failed fsync (`O_DIRECT` or `posix_fadvise(DONTNEED)`, or seal at the last good fsync offset and let sources redeliver), no preallocation on macOS, readers and cursors bounded by the durable end, no sequence reuse at or below a durable cursor, a bad segment header fails the open, and the default `interval(10ms)`. Adds failpoints behind a feature: `wal::after_write_before_fsync`. Acceptance: zero committed-ticket loss across 1,000 crash iterations; no stale-frame resurrection; no ticket resolves after a failed fsync; an ENOSPC test on a loop device in which consumers drain and reclaim on a full disk.
+- **PR7: WAL readers, cursors, retention, `on_full`.** **Done.** Monotonic retention, `Gap`, `retain_for`, `required`/`max_lag`. Acceptance: disk stays at or below budget plus one segment.
+- **PR8: `thadam-transform` part 1.** **Done.** Router, JSON decode to declared shapes, event IDs including content-derived `event_id.key`, time extraction with domains and `max_skew` flagging, rename, project, cast, units including `convert_to` with element-wise conversion on typed arrays. Decoder fuzz target (ADR-0020). Determinism tests.
+- **PR9: `thadam-transform` part 2.** **Done.** Depends on ADR-0018 (Accepted: structured predicates; CEL reserved) and the ADR-0018 implementation details (filter key spelling, namespace, literal typing, null semantics, cost limits). Dataset-level dedup before `explode` with warm start, `explode` with `index_field`, the `^/` parent-path syntax, `validate` (flag and status assignment), `on_change` with heartbeat, sampling, filter, enrichment with a recorded file hash, plus `pose`, `joint_state`, and experimental `window`.
+- **PR10: `thadam-runtime` core.** **Done.** Registry, SourceDriver with ordered ack FIFO, ChainTask, SegmentDriver, BatchDriver, supervisor, shutdown, maintenance, startup recovery. Settled the `thadam.json`/`wal.json` split of section 11 (identity in `wal.json`; `thadam.json` references the WAL epoch only as a binding), the `SegmentBatch` grouped append, and the per-sink `required`/`max_lag`/`start_from` policies. Tests: crash-between-steps matrix (finalize, cursor commit, eligible, upload, delete), panic isolation, RSS bound under a stalled sink.
+- **PR11: observability, admin API, `thadam run`, `thadam status`.** **Done.** `PipelineHandle::status` snapshots, `MetricsSink` and `PrometheusMetrics` (all 46 consolidated metric names in section 14, pinned by an exact-list test), structured lossy logging, the admin HTTP API (`/healthz`, `/readyz`, `/metrics`, `/status`), and the `thadam run` and `thadam status` CLI commands.
+- **PR12: `thadam-mqtt`.** **Done.** Depends on ADR-0006 (Accepted). EMQX in the CI matrix and demos is pinned to an exact 5.8.x tag (currently 5.8.6), never a newer Enterprise-licensed image. `rumqttc` `=0.25.1` with no features (every TLS feature pins a vulnerable `rustls-webpki`; ADR-0006 amendment 2026-10-07) and TLS terminated in `thadam-mqtt` through an in-process relay with `tokio-rustls` `ring`; the five wrapper rules and three configuration requirements (section 10); `expected_broker_window`, `max_incoming_packet_size` derived from `max_message_bytes`, `protocol: v311` default and `v5` experimental. Acceptance, against both Mosquitto and EMQX: no loss of QoS 1 messages across kill -9 while publishing continues (within broker queue limits, duplicates counted); no disconnect under a 3x keepalive stall; ack ordering; `SESSION_LOST` detection with resubscribe; the stale-ack scenario loses 0 messages; the oversize configuration test; QoS 0 overflow accounting; a lint or test that fails on any `select!`, `timeout`, or `now_or_never` around `poll`; and a TLS and mTLS handshake with `ring`.
+- **PR13: `thadam-arrow`.** **Done.** Dataset schema, `BatchEncoder`, envelope and lineage columns, **stable Parquet field IDs** (ADR-0013, assignment policy O5, closed in PR13). Tests: type matrix, field-ID round trip, timestamp units, fingerprint stability.
+- **PR14: `thadam-segments`.** **Done.** Parquet sink, catalog, quarantine, budget eviction, `unsynced/`. Adds failpoints `segments::after_rename_before_catalog` and `segments::before_cursor_commit`. Tests: finalize failpoint matrix, footer rebuild, reader compatibility (DuckDB, pyarrow, Spark), field IDs present in written files.
+- **PR15: simulator and demo Level 1 (`examples/edge-capture`, first Parquet in 10 minutes).** **Done.** Includes the seeded fleet, the oracle, and `thadam-simulator verify`.
+- **PR16: `thadam-object-store` shipper and demo Level 2.** **Done.** SeaweedFS S3 behind Toxiproxy, least-privilege policy. Adds failpoints `ship::after_put_before_mark` and `ship::mid_multipart`. Tests: S3 plus in-memory stores, Toxiproxy outage, slow and lossy link, crash mid-multipart, conflict and probe paths.
+- **PR17: `thadam replay` and `thadam inspect`, demo Level 4.** **Done** (`--suggest-schema` deferred). `replay --output` writes to a separate directory or prefix, never production. Time-based `--from` per section 20. `inspect wal|cursors|segments|sample`. Tests: row-set equivalence, corrected filter recovering dropped data.
+- **PR18: crash suites, benchmarks, claims register, demo Level 3, M1 gate.** **In progress** (chaos suites, oracle verifier, and `tools/thadam-bench` are built; the full chaos verification run and reference-hardware benchmark numbers are still open). Builds the `thadam:failpoints` image and runs the F6 failpoint scenarios, nightly kill -9 and LazyFS suites, the chaos scripts F1 to F10, `thadam-bench` scenarios M1 to M7, first published results on x86_64 and ARM64, the version inventory and claims register published. **M1 gate acceptance:** the demo acceptance list: time to first Parquet under 10 minutes; F1 to F6 pass `make verify` (zero missing acknowledged samples, zero duplicate rows, zero duplicate or partial objects); F7 disk never exceeds budget plus one segment and every loss is attributed; F8 quarantine equals injected malformed counts; replay recovers filtered data with row-set equivalence; every metric present; M1 to M6 published for both architectures.
 
 ### M2: ROS 2 (not in v0.1: owner decision B2, 2026-10-07)
 
 These items do not use PR numbers 19 to 21, which belong to ClickHouse. Order follows the maturity review.
 
-- **M2-A: `thadam-ros2-msg`.** A schema-driven CDR decoder and `.msg` and IDL parser, keyed by type name plus type hash (RIHS01 from Iron onward **[V]**). Golden fixtures from real bags. Fuzz target (ADR-0020). Required by every live option, because compile-time code generation does not serve a generic data plane.
-  - **Status: done** (decoder `4eb9230`; fuzz targets `fc37847`, CI job pending). Golden fixtures from real bags are not yet in place.
+- **M2-A: `thadam-ros2-msg`.** A schema-driven CDR decoder and `.msg` and IDL parser, keyed by type name plus type hash (RIHS01 from Iron onward **[V]**). Fuzz targets (`msg_parse`, `cdr_decode`, ADR-0020) run in the `fuzz-smoke` CI job. Required by every live option, because compile-time code generation does not serve a generic data plane.
+  - **Status: done.**
 - **M2-B: MCAP and rosbag2 file source, `thadam export --mcap`, and an `examples/ros2-mcap-to-parquet` example.** Offline ingestion has no live-middleware risk.
-  - **Status: done** (source `d60552b`; exporter and `thadam export --mcap` `edcdcc1`, `8c7ad90`; schema store `ae87272`; export schema resolution `592c3ba`; example `e9e94f7`).
-- **Spike S3 (ADR-0007), live-transport order:** (a) Zenoh-native, via `roslibrust` with `hiroz` or raw `zenoh` against `rmw_zenoh`, for Lyrical (LTS to 2031) and Kilted; (b) `zenoh-bridge-ros2dds` sidecar for DDS robots (Humble and Jazzy on Fast DDS or Cyclone), which needs a second key mapping; (c) `r2r` as the in-process rcl fallback; (d) RustDDS and `ros2-client` deferred. Wrap the transport behind Thadam's own trait and pin versions. No production claim on `hiroz`, which describes itself as experimental.
-  - **Status: in progress.**
-- **M2-C: live ROS 2 source** per ADR-0007 after S3.
+  - **Status: done.**
+- **Spike S3 (ADR-0007), live-transport order:** (a) Zenoh-native, via raw `zenoh` against `rmw_zenoh`, for Jazzy and Lyrical (LTS to 2031); (b) `zenoh-bridge-ros2dds` sidecar for DDS robots (Humble and Jazzy on Fast DDS or Cyclone), which needs a second key mapping; (c) `r2r` as the in-process rcl fallback; (d) RustDDS and `ros2-client` deferred. Wrap the transport behind Thadam's own trait and pin versions.
+  - **Status: done** (`docs/design/spikes/S3-ros2-live.md`: `rmw_zenoh` selected as primary; bridge mode mapped for later if needed).
+- **M2-C: live ROS 2 source** (`thadam-ros2-live`, `kind: ros2_live` over `rmw_zenoh`, behind the opt-in `ros2-live` Cargo feature) per ADR-0007 after S3.
+  - **Status: in progress (experimental)** (`rmw_zenoh` transport implemented and Docker-tested against Jazzy; bridge mode, liveliness discovery, and ARM benchmarks open).
 
-### M3: ClickHouse (P1, only after the M1 gate)
+### M3: ClickHouse (P1, outside the M1 reliability gate)
 
-- **PR19: ADR-0008 benchmark (B8).** Compares the official `clickhouse` crate (`insert_native()` or `clickhouse-ext-arrow`) against raw HTTP with `FORMAT ArrowStream`, with a parity rule: choose the vendor-maintained crate unless the raw path wins materially. Drops `klickhouse` and `clickhouse-arrow` from primary consideration. No MSRV change (the floor is already 1.89).
-- **PR20: `thadam-clickhouse`.** Startup probe of table settings, deterministic dedup tokens, never creates or alters tables, bisect for poison rows.
-- **PR21: `examples/edge-analytics` and B8 results.**
-- Deferral rule: if capacity tightens, the whole block moves beyond the MVP. Nothing in M1 depends on it.
+- **PR19: ADR-0008 benchmark (B8).** Compares the official `clickhouse` crate (`insert_native()` or `clickhouse-ext-arrow`) against raw HTTP with `FORMAT ArrowStream`, with a parity rule: choose the vendor-maintained crate unless the raw path wins materially. Drops `klickhouse` and `clickhouse-arrow` from primary consideration. No MSRV change (the floor is already 1.89). **Status: open.**
+- **PR20: `thadam-clickhouse`.** Startup probe of table settings, deterministic dedup tokens, never creates or alters tables, bisect for poison rows. **Status: done.**
+- **PR21: `examples/edge-analytics` and B8 results.** **Status: open.**
+- Deferral rule: if capacity tightens, the remaining M3 work moves out. Nothing in M1 depends on it.
 
 ### Do-not-code-yet gates
 
-- PR3 and PR4: B6 is signed, `Record` is opaque, and ADR-0001 and ADR-0002 are Accepted (2026-10-07). **Done** (`31bbbab`).
-- PR5: ADR-0012 is Accepted (2026-10-07). **Done** (`8cc03a2`).
-- PR6 and PR7: the gate was ADR-0004 accepted, which requires the S1 re-run on x86 NVMe and ARM eMMC (the format becomes permanent when released). The owner chose to build the WAL first and re-validate later, so both are **done** (`0c4cf6f`) with a versioned but unfrozen format. **The format freeze is still gated** on the re-run, and ADR-0004 stays Draft.
-- PR9: ADR-0018 is Accepted (2026-10-07). **Done** with PR8 (`424c2cc`).
-- PR10: D5 and D6 signed (done). **Done** (`e2dd744`, plus the `f2c2282` contract and sink-policy follow-up). PR11 is done (`8e5ccab`..`8e32cb9`).
-- PR12: ADR-0006 is Accepted (2026-10-07). **Done** (`2a681ce`).
-- PR19: the M1 gate.
-- Live ROS 2: S3 and ADR-0007.
+- PR3 and PR4: B6 is signed, `Record` is opaque, and ADR-0001 and ADR-0002 are Accepted (2026-10-07). **Done.**
+- PR5: ADR-0012 is Accepted (2026-10-07). **Done.**
+- PR6 and PR7: the gate was ADR-0004 accepted, which requires the S1 re-run on x86 NVMe and ARM eMMC (the format becomes permanent when released). The owner chose to build the WAL first and re-validate later, so both are **done** with a versioned but unfrozen format. **The format freeze is still gated** on the re-run, and ADR-0004 stays Draft.
+- PR9: ADR-0018 is Accepted (2026-10-07). **Done** with PR8.
+- PR10 and PR11: D5 and D6 signed (done). **Done.**
+- PR12: ADR-0006 is Accepted (2026-10-07). **Done.**
+- PR19 and PR21: B8 benchmark and `examples/edge-analytics` remain open.
+- Live ROS 2: S3 is done; `thadam-ros2-live` is experimental while ADR-0007 stays Draft.
 - Nothing is published, and no names are registered, before ADR-0016.
 
 ---
@@ -922,27 +912,27 @@ Resolved in this document **[A]** but still needing explicit confirmation in the
 - **O2** **Closed in PR5.** Per-sink transform selector syntax: `transforms[].sinks: [ids]`, absent means every sink (ADR-0012).
 - **O3** Primary chain owns quarantine and reject metrics when several chains see the same message (PR10).
 - **O4** **Closed in PR13 (not written).** A `_wal_record_idx` lineage column so a row can be located inside a frame. The default event ID uses the record index, but the lineage columns carry only the frame position. `thadam-arrow` does not write the column and reserves field ID 13 for it, so adding it later is additive (ADR-0013).
-- **O5** **Closed in PR13.** Parquet field-ID assignment policy: envelope IDs 1 to 99 fixed by the format, identity level IDs 100 to 199 and declared top-level IDs (1000 to 4,194,303) explicit and required in configuration, nested IDs derived from the parent ID and tree position, and IDs never reused after removal (ADR-0013). Follow-up: the pipeline configuration key that carries the explicit IDs is not defined yet.
-- **O6** Time-based replay seek without a time index (PR17).
-- **O7** `thadam export --mcap` placement in M2. Resolved by the B2 decision: ROS 2 and the `mcap` dependency are M2, so export ships there.
-- **O8** `SinkBatch` type definition (PR3, PR4).
+- **O5** **Closed in PR13.** Parquet field-ID assignment policy: envelope IDs 1 to 99 fixed by the format, identity level IDs 100 to 199 and declared top-level IDs (1000 to 4,194,303) explicit and required in configuration, nested IDs derived from the parent ID and tree position, and IDs never reused after removal (ADR-0013). Closed in `thadam-config`: `datasets[].fields[].id` and `datasets[].identity.<level>.id` carry the explicit IDs.
+- **O6** Time-based replay seek without a time index (PR17). **Closed in `thadam replay` and `thadam export`.**
+- **O7** `thadam export --mcap` placement in M2. Resolved by the B2 decision: ROS 2 and the `mcap` dependency are M2, so export shipped there.
+- **O8** `SinkBatch` type definition (PR3, PR4). **Closed in `thadam-core`.**
 - **O9** WAL header size and exact field layout. **Resolved** by S1 and recorded in ADR-0004: a 24-byte frame header with a reserved word; frozen only when ADR-0004 is accepted after the hardware re-run.
 - **O10** Where processing time (`process_time`, product.md section 8) is recorded. The original plan stored `processed_at` per batch; the implementation plan's `EventBatch` has no such field. Options are per batch in lineage or per file in Parquet footer metadata (ADR-0001, ADR-0013).
 
 New open items from the spike results:
 
 - **O11** S1 re-run on x86 NVMe and ARM eMMC (flush latency, device-level write amplification, eMMC recovery, the `interval(10ms)` default, Linux preallocation, segment size), validation of the prost `RawFrame` payload, an ENOSPC test on a loop device, and a directory-metadata loss test (ADR-0004). Required before the on-disk format is frozen.
-- **O12** The 24-byte `Value` layout against zero-copy `Utf8Bytes(Bytes)` (PR3, ADR-0001), and a D8 re-measurement on reference ARM and x86 hardware and with the real decoder (PR8).
+- **O12** The `Value` layout size bound is tested in `thadam-core` (ADR-0001); a D8 re-measurement on reference ARM and x86 hardware remains open before publishing hardware numbers.
 - **O13** EMQX licensing: **Closed 2026-10-07.** The owner pinned the last open-source build, 5.8.x, for CI, tests, demos, and documentation (ADR-0006; 5.8.6 used in S2); newer Enterprise-licensed images, such as the 5.10.5 that S2 saw identify as EMQX Enterprise with a non-commercial-use licence banner, are not used.
-- **O14** S2b: the S2 harness against `rumqttc-v4-next` (at most one day), TLS and mTLS handshakes, an ARM repeat, QoS 2 beyond the happy path, and the QoS 0 overflow accounting (ADR-0006, PR12).
-- **O15** The final names and labels of `thadam_source_unacked_max` and `thadam_source_stale_acks_total` (PR11, PR12).
-- **O16** PR5 implementation details left by the ADR-0012 spike (key spelling, config hash scope and algorithm, interpolation edge cases, parse budget numbers, anchors and merge keys, path-to-span index), listed in ADR-0012. **Closed in PR5** (`8cc03a2`): parse budget 50,000 nodes and depth 32, anchors, aliases, merge keys, and custom tags rejected; the outcomes are in ADR-0012 "PR5 outcomes" and the `thadam-config` crate documentation.
-- **O17** PR9 implementation details left by the ADR-0018 spike (filter key spelling, identifier namespace, nested access, literal typing, null semantics, cost limits, replay-equivalence test), listed in ADR-0018.
+- **O14** S2b: the S2 harness against `rumqttc-v4-next` (at most one day), an ARM repeat, and QoS 2 beyond the happy path (ADR-0006; TLS/mTLS and QoS 0 overflow accounting are implemented in `thadam-mqtt`).
+- **O15** **Closed in `thadam-runtime`.** The final names and labels of `thadam_source_unacked_max{source}` and `thadam_source_stale_acks_total{source}` are registered in `PrometheusMetrics`.
+- **O16** PR5 implementation details left by the ADR-0012 spike (key spelling, config hash scope and algorithm, interpolation edge cases, parse budget numbers, anchors and merge keys, path-to-span index), listed in ADR-0012. **Closed in `thadam-config`**: parse budget 50,000 nodes and depth 32, anchors, aliases, merge keys, and custom tags rejected; the outcomes are in ADR-0012 "PR5 outcomes" and the `thadam-config` crate documentation.
+- **O17** PR9 implementation details left by the ADR-0018 spike (filter key spelling, identifier namespace, nested access, literal typing, null semantics, cost limits, replay-equivalence test), listed in ADR-0018. **Closed in `thadam-transform` and `thadam-config`.**
 
 Unresolved and owned by someone else:
 
 - Owner acceptance of ADR-0004 (Draft, after the S1 re-run on x86 NVMe and ARM eMMC) and of ADR-0000 (Proposed; not in the 2026-10-07 acceptance list). ADR-0001, 0002, 0003, 0006, 0011, 0012, 0013, 0018, and 0020 are Accepted (2026-10-07). B2, B3, B6, and B7 are decided (2026-10-07).
-- The owner applying the approved Part A amendments (A.1 to A.11) to `product.md`.
+- Part A of `docs/design/product-amendments.md` (A.1 to A.9 and A.11) was applied to `product.md` on 2026-10-13; Parts B and C remain proposed for owner review.
 - Producer batching is deliberately not assumed (B3); if target-user payload samples later show a batching pattern, this is revisited in ADR-0006.
 - Name clearance (ADR-0016), reference ARM hardware, CI platform (github.com versus GitHub Enterprise), and ARM64 runner availability.
 - The `[V]` items from the maturity review: Lyrical middleware tiers, Zenoh key-expression formats, hiroz interoperability with Jazzy and Humble, license files for `ros2-client`, `r2r`, and the open62541 bindings, legal review of EPL-2.0, DDS-Security support in pure-Rust options, `ntex-mqtt` on Tokio, conditional put on non-AWS, non-MinIO stores, `clickhouse-ext-arrow` type coverage, and Parquet nanosecond timestamp reader support.

@@ -16,7 +16,7 @@ One dedicated OS thread owns all writable files. Submissions are grouped: one `w
 
 [`wal.fsync`](../configuration/wal.md#fsync) is one of `always`, `{ interval: <duration> }` (default `10ms`, provisional pending a hardware re-run), or `never`:
 
-- With `fsync` other than `never`, acknowledged data survives a **process crash** (verified by kill-9 loops in spike S1: 2,200 iterations with zero committed-ticket loss, on one Apple Silicon (arm64) laptop and a Linux VM — the WAL evidence anecdotes; the absolute numbers do not transfer).
+- With `fsync` other than `never`, acknowledged data survives a **process crash** (verified by kill-9 loops in spike S1: 2,200 iterations with zero committed-ticket loss, on an arm64 laptop and a Linux VM — the WAL evidence anecdotes; the absolute numbers do not transfer).
 - Power-loss survival additionally requires storage that honors flush and is claimed only on flush-honoring industrial SSD or eMMC on Linux — and only once a hardware power-cut rig (500 cycles) has produced evidence. **No power-loss claim is published yet.** `fsync: never` survives a process crash only.
 - After a failed fsync the segment is sealed and the writer stops rather than trusting the page cache ("fsyncgate" rule). No ticket resolves `Ok` after a failed fsync; recovery re-verifies.
 

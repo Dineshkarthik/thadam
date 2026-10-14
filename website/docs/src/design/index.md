@@ -31,7 +31,7 @@ Naming: `NNNN-kebab-title.md`; status lifecycle Draft → Proposed → Accepted 
 | [0012 — Config format and YAML crate](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0012-config-format-and-yaml-crate.md) | **Accepted** | `serde-saphyr` behind `thadam-config`, strict booleans, parse budget, rejected YAML features. |
 | [0013 — Parquet segment layout](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0013-parquet-segment-layout.md) | **Accepted** | Wide tables per dataset, field IDs, finalize sequence, keys, catalog. |
 | [0018 — Filter and expression language](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0018-filter-and-expression-language.md) | **Accepted** | Structured YAML predicates; CEL reserved; `expr:` reserved. |
-| [0020 — Dependency security and toolchain policy](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0020-dependency-security-and-toolchain-policy.md) | **Accepted** | MSRV 1.89, pinned toolchain, rustls+`ring`, license allow-list, `cargo deny` bans. |
+| [0020 — Dependency security and toolchain policy](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0020-dependency-security-and-toolchain-policy.md) | **Accepted** | MSRV 1.89 (`thadam-iceberg` 1.94), pinned toolchain, rustls+`ring`, license allow-list, `cargo deny` bans. |
 | 0005 Internal representation | Reserved | Folded into ADR-0001 (D8). |
 | 0009 Object-store architecture | Reserved | Split across ADR-0011 (commit-then-ship) and ADR-0013 (keys); ARCHITECTURE section 8. |
 | 0010 Python SDK boundary | Reserved | Post-MVP. |
@@ -53,4 +53,4 @@ Spikes are time-boxed experiments whose reports feed ADRs; the code is throwaway
 | [ADR-0012 YAML spike](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/spikes/ADR-012-yaml.md) | ADR-0012 | YAML crate selection (`serde-saphyr`), strictness and budget measurements. |
 | [ADR-0018 filter spike](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/spikes/ADR-018-filter.md) | ADR-0018 | Structured predicates vs an expression language (CEL evaluator cost on ARM). |
 
-A caution from the readiness tracker: every spike ran on one Apple Silicon (arm64) laptop (S1/S2 added a Docker-Desktop Linux VM with unknown flush semantics). Ratios and macro differences transfer; absolute numbers do not, and re-runs on reference ARM and x86 hardware are required before the results back any published claim.
+A caution from the readiness tracker: every spike ran on an arm64 laptop (S1/S2 added a Linux VM in Docker with unknown flush semantics). Ratios and macro differences transfer; absolute numbers do not, and re-runs on reference ARM and x86 hardware are required before the results back any published claim.

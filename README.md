@@ -211,7 +211,7 @@ The product.md phases map onto these: Phase 0 foundations and Phase 1 MVP runtim
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the toolchain, workspace layout, required checks, and the ADR process. Notes for coding agents are in [AGENTS.md](AGENTS.md) ("Notes for coding agents"). Architecture decisions are recorded as ADRs; only the project owner accepts an ADR.
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the toolchain, workspace layout, required checks, and the ADR process. Notes for automated contributors are in [AGENTS.md](AGENTS.md). Architecture decisions are recorded as ADRs; only the project owner accepts an ADR.
 
 ## Security
 
