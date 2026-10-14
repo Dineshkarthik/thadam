@@ -62,7 +62,7 @@ Close other heavy workloads. Do not run other builds on the device while the ben
 
 ## Smoke run first
 
-Run the quick mode on the same device before the full run. It took about 1 minute on an Apple Silicon (arm64) once the toolchain was warm (about 1.5 minutes cold). Expect longer on the reference boards. It checks the toolchain, the paths, and the parsers. Quick results are not valid for ADR decisions.
+Run the quick mode on the same device before the full run. It took about 1 minute on an arm64 laptop once the toolchain was warm (about 1.5 minutes cold). Expect longer on the reference boards. It checks the toolchain, the paths, and the parsers. Quick results are not valid for ADR decisions.
 
 ```sh
 scripts/wal-hw-bench.sh --quick --data-dir /mnt/nvme/wal-dut --out ~/wal-bench-smoke

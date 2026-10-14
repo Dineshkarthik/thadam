@@ -34,7 +34,7 @@
 //! A typical W1 record of 7 fields shrinks by 7 x 16 = 112 bytes, about 30% of
 //! the D8 report's 368 bytes per event.
 //!
-//! What it costs, measured in a scratch benchmark (Apple Silicon (arm64), 14-byte
+//! What it costs, measured in a scratch benchmark (arm64 laptop, 14-byte
 //! strings, release build, validation excluded from both sides since decode
 //! validates either way): slicing a `Bytes` took about 5 ns per string; copying
 //! into an `Arc<str>` took about 25 ns, so about 20 ns more per string at

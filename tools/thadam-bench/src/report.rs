@@ -187,10 +187,10 @@ mod tests {
                 git_sha: "b477274".into(),
                 git_dirty: Some(true),
                 rustc: "rustc 1.99.0".into(),
-                os: "macos".into(),
-                kernel: "Darwin".into(),
+                os: "linux".into(),
+                kernel: "Linux 6.x".into(),
                 arch: "aarch64".into(),
-                cpu_model: "Apple M3".into(),
+                cpu_model: "Generic CPU".into(),
                 cpu_cores: 8,
             },
             throughput: Some(Throughput {
@@ -236,7 +236,7 @@ mod tests {
         let row = text.lines().nth(2).expect("row");
         assert!(
             row.starts_with(
-                "| m1-steady-state | 2026-10-09T10:00:00Z | b477274 (dirty) | Apple M3, 8 cores |"
+                "| m1-steady-state | 2026-10-09T10:00:00Z | b477274 (dirty) | Generic CPU, 8 cores |"
             ),
             "{row}"
         );

@@ -1014,7 +1014,7 @@ robotic-data-plane/
 └── benchmarks/
 ```
 
-The actual structure may change after the coding-agent architecture review.
+The actual structure may change after the architecture review.
 
 ---
 
@@ -1658,7 +1658,7 @@ These must be researched/benchmarked before final implementation:
 - encryption at rest
 - multi-process vs single-process runtime
 
-The coding agent must not silently turn these assumptions into hard architectural commitments.
+Implementation must not silently turn these assumptions into hard architectural commitments.
 
 ---
 
@@ -1932,9 +1932,9 @@ The stronger moat is:
 
 ---
 
-# 48. Immediate next actions for the coding agent
+# 48. Immediate next actions for implementers
 
-The coding agent should:
+Implementers should:
 
 1. Read this document completely.
 2. Treat it as the product source of truth.

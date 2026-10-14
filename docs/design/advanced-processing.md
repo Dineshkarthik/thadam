@@ -76,7 +76,7 @@ transforms:
     where: { field: motor_temp_c_max, gt: 90.0 }
 ```
 
-A record is offered to every dataset whose matcher accepts it (`chain.rs:355-359`), so a raw dataset and a windowed dataset can both read one topic by using two dataset IDs. I did not check the config layer for overlap rules.
+A record is offered to every dataset whose matcher accepts it (`chain.rs:355-359`), so a raw dataset and a windowed dataset can both read one topic by using two dataset IDs. The config layer's overlap rules were not checked.
 
 ### 2.2 Watermark and lateness policy
 
@@ -111,7 +111,7 @@ One event per (asset, window): `window_start`, `window_end`, `count`, and `<fiel
 
 - **ID:** `xxh3_128` over a new tag, dataset, asset, window start, and size, using the existing `IdBuf` (`eventid.rs`).
 - **Times:** ingest is the trigger's ingest time; the source time is `window_start` in the dataset's domain (open question 4).
-- **Sums** accumulate in WAL arrival order in f64. Rust does not fuse multiply-add on its own, so I expect identical results on x86 and ARM; not tested.
+- **Sums** accumulate in WAL arrival order in f64. Rust does not fuse multiply-add on its own, so identical results on x86 and ARM are expected; not tested.
 - **Interface change.** `Step::apply` is one event in, at most one out (`steps/mod.rs:33-40`), and `finish_event` runs steps in a loop (`dataset.rs:1187-1203`). A window step needs to emit zero or more events and let each continue through the later steps. That change is the main code cost of S1.
 
 ### 2.5 Sliding windows
@@ -187,7 +187,7 @@ Window aggregates are the features: `count`, `min`, `max`, `mean`, `stddev`, `ra
 | Maturity | 0.x; README says depend on the `tract` crate, not the internal crates | Release candidates only (no stable on crates.io) |
 | Fit with ADR-0020 | Fits: one static binary, `--locked`, no cmake or clang | Does not fit: ADR-0020 rejected `aws-lc` for the same C-toolchain reason on ARM; prebuilt native blobs are invisible to `cargo deny`; `load-dynamic` breaks the single binary |
 
-**Choice: `tract`, if and when needed.** Open items I could not close: ONNX operator coverage for real models, binary size, and the license of the ONNX and TensorFlow `.proto` files tract copies (its README says they are outside its own license statement; `cargo deny` reads crate metadata only).
+**Choice: `tract`, if and when needed.** Open items not closed here: ONNX operator coverage for real models, binary size, and the license of the ONNX and TensorFlow `.proto` files tract copies (its README says they are outside its own license statement; `cargo deny` reads crate metadata only).
 
 Design limits if built:
 
@@ -252,5 +252,5 @@ Checkpoint files (option B); session windows; percentiles and any non-mergeable 
 - **Performance:** no benchmark was run. Chain CPU, window memory, restart cost, wasmi versus wasmtime speed, and binary-size deltas are all unmeasured; every number in this note is arithmetic or a quoted upstream fact.
 - **Not run:** no build, no tests, no cargo-deny, nothing on ARM hardware.
 - **Not read:** the rest of `BatchDriver` recovery (`batch.rs`), the config-layer overlap rules for datasets, the WAL retention code paths under `drop_oldest`, and ADR-0011's claims register wording.
-- **Upstream claims:** versions, licenses, and MSRVs come from the crates.io API; runtime properties come from README and docs pages. I did not read the crates' source, build them, or check the dependency-tree size, license of every transitive crate, or advisories.
+- **Upstream claims:** versions, licenses, and MSRVs come from the crates.io API; runtime properties come from README and docs pages. The crates' source was not read, and they were not built or checked for dependency-tree size, transitive licenses, or advisories.
 - **Reading, not testing:** the `sample every_n` phase shift after a long-history restart is inferred from the code and was not reproduced.
