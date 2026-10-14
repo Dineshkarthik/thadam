@@ -97,7 +97,7 @@ A lost session (router restart, network partitioning) is re-established with jit
 - **Explicit topics.** There is no `@ros2_lv` liveliness discovery in this step; every topic is declared with its type.
 - **Zenoh version lockstep.** The client is pinned to zenoh 1.10.1 to match the zenoh-c 1.10.x Jazzy/Lyrical rmw_zenoh vendors; re-verify when a distro ships zenoh ≥ 1.11.
 - **Type hash not verified.** Schema keying is by type name (see `ros2.type_hash` above), so the `.msg` texts under `msg_dirs` must be the same definitions the publishers were built with, or decoding silently mismatches. Point `msg_dirs` at the ROS installation the nodes use.
-- **No ARM numbers yet.** The spike's reference runs are an Apple Silicon (arm64) (≈6–7 % of one core, zero unaccounted drops, 1 kHz IMU + 100 Hz joint_states + 30 Hz /tf including decode); ARM reference hardware numbers are the owner's to measure.
+- **No ARM numbers yet.** The spike's reference runs are an arm64 laptop (≈6–7 % of one core, zero unaccounted drops, 1 kHz IMU + 100 Hz joint_states + 30 Hz /tf including decode); ARM reference hardware numbers are the owner's to measure.
 - **Zenoh client on a reachable router.** The verified topology is the router in Docker with `127.0.0.1:7447` published (or any TCP-reachable host); client mode means the router never dials back into thadam.
 
 ## Trying it with Docker

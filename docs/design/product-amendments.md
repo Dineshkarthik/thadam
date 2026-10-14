@@ -519,7 +519,7 @@ These edits make `product.md` consistent with `ARCHITECTURE.md`. Apply them when
 ## B.10 Sections 15, 29, and 18: CLI name and repository structure
 
 - **Sections 15 and 29** use the command name `robotic-data`. Propose `thadam` (provisional until ADR-0016 clears the name).
-- **Section 18** shows a repository named `robotic-data-plane` with a long list of per-protocol and per-sink concept crates. Replace the tree with a pointer: "The accepted repository and crate structure is in `ARCHITECTURE.md` section 9" and keep only the top-level layout (`docs/`, `crates/`, `apps/`, `examples/`, `benchmarks/`). The sentence "The actual structure may change after the coding-agent architecture review" is replaced by that pointer.
+- **Section 18** shows a repository named `robotic-data-plane` with a long list of per-protocol and per-sink concept crates. Replace the tree with a pointer: "The accepted repository and crate structure is in `ARCHITECTURE.md` section 9" and keep only the top-level layout (`docs/`, `crates/`, `apps/`, `examples/`, `benchmarks/`). The sentence "The actual structure may change after the architecture review" is replaced by that pointer.
 
 **Rationale.** The architecture review replaced 17 concept crates with a smaller set split by dependency weight (D20), and the implementation plan settled on ten library crates plus the CLI.
 

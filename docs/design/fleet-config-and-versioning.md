@@ -13,7 +13,7 @@ Today Thadam reads one YAML file at `thadam run <path>` and keeps it until the p
 Non-goals:
 
 - A control-plane service, a GUI, a managed cloud, a Kubernetes operator, a workflow scheduler (`product.md` section 33).
-- Any outbound call from Thadam that is not a configured source or sink. This is the owner's no-phone-home rule. In `apps/thadam-cli/src` and `crates/thadam-runtime/src` the only HTTP client use I found is `thadam status` calling the admin URL the user gave it (`apps/thadam-cli/src/status.rs:41`). Connector crates were not audited.
+- Any outbound call from Thadam that is not a configured source or sink. This is the owner's no-phone-home rule. In `apps/thadam-cli/src` and `crates/thadam-runtime/src` the only HTTP client use found is `thadam status` calling the admin URL the user gave it (`apps/thadam-cli/src/status.rs:41`). Connector crates were not audited.
 - Hot reload, multiple pipelines per process (ADR-0003 and ADR-0012 revisit triggers).
 - Accepting configuration content over HTTP (reasons in section 3).
 - Config signing, staged rollouts, canaries, fleet inventory, binary self-update.

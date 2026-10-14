@@ -248,10 +248,10 @@ mod tests {
                 git_sha: "abc1234".into(),
                 git_dirty: Some(false),
                 rustc: "rustc 1.99.0".into(),
-                os: "macos".into(),
-                kernel: "Darwin".into(),
+                os: "linux".into(),
+                kernel: "Linux 6.x".into(),
                 arch: "aarch64".into(),
-                cpu_model: "Apple M3".into(),
+                cpu_model: "Generic CPU".into(),
                 cpu_cores: 8,
             },
             throughput: Some(Throughput {

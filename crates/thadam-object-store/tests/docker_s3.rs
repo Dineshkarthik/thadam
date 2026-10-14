@@ -7,7 +7,7 @@
 //! cargo nextest run -p thadam-object-store --run-ignored only -E 'binary(docker_s3)'
 //! ```
 //!
-//! Images: public Docker Hub only, pinned by tag (never a corporate mirror);
+//! Images: public Docker Hub only, pinned by tag (never a private mirror);
 //! re-pin with `THADAM_TEST_S3_IMAGE` when updating. SeaweedFS provides an
 //! S3-compatible gateway via `weed server -s3 -filer`. The bucket is created
 //! with a Signature V4 HTTP call. `curl` and `docker` CLIs must be available.

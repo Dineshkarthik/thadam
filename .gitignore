@@ -1,7 +1,9 @@
 target/
 .DS_Store
-examples/**/secrets/*
-!examples/**/secrets/.gitkeep
+__pycache__/
+.pytest_cache/
+**/secrets/*
+!**/secrets/.gitkeep
 website/dist/
 website/docs/book/
 # Stale mdBook output from before the website/ move; remove once no local build remains.

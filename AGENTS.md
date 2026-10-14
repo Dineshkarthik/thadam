@@ -17,4 +17,3 @@ Rust build/test gate commands and contribution rules: `CONTRIBUTING.md`; impleme
   - `website/README.md` if commands, folder layout, the build, or checks changed;
   - this section if routes, layout, brand, content, or technical rules changed;
   - `.cursor/rules/website.mdc` and `.github/copilot-instructions.md` if any rule or command they digest changed.
-  - Owner-local session notes (git-excluded) may be updated too, but never copy their contents into a committed file.

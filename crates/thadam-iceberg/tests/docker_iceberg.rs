@@ -9,7 +9,7 @@
 //! cargo nextest run -p thadam-iceberg --run-ignored only -E 'binary(docker_iceberg)'
 //! ```
 //!
-//! Images: public Docker Hub only, pinned by tag (never a corporate mirror);
+//! Images: public Docker Hub only, pinned by tag (never a private mirror);
 //! re-pin with `THADAM_TEST_S3_IMAGE` / `THADAM_TEST_ICEBERG_REST_IMAGE` /
 //! `THADAM_TEST_PROXY_IMAGE`. `docker` and `curl` CLIs must be available.
 //! Containers and the per-test network are labelled `thadam-iceberg-test` and
