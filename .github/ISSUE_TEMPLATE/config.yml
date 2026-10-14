@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Dineshkarthik/thadam/security/advisories/new
+    about: Report vulnerabilities privately through GitHub. Do not open a public issue for a security report.

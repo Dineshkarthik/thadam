@@ -5,6 +5,8 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "Reproducible benchmark runner for the Thadam edge-capture demo: Mosquitto, the simulator, and thadam run, sampled and summarized as JSON"
 
 [[bin]]

@@ -1,6 +1,6 @@
 ## What and why
 
-<!-- Link the issue or ADR this implements. One PR, one focus; large changes should be split along PR-sequence lines (ARCHITECTURE.md section 21). -->
+<!-- Link the issue or ADR this implements. One PR, one focus; split large changes into smaller, focused pull requests. -->
 
 ## Changes
 
@@ -11,6 +11,10 @@
 - [ ] No user-facing change
 - [ ] User-facing change — documentation updated in `website/docs/src/` as needed
 - [ ] New or changed public claim — it is consistent with the ADR-0011 claims register (or the register row is added/marked pending evidence)
+
+## Sign-off
+
+- [ ] Every commit is signed off with `git commit -s` (Developer Certificate of Origin; see [CONTRIBUTING.md](../CONTRIBUTING.md))
 
 ## Checks
 

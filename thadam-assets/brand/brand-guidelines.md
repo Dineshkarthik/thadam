@@ -40,5 +40,7 @@ Check contrast for UI text independently. Orange is an accent, not a colour for 
 ## Naming and legal note
 Thadam is the selected project identity, not a claim of trademark or domain availability. Name clearance (GitHub, crates.io, package registries, domains, trademark databases) is pending and must be done before public launch. The SVG geometry, font rendering, and small-size legibility should also be reviewed before launch.
 
+Trademark use of the name and logos is covered in [License and trademark use](../README.md#license-and-trademark-use).
+
 ## Status
 Starter asset system for the Developer-Native visual direction. Review the geometry at small sizes before production use.

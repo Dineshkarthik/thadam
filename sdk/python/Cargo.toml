@@ -6,6 +6,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
 
 [lib]
 # The cdylib is what maturin ships as `thadam._native`; the rlib target keeps

@@ -107,13 +107,23 @@ cargo clippy -p thadam-python --all-targets --locked -- -D warnings
 
 Significant decisions are ADRs in `docs/design/adr/` (process and template: [ADR-0000](docs/design/adr/0000-adr-process.md)).
 
-- Anyone may draft; **only the project owner accepts** (Draft → Proposed → Accepted → Superseded).
+- Anyone may draft; **only the maintainer accepts** (Draft → Proposed → Accepted → Superseded). See [GOVERNANCE.md](GOVERNANCE.md).
 - An accepted ADR is never edited; supersede it with a new one.
 - Decisions that depend on measurements list the required spike/benchmark under "Evidence and validation required" and stay Draft/Proposed until it exists.
 
 ## Reporting bugs and requesting features
 
-Use the [issue tracker](https://github.com/Dineshkarthik/thadam/issues) — the templates ask for the information that makes reports actionable. For **security issues, do not open a public issue**; see [SECURITY.md](SECURITY.md).
+Use the [issue tracker](https://github.com/Dineshkarthik/thadam/issues) — the templates ask for the information that makes reports actionable. For **security issues, do not open a public issue**; see [SECURITY.md](SECURITY.md). Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Developer Certificate of Origin
+
+Every commit must carry a sign-off that certifies the [Developer Certificate of Origin 1.1](https://developercertificate.org/). Create it with `git commit -s`, which adds a `Signed-off-by:` line from your git identity:
+
+```bash
+git commit -s -m "Describe the change"
+```
+
+The sign-off certifies that you have the right to submit the work under the project's [Apache-2.0 license](LICENSE). Commits without the sign-off line are not accepted; if you forgot, amend the commit with `git commit --amend -s`.
 
 ## License
 

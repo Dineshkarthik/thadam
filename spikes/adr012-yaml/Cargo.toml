@@ -3,7 +3,7 @@ name = "adr012-yaml"
 version = "0.1.0"
 edition = "2024"
 publish = false
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 description = "Spike for ADR-0012: YAML crate comparison (serde_norway, serde_yaml_ng, serde-saphyr)"
 
 # Standalone project: the root thadam workspace excludes spikes/, so this
