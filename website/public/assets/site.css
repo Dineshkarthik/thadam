@@ -1,38 +1,23 @@
 :root {
-  color-scheme: light;
-  --site-max: 62rem;
+  color-scheme: light dark;
+  --site-max: 72rem;
   --site-radius: 0.65rem;
-  --site-muted: color-mix(in srgb, var(--thadam-graphite) 74%, var(--thadam-warm-white));
-  --site-line: color-mix(in srgb, var(--thadam-graphite) 15%, var(--thadam-warm-white));
-  --site-line-strong: color-mix(in srgb, var(--thadam-graphite) 36%, var(--thadam-warm-white));
-  --site-surface: color-mix(in srgb, var(--thadam-graphite) 4%, var(--thadam-warm-white));
-  --site-fg: var(--thadam-graphite);
-  --site-bg: var(--thadam-warm-white);
-  --site-focus: var(--thadam-graphite);
+  --g: var(--thadam-graphite);
+  --w: var(--thadam-warm-white);
+  --site-fg: light-dark(var(--g), var(--w));
+  --site-bg: light-dark(var(--w), var(--g));
+  --site-muted: light-dark(color-mix(in srgb, var(--g) 74%, var(--w)), color-mix(in srgb, var(--w) 76%, var(--g)));
+  --site-line: light-dark(color-mix(in srgb, var(--g) 15%, var(--w)), color-mix(in srgb, var(--w) 16%, var(--g)));
+  --site-line-strong: light-dark(color-mix(in srgb, var(--g) 36%, var(--w)), color-mix(in srgb, var(--w) 40%, var(--g)));
+  --site-surface: light-dark(color-mix(in srgb, var(--g) 4%, var(--w)), color-mix(in srgb, var(--w) 5%, var(--g)));
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --site-muted: color-mix(in srgb, var(--thadam-warm-white) 76%, var(--thadam-graphite));
-  --site-line: color-mix(in srgb, var(--thadam-warm-white) 16%, var(--thadam-graphite));
-  --site-line-strong: color-mix(in srgb, var(--thadam-warm-white) 40%, var(--thadam-graphite));
-  --site-surface: color-mix(in srgb, var(--thadam-warm-white) 5%, var(--thadam-graphite));
-  --site-fg: var(--thadam-warm-white);
-  --site-bg: var(--thadam-graphite);
-  --site-focus: var(--thadam-warm-white);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
-    color-scheme: dark;
-    --site-muted: color-mix(in srgb, var(--thadam-warm-white) 76%, var(--thadam-graphite));
-    --site-line: color-mix(in srgb, var(--thadam-warm-white) 16%, var(--thadam-graphite));
-    --site-line-strong: color-mix(in srgb, var(--thadam-warm-white) 40%, var(--thadam-graphite));
-    --site-surface: color-mix(in srgb, var(--thadam-warm-white) 5%, var(--thadam-graphite));
-    --site-fg: var(--thadam-warm-white);
-    --site-bg: var(--thadam-graphite);
-    --site-focus: var(--thadam-warm-white);
-  }
 }
 
 *,
@@ -46,7 +31,6 @@ body {
   background: var(--site-bg);
   color: var(--site-fg);
   font-family: var(--thadam-font-sans);
-  font-size: 1rem;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
 }
@@ -56,7 +40,6 @@ a {
   text-decoration-color: var(--thadam-signal-orange);
   text-decoration-thickness: 2px;
   text-underline-offset: 0.2em;
-  transition: text-decoration-thickness 0.15s ease;
 }
 
 a:hover {
@@ -64,7 +47,7 @@ a:hover {
 }
 
 :focus-visible {
-  outline: 3px solid var(--site-focus);
+  outline: 3px solid var(--site-fg);
   outline-offset: 3px;
 }
 
@@ -75,9 +58,8 @@ h3 {
 }
 
 h1 {
-  margin: 0 0 1rem;
+  margin: 0 0 0.75rem;
   font-size: clamp(2.2rem, 4.4vw + 0.5rem, 3.35rem);
-  font-weight: 700;
   line-height: 1.08;
   letter-spacing: -0.03em;
 }
@@ -140,8 +122,6 @@ main,
 
 .brand {
   display: inline-flex;
-  align-items: center;
-  text-decoration: none;
 }
 
 .brand img {
@@ -170,7 +150,6 @@ main,
 .site-header nav a:hover {
   background: var(--site-surface);
   color: var(--site-fg);
-  text-decoration: none;
 }
 
 .hero {
@@ -180,15 +159,8 @@ main,
   padding-block: clamp(2.5rem, 6vw, 4.25rem) 2.75rem;
 }
 
-@media (min-width: 52rem) {
-  .hero {
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-  }
-}
-
 .eyebrow {
   display: inline-flex;
-  align-items: center;
   margin: 0 0 1rem;
   padding: 0.25rem 0.7rem;
   border: 1px solid var(--site-line-strong);
@@ -201,12 +173,17 @@ main,
   text-transform: uppercase;
 }
 
+.verbs {
+  margin-bottom: 1rem;
+  color: var(--site-muted);
+  font-size: clamp(1.1rem, 1.6vw, 1.3rem);
+  font-weight: 600;
+}
+
 .lede {
-  max-width: 42rem;
   margin: 0 0 1.75rem;
   color: var(--site-muted);
   font-size: 1.125rem;
-  line-height: 1.65;
 }
 
 .actions {
@@ -222,7 +199,6 @@ main,
   padding: 0.6rem 1.15rem;
   border: 1px solid var(--site-line-strong);
   border-radius: 0.5rem;
-  background: var(--site-surface);
   color: var(--site-fg);
   font-size: 0.95rem;
   font-weight: 500;
@@ -232,50 +208,59 @@ main,
 
 .button:hover {
   border-color: var(--site-fg);
-  background: color-mix(in srgb, var(--site-fg) 8%, var(--site-bg));
-}
-
-.button-primary {
-  border-color: var(--site-fg);
-  background: var(--site-fg);
-  color: var(--site-bg);
-}
-
-.button-primary:hover {
-  border-color: var(--site-fg);
-  background: color-mix(in srgb, var(--site-fg) 88%, var(--thadam-signal-orange));
-  color: var(--site-bg);
-}
-
-.hero-art {
-  max-width: 26rem;
-  margin-inline: auto;
-  overflow: hidden;
-  border: 1px solid var(--site-line);
-  border-radius: var(--site-radius);
   background: var(--site-surface);
 }
 
-.hero-art img {
+.button-primary,
+.button-primary:hover {
+  border-color: var(--thadam-signal-orange);
+  background: var(--thadam-signal-orange);
+  color: var(--thadam-graphite);
+  font-weight: 600;
+}
+
+.button-primary:hover {
+  background: color-mix(in srgb, var(--thadam-signal-orange) 82%, var(--thadam-warm-white));
+}
+
+.hero-art img,
+.how-intro img {
   display: block;
   width: 100%;
   height: auto;
+  border: 1px solid var(--site-line);
+  border-radius: var(--site-radius);
+}
+
+.how-intro {
+  display: grid;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+@media (min-width: 52rem) {
+  .hero:has(.hero-art) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  }
+
+  .how-intro {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
 }
 
 .features {
   display: grid;
   gap: 0.85rem;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13.5rem), 1fr));
-  width: 100%;
-  margin: 0 auto 2.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0 0 2.5rem;
   padding: 0;
   list-style: none;
 }
 
 .features li {
   display: flex;
-  align-items: center;
-  gap: 0.65rem;
+  flex-direction: column;
+  gap: 0.6rem;
   padding: 1rem 1.1rem;
   border: 1px solid var(--site-line);
   border-radius: var(--site-radius);
@@ -285,10 +270,23 @@ main,
   line-height: 1.4;
 }
 
+.features li:last-child {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 52rem) {
+  .features {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .features li:last-child {
+    grid-column: auto;
+  }
+}
+
 .features svg {
-  flex: none;
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.5rem;
+  height: 1.5rem;
   fill: none;
   stroke: var(--thadam-signal-orange);
   stroke-width: 1.85;
@@ -302,14 +300,8 @@ main,
   border-top: 1px solid var(--site-line);
 }
 
-.section > p {
-  max-width: 68ch;
+.section p {
   color: var(--site-muted);
-}
-
-.section > figure,
-.section > .table-wrap {
-  max-width: none;
 }
 
 .flow {
@@ -339,7 +331,6 @@ main,
   margin: 0.2rem 0 0;
   color: var(--site-muted);
   font-size: 0.72rem;
-  font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -362,11 +353,6 @@ main,
   border: 1px solid var(--site-line);
   border-radius: 0.5rem;
   background: var(--site-bg);
-  transition: border-color 0.15s ease;
-}
-
-.flow-node:hover {
-  border-color: var(--site-line-strong);
 }
 
 .flow-node strong {
@@ -415,19 +401,18 @@ main,
   height: 1.75rem;
 }
 
-.flow-link::before {
+.flow-link::before,
+.flow-link::after {
   content: "";
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 2px;
+}
+
+.flow-link::before {
+  inset: 0;
   background: var(--site-line-strong);
 }
 
 .flow-link::after {
-  content: "";
-  position: absolute;
   bottom: -2px;
   left: -4px;
   border: 5px solid transparent;
@@ -444,15 +429,6 @@ main,
     width: 2.5rem;
     height: 2px;
     justify-self: stretch;
-  }
-
-  .flow-link::before {
-    top: 0;
-    bottom: auto;
-    left: 0;
-    right: 0;
-    width: auto;
-    height: 2px;
   }
 
   .flow-link::after {
@@ -499,23 +475,23 @@ main,
   border-style: dashed;
 }
 
-.pill-progress::before {
+.pill-progress::before,
+.pill-planned::before {
   background: transparent;
   border: 1.5px solid currentColor;
 }
 
-.pill-planned {
+.pill-planned,
+.pill-planned::before {
   border-style: dotted;
-  color: var(--site-muted);
 }
 
-.pill-planned::before {
-  background: transparent;
-  border: 1.5px dotted currentColor;
+.pill-planned,
+.status-note {
+  color: var(--site-muted);
 }
 
 .status-note {
-  color: var(--site-muted);
   font-size: 0.88rem;
 }
 
@@ -558,7 +534,6 @@ thead th {
   background: var(--site-surface);
   font-size: 0.85rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
 }
 
 code,
@@ -602,16 +577,17 @@ pre code {
   margin: 0 0 0.5rem;
 }
 
-img.on-dark {
-  display: none;
-}
-
+img.on-dark,
 :root[data-theme="dark"] img.on-light {
   display: none;
 }
 
 :root[data-theme="dark"] img.on-dark {
   display: block;
+}
+
+:root[data-theme="dark"] :is(.hero-art, .how-intro) img {
+  filter: brightness(0.88);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -621,6 +597,10 @@ img.on-dark {
 
   :root:not([data-theme]) img.on-dark {
     display: block;
+  }
+
+  :root:not([data-theme]) :is(.hero-art, .how-intro) img {
+    filter: brightness(0.88);
   }
 }
 
@@ -633,9 +613,9 @@ img.on-dark {
   border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, currentColor 9%, transparent);
-  color: var(--site-fg, inherit);
+  color: var(--site-fg);
   cursor: pointer;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition: border-color 0.2s ease;
 }
 
 .theme-toggle::after {
@@ -677,11 +657,6 @@ img.on-dark {
   border-color: currentColor;
 }
 
-.theme-toggle:focus-visible {
-  outline: 3px solid currentColor;
-  outline-offset: 3px;
-}
-
 .theme-toggle[hidden] {
   display: none;
 }
@@ -694,17 +669,6 @@ img.on-dark {
 
 :root[data-theme="dark"] .theme-toggle::after {
   transform: translateX(1.75rem);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) .theme-toggle .icon-moon {
-    opacity: 1;
-    color: var(--site-bg);
-  }
-
-  :root:not([data-theme]) .theme-toggle::after {
-    transform: translateX(1.75rem);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

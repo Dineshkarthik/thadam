@@ -14,7 +14,7 @@ Developer-native, precise, understated, and infrastructure-oriented. The mark is
 | Graphite (ink) | `#151719` | `--thadam-graphite` | Primary logo, text, dark surfaces |
 | Warm white (paper) | `#F5F4F0` | `--thadam-warm-white` | Light surfaces and reverse logo |
 | Signal orange | `#F26A3D` | `--thadam-signal-orange` | Small accents, actions, crossbar mark detail |
-| Steel grey | `#8B9298` | `--thadam-steel-grey` | Secondary text, borders, muted UI |
+| Steel grey | `#6B7280` | `--thadam-steel-grey` | Secondary text, borders, muted UI |
 
 Canonical values live in `tokens/thadam.css` and `tokens/colors.json`. Do not copy these hex values into other files; reference the tokens.
 
@@ -34,8 +34,9 @@ Use Inter where available; otherwise a modern system sans-serif stack. Wordmark 
 Check contrast for UI text independently. Orange is an accent, not a colour for small text on warm white. Light and dark variants must both be readable.
 
 ## Files
-- `svg/`: editable SVG sources (logos, wordmarks, marks, icons; light, dark, accent, and mono variants).
-- `png/`: PNG exports and favicon sizes (`favicon-16/32/48/180/192/512.png`).
+- `svg/`: editable SVG sources (logos, wordmarks, marks, icons; light, dark, accent, and mono variants, including `thadam-mark-mono-light.svg` / `thadam-mark-mono-dark.svg`), plus `og-card-light.svg`.
+- `png/`: PNG exports, favicon sizes (`favicon-16/32/48/180/192/512.png`, `favicon.ico`), and social cards (`og-card.png` dark, `og-card-light.png`).
+- `illustrations/`: text-free WebP illustrations for the website (`thadam-data-plane-light.webp`, 1600 px wide; `thadam-platform-light.webp`, 1200 px wide). They carry no lettering; all text is rendered in HTML.
 - `tokens/thadam.css`, `tokens/colors.json`: colour tokens.
 
 ## Naming and legal note

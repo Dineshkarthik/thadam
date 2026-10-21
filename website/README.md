@@ -30,7 +30,7 @@ mdbook build website/docs         # user docs only, into website/docs/book/
 
 1. `dist/` is wiped and `public/` is copied to its root.
 2. `mdbook build` writes the docs to `dist/docs/`.
-3. The brand files the site uses (logos, icon, favicon PNGs, `tokens/thadam.css`) are copied from `thadam-assets/brand/` to `dist/assets/brand/`.
+3. The brand files the site uses (logos, icon, favicon PNGs, the dark hero PNG, the two `illustrations/*.webp` homepage images, `tokens/thadam.css`) are copied from `thadam-assets/brand/` to `dist/assets/brand/`, and `png/favicon.ico` is copied to `dist/favicon.ico`. `thadam-assets/reference/` holds concept mockups that are never shipped.
 4. The two favicon copies in `docs/theme/` are compared byte-for-byte with `thadam-assets/brand/`, and the build fails on drift.
 5. A small Python step adds canonical and `og:url` tags to docs pages, writes `sitemap.xml`, and appends the sitemap line to `robots.txt`.
 6. `check.py` verifies the result: required files, titles and viewport meta, every local link, `#fragment` anchor, and image resolving, canonicals, no `localhost` links, no internal `PR[0-9]+` tokens in visible text, and the sitemap matching the pages.
@@ -51,11 +51,11 @@ Edit files in `thadam-assets/brand/` (SVG sources in `svg/`, tokens in `tokens/t
 - Social card: `thadam-assets/brand/png/og-card.png` (1200x630) is used by `og:image` and `twitter:card` on the homepage and every docs page. The maintainer regenerates it from the brand source files, which are not in the repository, and commits the result.
 - Web app manifest: `public/site.webmanifest` lists the 192 and 512 px PNGs from `thadam-assets/brand/png/`.
 - The mdBook print page is disabled (`[output.html.print] enable = false` in `docs/book.toml`) to keep the output small.
-- Budget: the homepage HTML plus `site.css` must stay under 30 KB. `check.py` fails above that.
+- Budget: the homepage HTML plus `site.css` must stay under 30 KB. `check.py` fails above that. `site.css` defines its light and dark colours once with `light-dark()`; `data-theme` (or the system setting when JavaScript is off) picks the `color-scheme`.
 - `check.py` also verifies JSON-LD parses, OG images and manifest icons exist, every `<img>` has `alt`, and the homepage and theme CSS use no hex colours outside the brand tokens.
 - Claim wording: `check.py` scans the built homepage and every docs page for forbidden claim phrases ("zero data loss", "loses nothing", "exactly-once", "is lost", "guaranteed", and similar). A phrase passes only when it is negated in the sentence before it ("does not claim exactly-once") or appears in a question. Allowed wording comes from the claims register in `docs/design/adr/0011-delivery-guarantees-and-claims-register.md`.
 - Status labels and internal tokens: every homepage status cell, homepage pill, and docs `Status:` line must read Available, In progress, or Planned, and built public pages may not contain `PR[0-9]+` tokens in visible text. The homepage must have exactly one `h1`.
-- Contrast was measured for the text pairs: muted text is about 8:1 on warm white and about 10:1 on graphite. Orange on warm white is about 2.8:1, so it is used only for decorative icons and rules, never for informational graphics or text.
+- Contrast was measured for the text pairs: muted text is about 8:1 on warm white and about 10:1 on graphite. Orange on warm white is about 2.8:1, so it is used only for decorative icons and rules, never for informational graphics or text. The primary button is the one orange fill: graphite text on Signal orange, about 5.8:1.
 
 ## Deployment
 

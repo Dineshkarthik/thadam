@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+<rect width="1200" height="630" fill="#151719"/>
+<g transform="translate(110 170) scale(2.7)">
+<title>Thadam geometric T mark</title>
+<path d="M9 12H55V24H38V52H26V24H9Z" fill="#F5F4F0"/>
+<path d="M38 12H55V24H38Z" fill="#F26A3D"/>
+</g>
+<text x="330" y="305" font-family="Inter, Manrope, Arial, sans-serif" font-size="102" font-weight="650" letter-spacing="-4" fill="#F5F4F0">thadam</text>
+<text x="336" y="370" font-family="Inter, Manrope, Arial, sans-serif" font-size="22" letter-spacing="2" fill="#B6BBC1">THE OPEN DATA PLANE FOR ROBOTICS</text>
+<path d="M110 475H1090" stroke="#B6BBC1" stroke-opacity=".35" stroke-width="2"/>
+<text x="110" y="525" font-family="Inter, Manrope, Arial, sans-serif" font-size="18" fill="#B6BBC1">Capture · Transform · Buffer · Replay</text>
+</svg>
