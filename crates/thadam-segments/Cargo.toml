@@ -7,6 +7,10 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "Parquet segment sink, CRC-checked segment catalog, and quarantine writer for Thadam"
+readme.workspace = true
+keywords = ["thadam", "parquet", "telemetry", "storage", "segments"]
+categories = ["database", "filesystem", "encoding"]
 
 [features]
 # Exposes `thadam_segments::failpoints` for fault injection in crash tests,
@@ -21,7 +25,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 crc32c = { workspace = true }
 parquet = { workspace = true }
-thadam-arrow = { path = "../thadam-arrow" }
+thadam-arrow = { workspace = true }
 thadam-core = { workspace = true }
 rustix = { workspace = true }
 serde = { workspace = true }

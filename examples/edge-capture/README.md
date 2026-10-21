@@ -56,7 +56,7 @@ Wait for mqtt traffic in the logs; the simulator publishes directly to the broke
 
 ```bash
 make run-native
-# = cargo run -p thadam-cli -- run ./thadam/pipeline.local.yaml --admin-bind 127.0.0.1:9464 --log-format pretty
+# = cargo run -p thadam -- run ./thadam/pipeline.local.yaml --admin-bind 127.0.0.1:9464 --log-format pretty
 ```
 
 **3. Look at it** from another terminal:

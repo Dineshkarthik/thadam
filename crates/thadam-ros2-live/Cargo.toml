@@ -7,12 +7,16 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "Experimental live ROS 2 topic source connector over rmw_zenoh for Thadam"
+readme.workspace = true
+keywords = ["thadam", "ros2", "zenoh", "robotics", "cdr"]
+categories = ["science::robotics", "network-programming", "asynchronous"]
 
 [dependencies]
 async-trait = { workspace = true }
 bytes = { workspace = true }
 thadam-core = { workspace = true }
-thadam-ros2-msg = { path = "../thadam-ros2-msg" }
+thadam-ros2-msg = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

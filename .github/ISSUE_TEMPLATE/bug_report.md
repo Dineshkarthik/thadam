@@ -9,7 +9,7 @@ labels: bug
 Before filing:
 - Search existing issues for the same problem.
 - Security-sensitive report? Do NOT file publicly — use Security advisories instead (see SECURITY.md).
-- Thadam is pre-alpha: reread the documented limits in the README and docs/design (e.g. delivery guarantees in ADR-0011) to confirm the behavior is not intentional.
+- Thadam is in beta: reread the documented limits in the README and docs/design (e.g. delivery guarantees in ADR-0011) to confirm the behavior is not intentional.
 -->
 
 ## Summary

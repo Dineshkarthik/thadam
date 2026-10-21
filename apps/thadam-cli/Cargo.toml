@@ -1,5 +1,5 @@
 [package]
-name = "thadam-cli"
+name = "thadam"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,6 +7,10 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "Command-line interface and composition root for the Thadam telemetry data plane"
+readme.workspace = true
+keywords = ["thadam", "cli", "telemetry", "robotics", "data-plane"]
+categories = ["command-line-utilities", "science::robotics"]
 
 [[bin]]
 name = "thadam"
@@ -36,23 +40,23 @@ iceberg = ["dep:thadam-iceberg"]
 bytes = { workspace = true }
 clap = { workspace = true }
 mcap = { workspace = true }
-thadam-config = { path = "../../crates/thadam-config" }
-thadam-runtime = { path = "../../crates/thadam-runtime" }
-thadam-mqtt = { path = "../../crates/thadam-mqtt" }
-thadam-http = { path = "../../crates/thadam-http" }
-thadam-modbus = { path = "../../crates/thadam-modbus" }
-thadam-can = { path = "../../crates/thadam-can" }
-thadam-grpc = { path = "../../crates/thadam-grpc" }
-thadam-mcap = { path = "../../crates/thadam-mcap" }
-thadam-segments = { path = "../../crates/thadam-segments" }
-thadam-wal = { path = "../../crates/thadam-wal" }
-thadam-object-store = { path = "../../crates/thadam-object-store" }
-thadam-nats = { path = "../../crates/thadam-nats" }
-thadam-kafka = { path = "../../crates/thadam-kafka" }
-thadam-clickhouse = { path = "../../crates/thadam-clickhouse", optional = true }
-thadam-opcua = { path = "../../crates/thadam-opcua", optional = true }
-thadam-ros2-live = { path = "../../crates/thadam-ros2-live", optional = true }
-thadam-iceberg = { path = "../../crates/thadam-iceberg", optional = true }
+thadam-config = { workspace = true }
+thadam-runtime = { workspace = true }
+thadam-mqtt = { workspace = true }
+thadam-http = { workspace = true }
+thadam-modbus = { workspace = true }
+thadam-can = { workspace = true }
+thadam-grpc = { workspace = true }
+thadam-mcap = { workspace = true }
+thadam-segments = { workspace = true }
+thadam-wal = { workspace = true }
+thadam-object-store = { workspace = true }
+thadam-nats = { workspace = true }
+thadam-kafka = { workspace = true }
+thadam-clickhouse = { workspace = true, optional = true }
+thadam-opcua = { workspace = true, optional = true }
+thadam-ros2-live = { workspace = true, optional = true }
+thadam-iceberg = { workspace = true, optional = true }
 thadam-core = { workspace = true }
 rustls = { workspace = true }
 serde_json = { workspace = true }

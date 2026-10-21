@@ -7,10 +7,14 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "ClickHouse native-block batch sink connector with schema validation for Thadam"
+readme.workspace = true
+keywords = ["thadam", "clickhouse", "telemetry", "arrow", "database"]
+categories = ["database", "network-programming", "asynchronous"]
 
 [dependencies]
 thadam-core = { workspace = true }
-thadam-arrow = { path = "../thadam-arrow" }
+thadam-arrow = { workspace = true }
 # The official client (ClickHouse Inc.), vendor-maintained (ADR-0008). TLS is
 # rustls with the ring provider only: `rustls-tls-ring`, never `rustls-tls-aws-lc`
 # (ADR-0020; `cargo tree -i aws-lc-sys` must stay empty). Roots come from the OS

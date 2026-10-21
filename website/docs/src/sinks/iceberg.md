@@ -1,6 +1,6 @@
 # Apache Iceberg registrar
 
-**Status: Available (experimental, P2; behind the opt-in `iceberg` Cargo feature).** The `iceberg` kind registers already-shipped Parquet segments in Apache Iceberg tables, using the REST catalog. It is configured as a `sinks:` entry and runs as a service (the registrar), consuming the segment catalog of a [`parquet`](parquet.md) sink — normally the same sink an [`object_store`](object-store.md) shipper ships. It is built only with `cargo build -p thadam-cli --features iceberg` (off by default: it adds a second Arrow/Parquet dependency tree).
+**Status: Available (experimental, P2; behind the opt-in `iceberg` Cargo feature).** The `iceberg` kind registers already-shipped Parquet segments in Apache Iceberg tables, using the REST catalog. It is configured as a `sinks:` entry and runs as a service (the registrar), consuming the segment catalog of a [`parquet`](parquet.md) sink — normally the same sink an [`object_store`](object-store.md) shipper ships. It is built only with `cargo build -p thadam --features iceberg` (off by default: it adds a second Arrow/Parquet dependency tree).
 
 ## How it works
 

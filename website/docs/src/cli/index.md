@@ -1,6 +1,6 @@
 # CLI reference
 
-The `thadam` binary is the only interface: validation, runtime, status, replay, WAL inspection, and schema/version introspection. Output below is verbatim from `thadam --help` (pre-alpha; the grammar is stable for config version 1).
+The `thadam` binary is the only interface: validation, runtime, status, replay, WAL inspection, and schema/version introspection. Output below is verbatim from `thadam --help` (beta; the grammar is stable for config version 1).
 
 ## `thadam`
 
@@ -87,7 +87,7 @@ Usage: thadam version
 ```
 
 ```text
-thadam 0.1.0
+thadam 0.1.0-beta.1
 config version: 1
 config hash version: 1
 ```

@@ -53,7 +53,7 @@ impl Binaries {
                 "THADAM_BIN",
                 sibling_dir,
                 root,
-                "cargo build --release -p thadam-cli",
+                "cargo build --release -p thadam",
             )?,
             simulator: locate(
                 "thadam-simulator",

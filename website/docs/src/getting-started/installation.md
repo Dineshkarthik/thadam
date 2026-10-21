@@ -1,6 +1,6 @@
 # Installation
 
-There are no prebuilt binaries or published crates yet (nothing is published while [ADR-0016](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0016-naming-and-publishing.md) is Draft); the supported way to run Thadam today is to build from source.
+There are no prebuilt binaries or published crates yet (the first release is pending; see [ADR-0016](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0016-naming-and-publishing.md)); the supported way to run Thadam today is to build from source.
 
 ## Supported platforms
 
@@ -26,7 +26,7 @@ rustup show        # installs the pinned toolchain if needed
 ### 2. Build the CLI
 
 ```bash
-cargo build --release -p thadam-cli
+cargo build --release -p thadam
 ```
 
 The binary is `target/release/thadam`. Every crate builds with `#![forbid(unsafe_code)]`; filesystem syscalls go through `rustix`'s safe API.
@@ -35,7 +35,7 @@ The binary is `target/release/thadam`. Every crate builds with `#![forbid(unsafe
 
 ```text
 $ thadam version
-thadam 0.1.0
+thadam 0.1.0-beta.1
 config version: 1
 config hash version: 1
 ```

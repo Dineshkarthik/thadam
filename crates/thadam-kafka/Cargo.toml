@@ -7,6 +7,10 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "Pure-Rust Apache Kafka batch sink connector with TLS and SASL for Thadam"
+readme.workspace = true
+keywords = ["thadam", "kafka", "telemetry", "streaming", "messaging"]
+categories = ["network-programming", "asynchronous"]
 
 [dependencies]
 # The Kafka client (owner decision: pure Rust, no OpenSSL, no librdkafka, no

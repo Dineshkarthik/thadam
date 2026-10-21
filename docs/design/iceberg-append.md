@@ -2,7 +2,7 @@
 
 - **Status:** Implementation note (not an ADR; the P2 table-format work planned in `product.md` and anticipated by ADR-0013). Step 1 registers segments; step 2 adds schema evolution, a concurrent-writer conflict test, and an HTTPS catalog test.
 - **Date:** 2026-10-12 (step 1); 2026-10-13 (step 2)
-- **Crate:** `crates/thadam-iceberg` (new), exposed by `thadam-cli` as `kind: iceberg` behind the default-off `iceberg` feature.
+- **Crate:** `crates/thadam-iceberg` (new), exposed by `thadam` as `kind: iceberg` behind the default-off `iceberg` feature.
 
 ## Where the append happens
 
@@ -262,7 +262,7 @@ exchange itself or the immediate retry still answers 401/403).
   binaries). Both crates ship no TLS default (reqwest 0.12,
   `default-features = false`); `thadam-iceberg` adds reqwest 0.12 with
   `rustls-tls-native-roots-no-provider` so the crypto provider is the process
-  default `ring` that `thadam-cli` installs (ADR-0020; mirrors the reqwest 0.13
+  default `ring` that `thadam` installs (ADR-0020; mirrors the reqwest 0.13
   `rustls-no-provider` pattern of `thadam-object-store`).
 - `iceberg-storage-opendal` is **rejected**: through opendal 0.57 it resolves
   reqwest 0.13's default rustls stacks (`hyper-rustls`,
@@ -275,7 +275,7 @@ exchange itself or the immediate retry still answers 401/403).
   11 are the duplicate Arrow-58 family (`arrow-arith/array/buffer/cast/data/
   ipc/ord/schema/select/string` v58.4.0 + `parquet` v58.4.0; the workspace
   builds 60) plus reqwest 0.12.28 next to 0.13. The `iceberg` feature is off
-  by default in `thadam-cli` for exactly this reason.
+  by default in `thadam` for exactly this reason.
 - `iceberg` 0.10.x has no S3-ready storage out of the box: the core ships
   memory/fs `FileIO`, the S3 story is `iceberg-storage-opendal` (rejected
   above). The crate was pinned by deleting-features of everything else: the

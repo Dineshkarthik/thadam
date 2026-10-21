@@ -29,7 +29,7 @@ RUN set -e; \
         export CARGO_HTTP_CAINFO=/etc/ssl/certs/ca-certificates.crt; \
         export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt; \
     fi; \
-    cargo build --release --locked -p thadam-cli --features "$FEATURES"; \
+    cargo build --release --locked -p thadam --features "$FEATURES"; \
     strip target/release/thadam
 
 FROM debian:bookworm-20261005-slim

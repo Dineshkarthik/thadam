@@ -4,15 +4,23 @@ build-backend = "maturin"
 
 [project]
 name = "thadam"
-version = "0.1.0"
+# maturin reads the version from the Cargo workspace, so it is bumped in one place.
+dynamic = ["version"]
 description = "Python SDK for the Thadam edge capture runtime"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Apache-2.0" }
+keywords = ["telemetry", "robotics", "industrial", "parquet", "arrow"]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Rust",
-    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
 ]
 dependencies = [
     # read_segments imports the Arrow stream with pa.Table.from_batches;
@@ -23,6 +31,9 @@ dependencies = [
 [project.urls]
 Homepage = "https://thadam.dineshkarthik.me"
 Repository = "https://github.com/Dineshkarthik/thadam"
+Documentation = "https://thadam.dineshkarthik.me/docs/"
+Changelog = "https://github.com/Dineshkarthik/thadam/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Dineshkarthik/thadam/issues"
 
 [tool.maturin]
 # Mixed Rust/Python layout: the extension module lands at thadam._native

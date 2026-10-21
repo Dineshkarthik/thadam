@@ -26,7 +26,7 @@ The snapshot (`thadam status` pretty-prints exactly this):
 {
   "pipeline": "edge-capture",
   "node_id": "edge-01",           // pipeline.node_id, as resolved from the configuration
-  "thadam_version": "0.1.0",       // the binary that runs this pipeline
+  "thadam_version": "0.1.0-beta.1",       // the binary that runs this pipeline
   "config_hash": "f6410eaa…",     // 32 hex digits; the value `thadam validate` prints
   "config_hash_version": 1,       // the version of the hash algorithm
   "previous_config_hash": null,   // the hash in force before the last change (thadam.json); null until one happens

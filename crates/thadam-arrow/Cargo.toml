@@ -7,6 +7,10 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "Encoding of Thadam dataset events into Apache Arrow record batches with stable field IDs"
+readme.workspace = true
+keywords = ["thadam", "arrow", "parquet", "telemetry", "encoding"]
+categories = ["encoding", "database"]
 
 [dependencies]
 thadam-core = { workspace = true }

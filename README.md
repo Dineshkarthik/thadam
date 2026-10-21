@@ -10,16 +10,16 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
-  <img alt="Status: pre-alpha" src="https://img.shields.io/badge/status-pre--alpha-orange.svg">
+  <img alt="Status: beta" src="https://img.shields.io/badge/status-beta-orange.svg">
 </p>
 
 **Thadam is the open data plane for robotics.** It connects robotic and industrial data sources to modern data platforms with edge-native processing, durable buffering, and flexible sinks: a single Rust binary that captures telemetry at the edge, stores it durably on local disk before acknowledging it, then normalizes it into analytical datasets and delivers them to object storage and analytical databases.
 
 Thadam is open-source, Rust-first, and edge-native. It is designed to keep capturing data through network outages and downstream downtime, and to replay what it captured when the world comes back.
 
-> **Name status:** "Thadam" is the selected project identity, not a claim of trademark or domain availability. Registry, domain, and trademark clearance is still pending (tracked in [ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Draft), so every crate is `publish = false` and nothing is published to crates.io yet.
+> **Name status:** "Thadam" is the project name, not a claim of trademark or domain availability ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Accepted; no trademark search has been done). Nothing is published to crates.io or PyPI yet; install from source as described below.
 
-## Project status: pre-alpha
+## Project status: beta
 
 Thadam is under active development. The architecture and the delivery guarantees are set by accepted ADRs; the code is landing milestone by milestone in public.
 
@@ -92,7 +92,7 @@ The only dependency beyond a Rust toolchain is a container runtime for the messa
 ```bash
 git clone https://github.com/Dineshkarthik/thadam.git
 cd thadam
-cargo build --release -p thadam-cli
+cargo build --release -p thadam
 export PATH="$PWD/target/release:$PATH"
 thadam version
 ```
@@ -173,7 +173,7 @@ Stop `thadam run` in the first terminal with Ctrl-C. It finalizes open files and
 thadam inspect segments ./demo-data --sink local
 ```
 
-> **Status (see [project status](#project-status-pre-alpha)):** the pipeline above runs end to end today — messages land in Parquet segments under the data directory. The S3 shipper is likewise wired. Replay and the chaos suites are built; the chaos verification run and published benchmark numbers are still open ([ARCHITECTURE.md](ARCHITECTURE.md) section 21), so nothing here is claimed faster or more durable than the [claims register](docs/design/adr/0011-delivery-guarantees-and-claims-register.md) says.
+> **Status (see [project status](#project-status-beta)):** the pipeline above runs end to end today — messages land in Parquet segments under the data directory. The S3 shipper is likewise wired. Replay and the chaos suites are built; the chaos verification run and published benchmark numbers are still open ([ARCHITECTURE.md](ARCHITECTURE.md) section 21), so nothing here is claimed faster or more durable than the [claims register](docs/design/adr/0011-delivery-guarantees-and-claims-register.md) says.
 
 **6. Skip to the seeded demo?** [`examples/edge-capture`](examples/edge-capture) runs a synthetic six-robot fleet with a truth oracle (so delivered rows can be checked sample-by-sample), the same Mosquitto-with-raised-limits broker behind Toxiproxy, an optional SeaweedFS S3 level, a provisioned Grafana dashboard, and a DuckDB script:
 

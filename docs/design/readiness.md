@@ -1,4 +1,4 @@
-# Readiness gate (updated through 2026-10-14)
+# Readiness gate (updated through 2026-10-20)
 
 Status: **CONDITIONALLY READY, implementation under way.** All eight sources (`mqtt`, `http`, `grpc`, `mcap`, `modbus`, `can`, `opcua`, `ros2_live`), all three decoders (`json`, `ros2`, `sparkplug_b`), all eleven transform steps (including `pose`, `joint_state`, and experimental `window` with all eleven aggregates), all seven sinks and services (`parquet`, `object_store`, `iceberg`, `nats`, `kafka`, `mqtt_publish`, `clickhouse`), all nine CLI subcommands (`init`, `validate` with `--against-data-dir`, `version`, `schema`, `run`, `status`, `replay`, `export`, `inspect`), the consolidated Prometheus metrics set, deployment and rollback scripts (`deploy/apply-config.sh`), the simulator, the oracle verifier, the chaos suites, the benchmark harness, and the Python SDK are implemented and tested as of 2026-10-14 (`HEAD`). The WAL was built ahead of ADR-0004's acceptance by the maintainer's choice, so its on-disk format is versioned but not frozen: the ADR-0004 hardware re-run still gates the acceptance, and the format freezes at the v0.1.0 tag, after that re-run. Part A of `docs/design/product-amendments.md` (A.1 to A.9 and A.11) is applied to `product.md` as of 2026-10-13, which closes blocker 2.
 
@@ -99,7 +99,7 @@ Closed in this pass: acceptance of ADRs 0001, 0002, 0003, 0006, 0011, 0012, 0013
 - ADR-0006: S2b (the S2 harness against `rumqttc-next`, at most one day) and the QoS 2 non-happy paths (QoS 2 stays experimental). TLS and mTLS through the relay (`tls_and_mtls` in `docker_e2e` and `docker_publish`), QoS 0 overflow accounting, and exact EMQX 5.8.6 image pins are implemented and tested. Revisit the TLS relay when `rumqttc` releases a patched `rustls-webpki`.
 - ADR-0013: explicit Parquet field IDs (`datasets[].fields[].id`) and identity level IDs (`datasets[].identity.<level>.id`) are in `thadam-config` and round-trip through the Parquet writer and reader (`thadam-segments`); unsigned reader support across downstream engines stays **[V]**.
 - ADR-0020: the MSRV CI job (`.github/workflows/ci.yml` runs `cargo +1.89 check --workspace --exclude thadam-python --exclude thadam-iceberg --locked`), the `cargo deny` policy (including scoped `opcua`/`ros2-live` exceptions), and `ring` on native aarch64.
-- [ADR-0016](adr/0016-naming-and-publishing.md) (Draft, name clearance): mitigated by `publish = false` and the provisional binary name.
+- [ADR-0016](adr/0016-naming-and-publishing.md) (Accepted 2026-10-20, trademark not searched): 23 crates and the `thadam` Python package are publishable; nothing is published until a `v*` tag passes the `crates-io` and `pypi` environment approvals.
 - CI platform (github.com versus GitHub Enterprise) and ARM64 runner availability.
 - The `[V]` items from the maturity review.
 - ADR-0007 (ROS 2) and ADR-0008 (ClickHouse): Draft by design; M2 and P1 work.
@@ -108,7 +108,7 @@ Closed in this pass: acceptance of ADRs 0001, 0002, 0003, 0006, 0011, 0012, 0013
 
 ### Deferred from `product.md`
 
-The following items sketched in `product.md` or `ARCHITECTURE.md` are deferred beyond the current pre-alpha scope:
+The following items sketched in `product.md` or `ARCHITECTURE.md` are deferred beyond the current beta scope:
 
 - **OpenTelemetry trace export (`otlp`):** Prometheus metrics and structured JSON logs are implemented; distributed trace export is deferred (`product.md` sections 15 and 29).
 - **`thadam inspect --suggest-schema`:** schema-inference CLI helper (`ARCHITECTURE.md` section 21); `thadam inspect wal|cursors|segments|sample` are implemented.
@@ -182,9 +182,25 @@ The `clippy.toml` settings (`allow-unwrap-in-tests`, `allow-expect-in-tests`) ar
 
 ## 7. Open gates before v0.1.0
 
-All foundation and M1–M3 components listed in section 1 and `ARCHITECTURE.md` section 21 are implemented in the workspace. What remains gated before tagging `v0.1.0` or publishing packages:
+All foundation and M1–M3 components listed in section 1 and `ARCHITECTURE.md` section 21 are implemented in the workspace. What remains before tagging `v0.1.0` (the `0.1.0-beta.N` pre-releases are tagged and published without these):
 
 - **WAL format freeze ([ADR-0004](adr/0004-durable-buffer.md), Draft):** Run `scripts/wal-hw-bench.sh` on x86 NVMe and ARM eMMC reference hardware (`docs/design/wal-hardware-runbook.md`) and close the remaining ADR-0004 evidence items before freezing the WAL v1 on-disk format at the `v0.1.0` tag.
 - **M1 chaos and benchmark verification ([ADR-0011](adr/0011-delivery-guarantees-and-claims-register.md)):** Complete the M1 chaos verification run and publish reference-hardware benchmark numbers (`tools/thadam-bench` on x86_64 and ARM64) for the claims register.
 - **ClickHouse P1 benchmark and example ([ADR-0008](adr/0008-clickhouse-sink.md), Draft):** Run the HTTP-vs-native client benchmark (B8) and add the `examples/edge-analytics` example (outside the M1 reliability gate).
-- **Naming and publishing ([ADR-0016](adr/0016-naming-and-publishing.md), Draft):** Complete registry and trademark clearance and accept ADR-0016 before changing `publish = false` or publishing to crates.io or PyPI.
+- **Naming and publishing ([ADR-0016](adr/0016-naming-and-publishing.md), Accepted 2026-10-20):** Closed. The crates.io, PyPI, and GitHub checks found no conflict, and the maintainer accepted the ADR without a trademark search. Publishing is wired into `.github/workflows/release.yml`; the one-time setup is in `CONTRIBUTING.md` ("Releasing").
+
+## 8. Beta status and open items for 0.1.0
+
+The project is **beta** in every public place since 2026-10-20 (maintainer decision), versioned `0.1.0-beta.N` (Python `0.1.0bN`). The rows below track what is done and what remains before `0.1.0`; meeting a row does not accept any ADR.
+
+| Item | Owner | State (2026-10-20) |
+|---|---|---|
+| Every CI job in `.github/workflows/ci.yml` passes on `main` | Engineering | **Met locally**: fmt, clippy (three configurations), build, MSRV 1.89, nextest (2,043 passed, 0 failed), `check-deps.sh`, `cargo deny`, shellcheck, and the site build and `check.py`. |
+| WAL v1 format frozen: [ADR-0004](adr/0004-durable-buffer.md) Accepted after the reference-hardware run (section 3, blocker 3) | Maintainer, reference hardware | **Open.** |
+| `v0.1.0-beta.1` tagged, with Linux `x86_64` and `aarch64` binaries and a Docker image built and smoke-tested on both architectures | Maintainer | **Tooling done** (`.github/workflows/release.yml`: draft release with checksummed tarballs; no registry push). The first run is pending. |
+| M1 chaos verification run and reference-hardware benchmark numbers in the claims register ([ADR-0011](adr/0011-delivery-guarantees-and-claims-register.md)) | Maintainer, reference hardware | **Open.** |
+| Name cleared: [ADR-0016](adr/0016-naming-and-publishing.md) Accepted | Maintainer | **Met** (2026-10-20), without a trademark search. |
+| Packages ready to publish: crate metadata, versioned internal dependencies, Python wheels and sdist, publish jobs | Engineering | **Met.** `cargo publish --workspace --dry-run` packages and builds all 23 crates; the wheel and sdist pass `twine check`. Nothing is published yet. |
+| Compatibility policy written: which surfaces stay stable across beta releases (WAL format, config syntax, CLI and exit codes, metric names, Parquet field IDs) | Maintainer | **Open.** |
+| Real-device runs for OPC UA (a PLC) and Sparkplug B (an edge node), or both stay labelled experimental in the docs | Maintainer | **Open.** |
+| Field reports from deployments outside the maintainer's own (`.github/ISSUE_TEMPLATE/field_report.md`) | Users | **Open.** |

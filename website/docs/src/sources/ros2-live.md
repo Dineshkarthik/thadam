@@ -4,10 +4,10 @@
 
 **Only the `rmw_zenoh` transport exists in this step.** Your ROS 2 nodes must use `RMW_IMPLEMENTATION=rmw_zenoh_cpp` (Jazzy/Lyrical package `ros-<distro>-rmw-zenoh-cpp`) and reach the same router. A `zenoh-bridge-ros2dds` sidecar mode — for nodes on their stock DDS — is a later step, and only if it turns out to be needed (the ROS 2 live spike report has the trade-offs).
 
-**The source is off by default.** Build `thadam-cli` with the `ros2-live` Cargo feature:
+**The source is off by default.** Build `thadam` with the `ros2-live` Cargo feature:
 
 ```console
-$ cargo run -p thadam-cli --features ros2-live -- run pipeline.yaml
+$ cargo run -p thadam --features ros2-live -- run pipeline.yaml
 ```
 
 `thadam validate` rejects `kind: ros2_live` without the feature. The feature pulls in Zenoh 1.10.1 (pinned exactly, matching the zenoh-c 1.10.x that Jazzy and Lyrical rmw_zenoh vendor); its `zenoh-config` crate has a mandatory `serde_yaml` dependency, exceptioned in `deny.toml` for that crate only, and `option-ext` (MPL-2.0) has a one-crate license exception. `zenoh-transport` also pins `lz4_flex` ^0.10, which carries RUSTSEC-2026-0041: accepted in `deny.toml` with a review-by date (no fixed 0.10.x release exists, thadam enables no zenoh compression features, and the exposure is the ROS LAN trust boundary) — re-pin when a zenoh release accepts `lz4_flex` ≥ 0.11.6.
@@ -105,7 +105,7 @@ A lost session (router restart, network partitioning) is re-established with jit
 The crate's end-to-end test spins up `rmw_zenohd` and the sensor-mix publisher (public `ros:jazzy-ros-base` image, pinned) from `crates/thadam-ros2-live/tests/assets/docker` and runs the real pipeline for ~10 s:
 
 ```console
-$ cargo nextest run -p thadam-cli --features ros2-live --run-ignored only -E 'binary(ros2_live_docker)'
+$ cargo nextest run -p thadam --features ros2-live --run-ignored only -E 'binary(ros2_live_docker)'
 ```
 
 It is `#[ignore]`d by default; unit tests run without Docker.

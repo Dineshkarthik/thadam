@@ -16,7 +16,7 @@ SHA). Never quote a figure from this directory without that metadata.
 - Release binaries of `thadam` and `thadam-simulator`:
 
   ```sh
-  cargo build --release -p thadam-cli -p thadam-simulator
+  cargo build --release -p thadam -p thadam-simulator
   ```
 
   The runner looks for `thadam` and `thadam-simulator` in this order: the

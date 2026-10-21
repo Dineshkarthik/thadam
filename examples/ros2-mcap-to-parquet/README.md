@@ -29,7 +29,7 @@ messages (six joints, 100 Hz) and 50 `/robot_pose` messages (frame `map`,
 - From the repository root, build the CLI:
 
 ```sh
-cargo build -p thadam-cli
+cargo build -p thadam
 ```
 
 Optional, for reading the output outside Thadam: Python with `pyarrow`

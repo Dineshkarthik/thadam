@@ -62,16 +62,39 @@ default-members = [
 exclude = ["spikes"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.0-beta.1"
 edition = "2024"
 rust-version = "1.89"
 license = "Apache-2.0"
-publish = false
+publish = true
 repository = "https://github.com/Dineshkarthik/thadam"
 homepage = "https://thadam.dineshkarthik.me"
+readme = "README.md"
 
 [workspace.dependencies]
-thadam-core = { path = "crates/thadam-core" }
+# Internal crates: bump these versions together with [workspace.package].version.
+thadam-core = { path = "crates/thadam-core", version = "0.1.0-beta.1" }
+thadam-config = { path = "crates/thadam-config", version = "0.1.0-beta.1" }
+thadam-wal = { path = "crates/thadam-wal", version = "0.1.0-beta.1" }
+thadam-transform = { path = "crates/thadam-transform", version = "0.1.0-beta.1" }
+thadam-runtime = { path = "crates/thadam-runtime", version = "0.1.0-beta.1" }
+thadam-arrow = { path = "crates/thadam-arrow", version = "0.1.0-beta.1" }
+thadam-segments = { path = "crates/thadam-segments", version = "0.1.0-beta.1" }
+thadam-object-store = { path = "crates/thadam-object-store", version = "0.1.0-beta.1" }
+thadam-mqtt = { path = "crates/thadam-mqtt", version = "0.1.0-beta.1" }
+thadam-ros2-msg = { path = "crates/thadam-ros2-msg", version = "0.1.0-beta.1" }
+thadam-http = { path = "crates/thadam-http", version = "0.1.0-beta.1" }
+thadam-grpc = { path = "crates/thadam-grpc", version = "0.1.0-beta.1" }
+thadam-mcap = { path = "crates/thadam-mcap", version = "0.1.0-beta.1" }
+thadam-modbus = { path = "crates/thadam-modbus", version = "0.1.0-beta.1" }
+thadam-nats = { path = "crates/thadam-nats", version = "0.1.0-beta.1" }
+thadam-kafka = { path = "crates/thadam-kafka", version = "0.1.0-beta.1" }
+thadam-can = { path = "crates/thadam-can", version = "0.1.0-beta.1" }
+thadam-clickhouse = { path = "crates/thadam-clickhouse", version = "0.1.0-beta.1" }
+thadam-opcua = { path = "crates/thadam-opcua", version = "0.1.0-beta.1" }
+thadam-ros2-live = { path = "crates/thadam-ros2-live", version = "0.1.0-beta.1" }
+thadam-sparkplug = { path = "crates/thadam-sparkplug", version = "0.1.0-beta.1" }
+thadam-iceberg = { path = "crates/thadam-iceberg", version = "0.1.0-beta.1" }
 
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 hyper = { version = "1", default-features = false, features = ["http1", "server"] }

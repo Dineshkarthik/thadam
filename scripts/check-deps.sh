@@ -48,21 +48,21 @@ def arrow_re: "^(arrow|arrow-.+|parquet)$";
 # thadam-python (sdk/python) is a second composition root alongside the CLI: it
 # builds the same registry and runs pipelines in-process.
 | {
-    "thadam-runtime": ["thadam-cli", "thadam-python"],
-    "thadam-mqtt": ["thadam-cli", "thadam-python"],
-    "thadam-http": ["thadam-cli", "thadam-python"],
-    "thadam-grpc": ["thadam-cli", "thadam-python"],
-    "thadam-segments": ["thadam-cli", "thadam-object-store", "thadam-iceberg", "thadam-python"],
-    "thadam-object-store": ["thadam-cli", "thadam-python"],
-    "thadam-clickhouse": ["thadam-cli"],
-    "thadam-mcap": ["thadam-cli"],
-    "thadam-modbus": ["thadam-cli"],
-    "thadam-can": ["thadam-cli"],
-    "thadam-nats": ["thadam-cli"],
-    "thadam-kafka": ["thadam-cli"],
-    "thadam-opcua": ["thadam-cli"],
-    "thadam-ros2-live": ["thadam-cli"],
-    "thadam-iceberg": ["thadam-cli"],
+    "thadam-runtime": ["thadam", "thadam-python"],
+    "thadam-mqtt": ["thadam", "thadam-python"],
+    "thadam-http": ["thadam", "thadam-python"],
+    "thadam-grpc": ["thadam", "thadam-python"],
+    "thadam-segments": ["thadam", "thadam-object-store", "thadam-iceberg", "thadam-python"],
+    "thadam-object-store": ["thadam", "thadam-python"],
+    "thadam-clickhouse": ["thadam"],
+    "thadam-mcap": ["thadam"],
+    "thadam-modbus": ["thadam"],
+    "thadam-can": ["thadam"],
+    "thadam-nats": ["thadam"],
+    "thadam-kafka": ["thadam"],
+    "thadam-opcua": ["thadam"],
+    "thadam-ros2-live": ["thadam"],
+    "thadam-iceberg": ["thadam"],
     "thadam-testkit": []
   } as $allowed_dependents
 
@@ -87,7 +87,7 @@ def arrow_re: "^(arrow|arrow-.+|parquet)$";
       | "composition-root: \($member) must not depend on \($d) (allowed dependents: \($allowed_dependents[$d] | if length == 0 then "none, dev-dependency only" else join(", ") end))"),
 
     ($members[] as $member
-      | select($member != "thadam-cli" and $member != "thadam-python")
+      | select($member != "thadam" and $member != "thadam-python")
       | select(reach($adj; $member) | index("thadam-runtime") != null)
       | "runtime-reach: \($member) must not depend, even transitively, on thadam-runtime"),
 

@@ -64,7 +64,7 @@ require_uint() {
 # another cargo job holds the target directory lock).
 ensure_binaries() {
   if [ "${CHAOS_SKIP_BUILD:-0}" != "1" ]; then
-    cargo build -q --manifest-path "$WORKSPACE_DIR/Cargo.toml" -p thadam-cli -p thadam-simulator
+    cargo build -q --manifest-path "$WORKSPACE_DIR/Cargo.toml" -p thadam -p thadam-simulator
   fi
   [ -x "$THADAM_BIN" ] || die "thadam binary missing at $THADAM_BIN"
   [ -x "$SIM_BIN" ] || die "thadam-simulator binary missing at $SIM_BIN"

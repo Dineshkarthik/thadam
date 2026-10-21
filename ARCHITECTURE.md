@@ -417,7 +417,7 @@ A segment sink with a fixed schema: `_wal_epoch`, `_wal_pos`, `_ingest_time`, `s
 
 ## 9. Crate map and dependency rules
 
-The workspace comprises 27 members (`crates/*`, `apps/thadam-cli`, `tools/*`, and `sdk/python`), split by dependency weight and change rate (D20). All crates are `publish = false` until the naming ADR ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Draft) is accepted.
+The workspace comprises 27 members (`crates/*`, `apps/thadam-cli`, `tools/*`, and `sdk/python`), split by dependency weight and change rate (D20). The `thadam` CLI package (in `apps/thadam-cli`) and the 22 library crates other than `thadam-testkit` are publishable to crates.io; `thadam-testkit`, `tools/*`, and `thadam-python` (published to PyPI as `thadam` instead) are `publish = false` ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Accepted).
 
 ```text
 crates/thadam-core          model, errors, positions, connector traits, clock, shutdown, disk budget, schema/birth stores
@@ -483,7 +483,7 @@ flowchart TD
 - Connector crates never depend on `thadam-runtime`. Only `apps/thadam-cli` composes everything.
 - Arrow appears only in `thadam-arrow`, `thadam-segments`, and `thadam-clickhouse`, and only as sub-crates (`arrow-array`, `arrow-schema`, `arrow-buffer`, `arrow-ipc`), never the umbrella `arrow` crate. Arrow types never appear in `thadam-core`, `thadam-transform`, or `thadam-runtime` APIs.
 - `thadam-testkit` is never a production dependency.
-- All 27 members are in the workspace; `sdk/python` is excluded from `default-members` so plain Cargo commands do not require a Python toolchain, and `opcua`, `ros2-live`, and `iceberg` are behind opt-in Cargo features on `thadam-cli` (`clickhouse` is on by default).
+- All 27 members are in the workspace; `sdk/python` is excluded from `default-members` so plain Cargo commands do not require a Python toolchain, and `opcua`, `ros2-live`, and `iceberg` are behind opt-in Cargo features on `thadam` (`clickhouse` is on by default).
 - Workspace policy: `unsafe_code = "forbid"` (filesystem syscalls go through `rustix`'s safe API), `clippy::unwrap_used` and `clippy::expect_used` denied outside tests, `missing_docs` warn, `#[non_exhaustive]` on public enums and config structs, and `panic = "unwind"` in release builds so task-boundary panic isolation works.
 
 ### Ambiguity found while consolidating (O1)
@@ -701,7 +701,7 @@ All ADRs are in `docs/design/adr/`. Process and template: `0000-adr-process.md` 
 - ADR-0013 Parquet segment layout: **Accepted** (maintainer, 2026-10-07). O4, O5, and the unsigned default (`Native`) are closed (ADR-0013 "PR13 implementation decisions").
 - ADR-0014 Time and clock semantics: Reserved. Content is folded into ADR-0001 (D15) and ADR-0013 (D14, D16).
 - ADR-0015 Recording and replay format: Draft (2026-10-10). Records the export decisions; `thadam export --mcap` implements it.
-- [ADR-0016](docs/design/adr/0016-naming-and-publishing.md) Naming and publishing: Draft (2026-10-14). Name clearance is pending; all crates stay `publish = false` until accepted.
+- [ADR-0016](docs/design/adr/0016-naming-and-publishing.md) Naming and publishing: Accepted (2026-10-20, without a trademark search). 23 crates go to crates.io and the Python package to PyPI, from `release.yml` on a version tag.
 - ADR-0017 Plugin mechanism: Reserved. Compile-time features now; out-of-process later; Rust dynamic libraries rejected because Rust has no stable ABI.
 - ADR-0018 Filter and expression language: **Accepted** (maintainer, 2026-10-07): structured YAML predicates for the MVP, CEL reserved for a future ADR.
 - ADR-0019 Transform semantics (deduplication, deadband, sampling): Reserved. Content is in section 7 and ADR-0011.
@@ -838,8 +838,8 @@ Spikes are throwaway experiments whose reports live in `docs/design/spikes/`. Co
   - **Chaos verification and benchmarks ([ADR-0011](docs/design/adr/0011-delivery-guarantees-and-claims-register.md)):** Full M1 chaos verification run (F1 to F10, `thadam:failpoints`, kill -9 and LazyFS suites) and first published benchmark results (`thadam-bench` M1 to M7 on x86_64 and ARM64) for the claims register.
 - **M2 (ROS 2, outside v0.1):** Offline ROS 2 (`thadam-ros2-msg`, `thadam-mcap`, `thadam export --mcap`, `examples/ros2-mcap-to-parquet`) and the live-transport spike (`docs/design/spikes/S3-ros2-live.md`) are complete. `thadam-ros2-live` (`kind: ros2_live` over `rmw_zenoh`, behind the opt-in `ros2-live` feature) is experimental while [ADR-0007](docs/design/adr/0007-ros2-strategy.md) stays Draft; `zenoh-bridge-ros2dds` sidecar mode, liveliness discovery, and ARM reference-hardware benchmarks remain open.
 - **M3 (ClickHouse, P1, outside the M1 reliability gate):** `thadam-clickhouse` is implemented and Docker-tested (startup probe of table settings, deterministic dedup tokens, bisect for poison rows). Still open before [ADR-0008](docs/design/adr/0008-clickhouse-sink.md) leaves Draft: the HTTP-vs-native client benchmark (B8) and the `examples/edge-analytics` example. If capacity tightens, the remaining M3 items defer without affecting M1.
-- **Deferred beyond current pre-alpha scope:** OpenTelemetry trace export (`otlp`), `thadam inspect --suggest-schema`, `thadam replay --speed`, WASM and in-chain ML inference transforms (`docs/design/advanced-processing.md`), Iceberg compaction and partitioning, and remaining Tier-2 / P2 connectors and managed destinations (see `docs/design/readiness.md`).
-- **Publishing gate ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Draft):** Every workspace crate stays `publish = false` and no package is published to crates.io or PyPI until [ADR-0016](docs/design/adr/0016-naming-and-publishing.md) is accepted.
+- **Deferred beyond the current beta scope:** OpenTelemetry trace export (`otlp`), `thadam inspect --suggest-schema`, `thadam replay --speed`, WASM and in-chain ML inference transforms (`docs/design/advanced-processing.md`), Iceberg compaction and partitioning, and remaining Tier-2 / P2 connectors and managed destinations (see `docs/design/readiness.md`).
+- **Publishing ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Accepted):** The packages are ready to publish, but nothing is on crates.io or PyPI until the first `v*` tag is approved in the `crates-io` and `pypi` GitHub environments.
 
 ---
 

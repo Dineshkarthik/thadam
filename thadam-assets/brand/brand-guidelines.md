@@ -39,7 +39,7 @@ Check contrast for UI text independently. Orange is an accent, not a colour for 
 - `tokens/thadam.css`, `tokens/colors.json`: colour tokens.
 
 ## Naming and legal note
-Thadam is the selected project identity, not a claim of trademark or domain availability. Name clearance (GitHub, crates.io, package registries, domains, trademark databases) is pending and must be done before public launch. The SVG geometry, font rendering, and small-size legibility should also be reviewed before launch.
+Thadam is the project name, not a claim of trademark or domain availability. The GitHub, crates.io, and PyPI checks are recorded in ADR-0016 (Accepted); no trademark search has been done. The SVG geometry, font rendering, and small-size legibility should also be reviewed before launch.
 
 Trademark use of the name and logos is covered in [License and trademark use](../README.md#license-and-trademark-use).
 

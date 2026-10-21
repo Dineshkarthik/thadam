@@ -2,7 +2,7 @@
 
 ## Is Thadam production-ready?
 
-No — it is pre-alpha. The architecture is settled, the core crates are tested, and `thadam run` executes a pipeline end to end. The WAL's on-disk format is not frozen yet: it freezes at the v0.1.0 tag, after the ADR-0004 re-run on reference hardware. See the [status banner](https://github.com/Dineshkarthik/thadam/blob/main/README.md) and [roadmap](roadmap.md).
+No — it is in beta. The architecture is settled, the core crates are tested, and `thadam run` executes a pipeline end to end. The WAL's on-disk format is not frozen yet: it freezes at the v0.1.0 tag, after the ADR-0004 re-run on reference hardware. See the [status banner](https://github.com/Dineshkarthik/thadam/blob/main/README.md) and [roadmap](roadmap.md).
 
 ## Does Thadam guarantee exactly-once delivery?
 
@@ -42,4 +42,4 @@ Linux ARM64 and x86_64 are supported and are the only durability targets, on ind
 
 ## Where is the Python SDK?
 
-The SDK is implemented in `sdk/python/` (PyO3 and maturin) and documented in the [Python SDK](sdk/python.md) page; build it from a checkout with `maturin develop`. It is not published to any package registry: its package version is `0.1.0`.
+The SDK is implemented in `sdk/python/` (PyO3 and maturin) and documented in the [Python SDK](sdk/python.md) page; build it from a checkout with `maturin develop`. It is not published to any package registry yet: its package version is `0.1.0b1` (Cargo `0.1.0-beta.1`).

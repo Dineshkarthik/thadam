@@ -12,12 +12,12 @@ Out of scope for the private channel: missing features, performance questions, a
 
 ## Supported versions
 
-Thadam is **pre-release** software (pre-alpha; no versioned releases yet). There is no stable branch and no back-porting program: security fixes land on `main` and everyone is expected to follow it. Once numbered releases begin, this policy will name the supported lines.
+Thadam is **beta** software (`0.1.0-beta.N` pre-releases). There is no stable branch and no back-porting program: security fixes land on `main` and ship in the next beta. Once `0.1.0` is released, this policy will name the supported lines.
 
 | Version | Status |
 |---|---|
-| `main` (pre-release) | Supported — fixes land here |
-| any older commit | Not supported — upgrade |
+| `main` and the latest `0.1.0-beta.N` | Supported — fixes land here |
+| older betas and commits | Not supported — upgrade |
 
 ## Scope notes and documented limits
 

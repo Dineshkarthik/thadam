@@ -12,7 +12,7 @@
 //! cargo run -p thadam-mcap --example make_ros2_sample -- examples/ros2-mcap-to-parquet/data/sample.mcap
 //! ```
 //!
-//! The thadam-cli smoke test includes this file as a module, so the sample it
+//! The thadam smoke test includes this file as a module, so the sample it
 //! checks is the one this program writes.
 
 #![allow(dead_code)]

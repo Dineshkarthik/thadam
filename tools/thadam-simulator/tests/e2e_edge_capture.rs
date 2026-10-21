@@ -21,7 +21,7 @@
 //! Images: public Docker Hub only, pinned by tag (`eclipse-mosquitto:2`);
 //! re-pin with `THADAM_TEST_MQTT_IMAGE`. The `docker` and `curl` CLIs must be
 //! available. The `thadam` binary is expected as a sibling of the simulator
-//! test binaries, or built on demand with `cargo build -p thadam-cli`.
+//! test binaries, or built on demand with `cargo build -p thadam`.
 //! Containers are labelled `thadam-simulator-e2e` and removed when the test
 //! ends, including on panic.
 
@@ -73,11 +73,11 @@ fn thadam_bin() -> PathBuf {
     }
     let root = workspace_root();
     let status = Command::new("cargo")
-        .args(["build", "-p", "thadam-cli"])
+        .args(["build", "-p", "thadam"])
         .current_dir(&root)
         .status()
-        .expect("cargo build -p thadam-cli");
-    assert!(status.success(), "cargo build -p thadam-cli failed");
+        .expect("cargo build -p thadam");
+    assert!(status.success(), "cargo build -p thadam failed");
     root.join("target/debug/thadam")
 }
 
