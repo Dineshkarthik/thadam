@@ -2,6 +2,8 @@
 
 **Thadam is the open data plane for robotics.** It connects robotic and industrial data sources to modern data platforms with edge-native processing, durable buffering, and flexible sinks.
 
+The name comes from Tamil <span lang="ta">தடம்</span> (thadam): track, trail, trace, path.
+
 Concretely, Thadam is a single Rust binary that runs next to your data producers — on an industrial PC, a robot's edge computer, a factory server, or a laptop — and takes responsibility for the whole journey of a telemetry message:
 
 1. **Capture.** Messages from sources such as MQTT brokers are appended to a local, durable write-ahead log (WAL) and flushed to disk *before* the source is acknowledged. Acknowledged data survives a process crash when `fsync` is enabled ([claims register](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0011-delivery-guarantees-and-claims-register.md)).

@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **ADR-0016 Accepted** (2026-10-20): the crates.io, PyPI, and GitHub name checks found no conflict; no trademark search was done.
 - **Beta**: the project status is now beta in the README, homepage, docs, SECURITY, and CONTRIBUTING. Every crate is version `0.1.0-beta.1`, and the Python package is `0.1.0b1` (PyPI classifier `Development Status :: 4 - Beta`).
 - **Website and docs sync**: marked `ROS 2 live` (`kind: ros2_live`, opt-in `ros2-live` feature) and `Iceberg` (`kind: iceberg`, opt-in `iceberg` feature) as `Available` (experimental) across the homepage, user docs, `readiness.md`, `ARCHITECTURE.md`, and `README.md`; unified the navigation header, typography, sidebar, tables, and code blocks across `/`, `/404.html`, and `/docs/` using `thadam-wordmark-{light,dark}.svg` (`165×28`) and `thadam.css` tokens; fixed `edit-url-template` in `website/docs/book.toml`; synced `thadam validate` outputs in the getting-started guides; added the `S3` and Sparkplug B spike reports to the design index; marked the Python SDK page status; and updated the roadmap and README to reflect OAuth2 401 token refresh in `thadam-iceberg`.
+- **Project name origin**: the homepage footer and the docs introduction give the Tamil meaning of "Thadam" (தடம், track, trail, trace, path), as recorded in ADR-0016.
 
 ### Security
 
