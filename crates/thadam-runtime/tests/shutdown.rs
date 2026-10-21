@@ -9,7 +9,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use common::*;
 use thadam_core::{
-    BatchLimits, ErrorDomain, ThadamError, Shutdown, Source, SourceBatch, SourceContext, codes,
+    BatchLimits, ErrorDomain, Shutdown, Source, SourceBatch, SourceContext, ThadamError, codes,
 };
 use thadam_runtime::{ComponentState, ExitStatus, Phase, Pipeline};
 use thadam_testkit::{MemorySource, MemorySourceConfig, TempDataDir};
@@ -25,7 +25,10 @@ impl Source for LoggingSource {
     async fn open(&mut self, ctx: &SourceContext) -> Result<(), ThadamError> {
         self.inner.open(ctx).await
     }
-    async fn next_batch(&mut self, limits: BatchLimits) -> Result<Option<SourceBatch>, ThadamError> {
+    async fn next_batch(
+        &mut self,
+        limits: BatchLimits,
+    ) -> Result<Option<SourceBatch>, ThadamError> {
         self.inner.next_batch(limits).await
     }
     async fn close(&mut self) -> Result<(), ThadamError> {

@@ -9,13 +9,13 @@ use std::path::Path;
 
 use common::*;
 use prost::Message as _;
+use serde_json::{Value as Json, json};
 use thadam_core::{BirthStore, QualityFlags, QualityStatus, Value, codes};
 use thadam_sparkplug::pb::{
     self, DataType as D,
     payload::{Metric, metric::Value as V},
 };
 use thadam_transform::{Chain, ChainLimits, ChainSpec};
-use serde_json::{Value as Json, json};
 
 fn spec(births: &Path) -> ChainSpec {
     ChainSpec::from_value(json!({ "datasets": [dataset(), samples_dataset()] }))

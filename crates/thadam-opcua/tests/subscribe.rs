@@ -10,12 +10,12 @@ mod support;
 use std::result::Result as StdResult;
 use std::time::Duration;
 
-use thadam_core::{ThadamError, Shutdown, codes};
 use serde_json::{Value, json};
 use support::{
     USERNAME, bad_sensor_value, base_config, collect_until, limits, open_source, payload,
     spin_ticks, start_server,
 };
+use thadam_core::{Shutdown, ThadamError, codes};
 use tokio::sync::Mutex;
 
 const T: Duration = Duration::from_secs(10);

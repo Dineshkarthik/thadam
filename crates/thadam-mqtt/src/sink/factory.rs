@@ -114,8 +114,8 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use thadam_core::{DatasetDecl, LevelDecl, SystemClock};
     use serde_json::json;
+    use thadam_core::{DatasetDecl, LevelDecl, SystemClock};
 
     use super::*;
 

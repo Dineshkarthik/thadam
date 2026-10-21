@@ -7,11 +7,11 @@
 use std::fs;
 use std::path::Path;
 
+use serde_json::{Value, json};
 use thadam_config::{
     CheckOptions, Checked, EnrichFormat, MapEnv, OnMissSpec, Predicate, Test, TimeUnit,
     TransformSpec, WatchField, check_str,
 };
-use serde_json::{Value, json};
 
 fn minimal() -> String {
     fs::read_to_string(

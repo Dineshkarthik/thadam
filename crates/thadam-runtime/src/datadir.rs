@@ -21,9 +21,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde::{Deserialize, Serialize};
 use thadam_config::PipelineSpec;
 use thadam_core::{ErrorDomain, ThadamError, WalEpoch, codes, write_atomic};
-use serde::{Deserialize, Serialize};
 
 use crate::chain::wal_error;
 use crate::plan::cursor_name;

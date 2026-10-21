@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use thadam_core::{
-    DatasetEvents, ErrorDomain, Event, Retry, ThadamError, SegmentBatch, SegmentSink, Shutdown,
-    SinkContext, Sym, Timestamp, WalPos, WalRange, codes,
+    DatasetEvents, ErrorDomain, Event, Retry, SegmentBatch, SegmentSink, Shutdown, SinkContext,
+    Sym, ThadamError, Timestamp, WalPos, WalRange, codes,
 };
 use thadam_wal::{CursorState, Wal};
 use tokio::sync::{oneshot, watch};

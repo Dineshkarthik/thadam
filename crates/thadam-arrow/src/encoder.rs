@@ -10,8 +10,8 @@ use arrow_array::{
 };
 use arrow_buffer::Buffer;
 use thadam_core::{
-    AssetPath, ErrorDomain, Event, EventBatch, Payload, QualityStatus, Record, Reject, ThadamError,
-    ShapeKey, TimeDomain, Timestamp, Value, WalEpoch, codes,
+    AssetPath, ErrorDomain, Event, EventBatch, Payload, QualityStatus, Record, Reject, ShapeKey,
+    ThadamError, TimeDomain, Timestamp, Value, WalEpoch, codes,
 };
 
 use crate::column::{Col, Fail, Prim, UTC};

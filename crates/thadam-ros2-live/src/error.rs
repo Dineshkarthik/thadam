@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use thadam_core::{Classify, ErrorDomain, Retry, ThadamError, Severity, codes};
+use thadam_core::{Classify, ErrorDomain, Retry, Severity, ThadamError, codes};
 
 /// Why a live ROS 2 source operation failed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

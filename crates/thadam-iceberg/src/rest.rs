@@ -455,9 +455,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn oauth2_commit_refreshes_expired_token_once_and_fails_when_rejected() {
-        use thadam_core::{Classify, ErrorDomain, Retry, codes};
         use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
+        use thadam_core::{Classify, ErrorDomain, Retry, codes};
 
         let _ = rustls::crypto::ring::default_provider().install_default();
         let (_dir, table) = memory_table().await;

@@ -10,8 +10,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use thadam_core::{Clock, RawMessage, Shutdown, Timestamp};
 use serde_json::{Map, Value};
+use thadam_core::{Clock, RawMessage, Shutdown, Timestamp};
 use tokio::sync::mpsc;
 use tokio_modbus::client::{Context, Reader, tcp};
 use tokio_modbus::{ExceptionCode, Slave};

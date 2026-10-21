@@ -11,12 +11,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::{Msg, write_mcap};
+use serde_json::{Value, json};
 use thadam_core::{
     AckOutcome, BatchLimits, RawMessage, Shutdown, Source, SourceContext, SourceId, SystemClock,
     codes,
 };
 use thadam_mcap::{McapConfig, McapSource, attr};
-use serde_json::{Value, json};
 
 fn limits() -> BatchLimits {
     BatchLimits {

@@ -5,10 +5,10 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use reqwest::StatusCode;
+use serde_json::{Value, json};
 use thadam_core::{AckOutcome, BatchLimits, Shutdown, Source, SourceContext, SourceId};
 use thadam_http::HttpSource;
 use thadam_testkit::FakeClock;
-use serde_json::{Value, json};
 
 async fn open(config: Value) -> (HttpSource, SocketAddr) {
     let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();

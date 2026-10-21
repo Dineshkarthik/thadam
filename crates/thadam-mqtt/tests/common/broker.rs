@@ -128,7 +128,11 @@ impl Broker {
              them (they are #[ignore]d by default)"
         );
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let name = format!("thadam-mqtt-test-{}-{n}-{}", std::process::id(), kind.name());
+        let name = format!(
+            "thadam-mqtt-test-{}-{n}-{}",
+            std::process::id(),
+            kind.name()
+        );
         let conf = tempfile::tempdir().expect("broker conf dir");
         let port = free_port();
         let window = opts.max_inflight.unwrap_or(kind.default_window());

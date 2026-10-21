@@ -21,11 +21,11 @@ use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
 use common::*;
-use thadam_core::{BatchSink, DeliveryClass, ErrorDomain, Retry, SinkBatch, codes};
-use thadam_kafka::sink::EVENT_ID_HEADER;
 use rskafka::client::partition::UnknownTopicHandling;
 use serde_json::json;
 use tempfile::TempDir;
+use thadam_core::{BatchSink, DeliveryClass, ErrorDomain, Retry, SinkBatch, codes};
+use thadam_kafka::sink::EVENT_ID_HEADER;
 
 const TOPIC: &str = "telemetry.imu.r7";
 const RETRY_TIMEOUT: Duration = Duration::from_secs(120);

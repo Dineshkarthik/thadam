@@ -44,13 +44,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use object_store::{ObjectStore, ObjectStoreExt};
+use sha2::{Digest, Sha256};
+use tempfile::TempDir;
 use thadam_core::{
     BudgetCategory, BuildContext, DiskBudget, ServiceContext, ServiceFactory, SharedObjects,
     Shutdown, SystemClock, WalEpoch, WalPos, WalRange, codes,
 };
 use thadam_segments::{SegmentCatalog, SegmentId, SegmentRecord};
-use sha2::{Digest, Sha256};
-use tempfile::TempDir;
 
 use thadam_object_store::{ObjectStoreShipperFactory, ShipMetrics};
 

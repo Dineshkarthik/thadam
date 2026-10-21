@@ -4,9 +4,9 @@
 
 use std::collections::BTreeSet;
 
-use thadam_core::{ErrorDomain, Retry, codes};
 use serde_json::{Value, json};
 use tempfile::TempDir;
+use thadam_core::{ErrorDomain, Retry, codes};
 
 use super::{TOPIC, want_ids};
 use crate::common::certs::Pki;

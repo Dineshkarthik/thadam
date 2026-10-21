@@ -6,8 +6,8 @@ mod common;
 use std::time::Duration;
 
 use common::{client, config, next, open, publish};
-use thadam_core::{AckOutcome, Source, SourceBatch};
 use serde_json::json;
+use thadam_core::{AckOutcome, Source, SourceBatch};
 use tonic::{Code, Request};
 
 fn payloads(n: usize) -> Vec<thadam_grpc::proto::PublishRequest> {

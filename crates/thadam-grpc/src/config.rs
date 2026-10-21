@@ -4,8 +4,8 @@ use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 
-use thadam_core::{ErrorDomain, ThadamError, codes};
 use serde::Deserialize;
+use thadam_core::{ErrorDomain, ThadamError, codes};
 
 /// The largest message accepted by default: 1 MiB.
 pub const DEFAULT_MAX_MESSAGE_BYTES: u64 = 1 << 20;

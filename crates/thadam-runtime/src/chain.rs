@@ -4,7 +4,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use thadam_core::{
-    Classify, ErrorDomain, QualityFlags, RawBatch, ThadamError, Shutdown, WalEpoch, WalPos,
+    Classify, ErrorDomain, QualityFlags, RawBatch, Shutdown, ThadamError, WalEpoch, WalPos,
     WalRange, codes,
 };
 use thadam_transform::{
@@ -117,7 +117,11 @@ pub(crate) fn try_process(
 }
 
 /// Every record of `frame` as a reject with `error`.
-pub(crate) fn reject_frame(epoch: WalEpoch, frame: &Frame, error: &ThadamError) -> Vec<RejectedRaw> {
+pub(crate) fn reject_frame(
+    epoch: WalEpoch,
+    frame: &Frame,
+    error: &ThadamError,
+) -> Vec<RejectedRaw> {
     let batch = frame.to_raw_batch();
     batch
         .messages

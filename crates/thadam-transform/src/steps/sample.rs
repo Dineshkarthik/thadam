@@ -7,7 +7,7 @@
 //! kept event; if ingest time steps backwards the baseline restarts and the
 //! event is kept. With both, an event must pass the count rule first.
 
-use thadam_core::{Event, ThadamError, ShapeRef};
+use thadam_core::{Event, ShapeRef, ThadamError};
 
 use super::state::AssetMap;
 use super::{Compiled, Step, StepCtx, StepResult, config_error};
@@ -96,8 +96,8 @@ impl Step for Sample {
 mod tests {
     use super::*;
     use crate::testutil::{event, shape, with_ctx};
-    use thadam_core::{FieldType, Value};
     use serde_json::json;
+    use thadam_core::{FieldType, Value};
 
     fn s() -> ShapeRef {
         shape(&[("v", FieldType::I64)])

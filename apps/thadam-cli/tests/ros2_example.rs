@@ -32,8 +32,10 @@ impl TempDir {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir =
-            std::env::temp_dir().join(format!("thadam-ros2-example-{}-{nanos}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "thadam-ros2-example-{}-{nanos}",
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).unwrap();
         Self(dir)
     }

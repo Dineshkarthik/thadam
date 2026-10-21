@@ -5,7 +5,7 @@
 //! optional value is never flagged. A `NaN` is out of range.
 
 use thadam_core::{
-    ErrorDomain, Event, FieldIdx, Payload, QualityFlags, QualityStatus, ThadamError, ShapeRef, Sym,
+    ErrorDomain, Event, FieldIdx, Payload, QualityFlags, QualityStatus, ShapeRef, Sym, ThadamError,
     codes,
 };
 
@@ -157,8 +157,8 @@ fn mismatch(message: &str) -> ThadamError {
 mod tests {
     use super::*;
     use crate::testutil::{event, shape, with_ctx};
-    use thadam_core::{FieldType, Quality, Value};
     use serde_json::json;
+    use thadam_core::{FieldType, Quality, Value};
 
     fn build(spec: serde_json::Value, shape: &ShapeRef) -> Result<Box<dyn Step>, Vec<ThadamError>> {
         let spec: ValidateSpec = serde_json::from_value(spec).unwrap();

@@ -3,9 +3,9 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use thadam_core::{ErrorDomain, ThadamError, codes};
 use serde::Deserialize;
 use serde::de::{self, Deserializer};
+use thadam_core::{ErrorDomain, ThadamError, codes};
 
 /// Longest Linux network interface name (`IFNAMSIZ - 1`).
 const MAX_INTERFACE_LEN: usize = 15;
@@ -273,8 +273,8 @@ pub fn config_schema() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thadam_core::codes;
     use serde_json::json;
+    use thadam_core::codes;
 
     fn problems_of(value: serde_json::Value) -> Vec<(&'static str, String)> {
         match CanConfig::from_value(&value) {

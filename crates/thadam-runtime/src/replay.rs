@@ -12,14 +12,14 @@
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
+use serde::Serialize;
 use thadam_config::PipelineSpec;
 use thadam_core::{
-    BuildContext, ErrorDomain, ThadamError, SegmentBatch, SegmentSink, Shutdown, SinkContext,
-    SinkId, WalPos, codes,
+    BuildContext, ErrorDomain, SegmentBatch, SegmentSink, Shutdown, SinkContext, SinkId,
+    ThadamError, WalPos, codes,
 };
 use thadam_transform::Chain;
 use thadam_wal::{ReadItem, StartFrom};
-use serde::Serialize;
 
 use crate::chain::{clock_groups, group_range, read_now, try_process, wal_error, warm};
 use crate::datadir::{self, Layout};

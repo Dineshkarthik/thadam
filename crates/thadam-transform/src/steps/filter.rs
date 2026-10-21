@@ -1,6 +1,6 @@
 //! `filter`: drops events that do not satisfy a structured predicate.
 
-use thadam_core::{ErrorDomain, Event, ThadamError, ShapeRef, codes};
+use thadam_core::{ErrorDomain, Event, ShapeRef, ThadamError, codes};
 
 use super::{Compiled, Step, StepCtx, StepResult, config_error};
 use crate::predicate::{Env, Predicate, compile as compile_predicate};
@@ -60,8 +60,8 @@ impl Step for Filter {
 mod tests {
     use super::*;
     use crate::testutil::{event, shape, with_ctx};
-    use thadam_core::{FieldType, Value};
     use serde_json::json;
+    use thadam_core::{FieldType, Value};
 
     fn build(spec: serde_json::Value, s: &ShapeRef) -> Result<Box<dyn Step>, Vec<ThadamError>> {
         let spec: FilterSpec = serde_json::from_value(spec).unwrap();

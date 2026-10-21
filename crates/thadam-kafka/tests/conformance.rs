@@ -21,16 +21,16 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use common::{Broker, Opts, create_topic};
+use rskafka::client::Client;
+use rskafka::client::partition::{OffsetAt, PartitionClient, UnknownTopicHandling};
 use thadam_core::{
-    BatchId, BatchSink, BatchSinkFactory, BuildContext, DatasetDecl, ThadamError, SinkBatch,
-    SinkCapabilities, SinkContext, SystemClock, WriteOutcome,
+    BatchId, BatchSink, BatchSinkFactory, BuildContext, DatasetDecl, SinkBatch, SinkCapabilities,
+    SinkContext, SystemClock, ThadamError, WriteOutcome,
 };
 use thadam_kafka::KafkaSinkFactory;
 use thadam_testkit::conformance::batch_sink::{
     BatchSinkCase, BatchSinkFixture, BatchSinkProbe, InjectedFault, run_all,
 };
-use rskafka::client::Client;
-use rskafka::client::partition::{OffsetAt, PartitionClient, UnknownTopicHandling};
 use tokio::runtime::Handle;
 
 /// Pre-created topics, one per conformance case (the suite opens a fresh

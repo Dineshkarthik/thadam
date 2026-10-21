@@ -153,9 +153,9 @@ pub(crate) fn verify_remote(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use thadam_core::{Timestamp, WalEpoch, WalPos, WalRange};
     use thadam_segments::SegmentId;
-    use std::path::PathBuf;
 
     fn record(path: &str, dataset: &str) -> SegmentRecord {
         SegmentRecord::new(

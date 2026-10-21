@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use lru::LruCache;
-use thadam_core::{Attributes, Clock, RawMessage, ThadamError, Sym, Utf8Bytes};
+use thadam_core::{Attributes, Clock, RawMessage, Sym, ThadamError, Utf8Bytes};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 

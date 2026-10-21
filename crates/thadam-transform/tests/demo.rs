@@ -4,11 +4,11 @@
 mod common;
 
 use common::*;
+use serde_json::json;
 use thadam_core::{
     ErrorDomain, QualityFlags, QualityStatus, TimeDomain, Timestamp, Value, WalPos, codes,
 };
 use thadam_transform::{Chain, ChainLimits, ChainSpec};
-use serde_json::json;
 
 fn record(e: &thadam_core::Event) -> &thadam_core::Record {
     e.payload().as_record().unwrap()

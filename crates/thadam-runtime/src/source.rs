@@ -8,8 +8,8 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use thadam_core::{
-    AckHandle, AckOutcome, BatchLimits, Clock, RawBatch, ThadamError, Shutdown, Source, SourceBatch,
-    SourceContext, SourceId, WalRange,
+    AckHandle, AckOutcome, BatchLimits, Clock, RawBatch, Shutdown, Source, SourceBatch,
+    SourceContext, SourceId, ThadamError, WalRange,
 };
 use thadam_wal::{CommitTicket, WalError, WalWriter};
 

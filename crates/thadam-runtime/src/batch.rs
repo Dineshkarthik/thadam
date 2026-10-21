@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use thadam_core::{
-    BatchSink, Event, EventBatch, Retry, ThadamError, Shutdown, SinkBatch, SinkContext, WalPos,
+    BatchSink, Event, EventBatch, Retry, Shutdown, SinkBatch, SinkContext, ThadamError, WalPos,
     WalRange,
 };
 use thadam_transform::RejectedRaw;

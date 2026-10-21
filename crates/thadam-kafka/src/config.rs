@@ -9,8 +9,8 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use thadam_core::{ErrorDomain, ThadamError, codes};
 use serde::Deserialize;
+use thadam_core::{ErrorDomain, ThadamError, codes};
 
 use crate::template::{KeyTemplate, TopicTemplate};
 

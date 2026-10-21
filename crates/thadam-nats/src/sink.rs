@@ -24,8 +24,8 @@ use async_nats::{ConnectOptions, HeaderMap};
 use async_trait::async_trait;
 use bytes::Bytes;
 use thadam_core::{
-    BatchSink, DeliveryClass, ErrorDomain, Reject, ThadamError, SinkBatch, SinkCapabilities,
-    SinkContext, WriteOutcome, codes,
+    BatchSink, DeliveryClass, ErrorDomain, Reject, SinkBatch, SinkCapabilities, SinkContext,
+    ThadamError, WriteOutcome, codes,
 };
 use tokio_rustls::rustls::crypto::ring;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};

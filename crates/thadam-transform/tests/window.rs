@@ -10,9 +10,9 @@ mod common;
 use std::collections::HashMap;
 
 use common::{Frames, SOURCE, message, run, topic, warm};
+use serde_json::json;
 use thadam_core::{Event, SourceId, WalEpoch, WalPos};
 use thadam_transform::{Chain, ChainLimits, ChainSpec, FrameInput, RawRecordView};
-use serde_json::json;
 
 const FRAMES: u64 = 90;
 

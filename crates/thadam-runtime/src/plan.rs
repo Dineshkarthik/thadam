@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde_json::{Map, Value, json};
 use thadam_config::{
     DatasetSpec, DecodeFormat, FsyncSpec, MaxLagSpec, OnFull as ConfigOnFull, PipelineSpec,
     SinkSpec, StartFromSpec, TransformSpec,
@@ -14,7 +15,6 @@ use thadam_core::{
 };
 use thadam_transform::ChainSpec;
 use thadam_wal::{ConsumerSpec, Fsync, MaxLag, OnFull, StartFrom, WalOptions};
-use serde_json::{Map, Value, json};
 
 /// The WAL cursor of a sink's chain.
 pub(crate) fn cursor_name(sink_id: &str) -> String {

@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use thadam_core::{ErrorDomain, FieldType, Record, ThadamError, Timestamp, Value, codes};
 use serde_json::Value as Json;
+use thadam_core::{ErrorDomain, FieldType, Record, ThadamError, Timestamp, Value, codes};
 
 use crate::limits::ChainLimits;
 use crate::paths::FieldPath;

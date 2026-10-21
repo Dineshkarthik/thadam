@@ -14,9 +14,9 @@ use std::time::Duration;
 
 use common::*;
 use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
-use thadam_transform::{Chain, ChainLimits, ChainSpec};
 use serde_json::{Value, json};
 use std::hint::black_box;
+use thadam_transform::{Chain, ChainLimits, ChainSpec};
 
 const BATCH: usize = 1024;
 

@@ -19,7 +19,7 @@ use bytes::Bytes;
 use common::*;
 use futures_util::StreamExt as _;
 use object_store::ObjectStore as _;
-use thadam_core::{BuildContext, ThadamError, Service, ServiceFactory, Shutdown};
+use thadam_core::{BuildContext, Service, ServiceFactory, Shutdown, ThadamError};
 use thadam_runtime::{ExitStatus, Pipeline, PipelineHandle, Registry, RunReport};
 use thadam_testkit::TempDataDir;
 

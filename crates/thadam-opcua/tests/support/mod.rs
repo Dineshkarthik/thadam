@@ -26,12 +26,12 @@ use opcua::types::{
     ApplicationDescription, Array, DataTypeId, DataValue, LocalizedText, MessageSecurityMode,
     NodeId, ObjectId, ReferenceTypeId, StatusCode, VariableTypeId, Variant, VariantScalarTypeId,
 };
+use serde_json::{Value, json};
 use thadam_core::SourceFactory;
 use thadam_core::{
     BatchLimits, BuildContext, RawMessage, Shutdown, Source, SourceContext, SourceId, SystemClock,
 };
 use thadam_opcua::OpcUaSourceFactory;
-use serde_json::{Value, json};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;

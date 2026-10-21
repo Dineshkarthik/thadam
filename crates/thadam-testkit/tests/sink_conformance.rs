@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use thadam_core::{
-    BatchId, BatchSink, DatasetEvents, DeliveryClass, ErrorDomain, Reject, Retry, ThadamError,
-    SegmentBatch, SegmentSink, SinkBatch, SinkCapabilities, SinkContext, WalPos, WriteOutcome,
+    BatchId, BatchSink, DatasetEvents, DeliveryClass, ErrorDomain, Reject, Retry, SegmentBatch,
+    SegmentSink, SinkBatch, SinkCapabilities, SinkContext, ThadamError, WalPos, WriteOutcome,
     codes,
 };
 use thadam_testkit::conformance::batch_sink::{

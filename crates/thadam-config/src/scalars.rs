@@ -8,10 +8,10 @@ use std::borrow::Cow;
 use std::fmt;
 use std::time::Duration;
 
-use thadam_core::{FieldType, TimeDomain};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::{self, Deserializer, Visitor};
 use serde::{Deserialize, Serialize, Serializer};
+use thadam_core::{FieldType, TimeDomain};
 
 /// The deepest `list<list<...>>` nesting accepted.
 const MAX_LIST_DEPTH: usize = 3;

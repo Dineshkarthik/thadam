@@ -6,11 +6,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
+use serde::Serialize;
 use thadam_core::{
-    BudgetCategory, Clock, DeliveryClass, DiskBudget, ThadamError, Shutdown, SyncFlag,
+    BudgetCategory, Clock, DeliveryClass, DiskBudget, Shutdown, SyncFlag, ThadamError,
 };
 use thadam_wal::{CursorState, MaxLag, Wal};
-use serde::Serialize;
 use tokio::sync::watch;
 
 use crate::metrics::{MetricEvent, MetricsSink};

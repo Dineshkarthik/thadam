@@ -2,11 +2,11 @@
 #![allow(dead_code, missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use bytes::Bytes;
+use serde_json::{Value, json};
 use thadam_core::{Attributes, Event, RawMessage, SourceId, Timestamp, WalEpoch, WalPos};
 use thadam_transform::{
     Chain, ChainLimits, ChainOutput, ChainSpec, FrameInput, RawRecordView, RejectedRaw,
 };
-use serde_json::{Value, json};
 
 pub const SOURCE: &str = "fleet-mqtt";
 pub const EPOCH: u64 = 7;

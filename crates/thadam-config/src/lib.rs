@@ -155,8 +155,8 @@ mod spec;
 use std::io::Read;
 use std::path::Path;
 
-use thadam_core::codes;
 use serde_json::Value;
+use thadam_core::codes;
 
 pub use diagnostics::{ConfigReport, Diagnostic, LineCol};
 pub use estimate::{MemoryComponent, MemoryEstimate, format_bytes};

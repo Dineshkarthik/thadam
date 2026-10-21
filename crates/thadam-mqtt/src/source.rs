@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use thadam_core::{
-    AckTarget, AckToken, BatchLimits, BuildContext, Clock, RawBatch, ThadamError, Shutdown, Source,
-    SourceBatch, SourceCapabilities, SourceContext, SourceId,
+    AckTarget, AckToken, BatchLimits, BuildContext, Clock, RawBatch, Shutdown, Source, SourceBatch,
+    SourceCapabilities, SourceContext, SourceId, ThadamError,
 };
 use tokio::sync::{mpsc, watch};
 use tokio::task::AbortHandle;
@@ -328,7 +328,10 @@ impl Source for MqttSource {
         Ok(())
     }
 
-    async fn next_batch(&mut self, limits: BatchLimits) -> Result<Option<SourceBatch>, ThadamError> {
+    async fn next_batch(
+        &mut self,
+        limits: BatchLimits,
+    ) -> Result<Option<SourceBatch>, ThadamError> {
         if self.closed {
             return Ok(None);
         }

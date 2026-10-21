@@ -7,11 +7,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use serde_json::{Value, json};
 use thadam_core::{
     BatchLimits, Clock, RawMessage, Shutdown, Source, SourceContext, SourceId, SystemClock,
 };
 use thadam_modbus::{ModbusConfig, ModbusSource};
-use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;

@@ -10,10 +10,10 @@ use axum::Router;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use serde_json::{Value, json};
 use thadam_core::{AckMode, BatchLimits, Shutdown, Source, SourceContext, SourceId};
 use thadam_http::HttpSource;
 use thadam_testkit::FakeClock;
-use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 #[derive(Default)]

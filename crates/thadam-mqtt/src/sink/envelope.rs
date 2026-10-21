@@ -164,10 +164,10 @@ pub fn event_json(event: &Event) -> Result<Vec<u8>, EnvelopeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use thadam_core::{
         AssetPath, EventId, FieldDef, FieldType, Record, Shape, ShapeRef, TimeDomain, Times, WalPos,
     };
-    use std::sync::Arc;
 
     fn record_event(id: u128) -> Event {
         let shape = ShapeRef::new(

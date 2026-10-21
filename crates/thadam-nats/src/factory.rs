@@ -105,9 +105,9 @@ impl BatchSinkFactory for NatsSinkFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thadam_core::{DatasetDecl, LevelDecl, SystemClock};
     use std::path::PathBuf;
     use std::sync::Arc;
+    use thadam_core::{DatasetDecl, LevelDecl, SystemClock};
 
     fn cfg() -> serde_json::Value {
         serde_json::json!({

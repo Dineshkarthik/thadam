@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use bytes::Bytes;
 use thadam_core::{
-    BatchLimits, EpochGate, ThadamError, Source, SourceBatch, SourceCapabilities, SourceContext,
+    BatchLimits, EpochGate, Source, SourceBatch, SourceCapabilities, SourceContext, ThadamError,
 };
 use thadam_mqtt::{MqttHandle, MqttSource};
 use thadam_testkit::conformance::source::{Case, SourceFixture, Upstream};
@@ -182,7 +182,10 @@ impl Source for ConformanceSource {
         self.inner.open(ctx).await
     }
 
-    async fn next_batch(&mut self, limits: BatchLimits) -> Result<Option<SourceBatch>, ThadamError> {
+    async fn next_batch(
+        &mut self,
+        limits: BatchLimits,
+    ) -> Result<Option<SourceBatch>, ThadamError> {
         loop {
             let finished = self.control.finished.load(Ordering::SeqCst);
             let total = self.control.published.load(Ordering::SeqCst);

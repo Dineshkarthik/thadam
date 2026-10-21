@@ -3,7 +3,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use thadam_core::{BuildContext, ThadamError, Source, SourceFactory};
+use thadam_core::{BuildContext, Source, SourceFactory, ThadamError};
 
 use crate::config::{MqttConfig, config_schema};
 use crate::source::MqttSource;
@@ -97,8 +97,8 @@ impl SourceFactory for MqttSourceFactory {
 mod tests {
     use std::sync::Mutex;
 
-    use thadam_core::{SystemClock, codes};
     use serde_json::json;
+    use thadam_core::{SystemClock, codes};
 
     use super::*;
 

@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use common::{client, config, next, open, publish};
+use serde_json::json;
 use thadam_core::{AckOutcome, BatchLimits, Source};
 use thadam_grpc::proto::PublishRequest;
-use serde_json::json;
 use tonic::{Code, Request};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

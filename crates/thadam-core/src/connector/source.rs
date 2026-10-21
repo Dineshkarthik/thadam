@@ -116,7 +116,8 @@ pub trait Source: Send + 'static {
     /// once it holds a message, or `Ok(None)` at end of stream.
     ///
     /// **Must be cancel-safe.**
-    async fn next_batch(&mut self, limits: BatchLimits) -> Result<Option<SourceBatch>, ThadamError>;
+    async fn next_batch(&mut self, limits: BatchLimits)
+    -> Result<Option<SourceBatch>, ThadamError>;
 
     /// Releases the connection. Messages not yet acknowledged are redelivered
     /// by the peer.

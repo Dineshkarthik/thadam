@@ -3,9 +3,9 @@
 use std::fmt;
 use std::time::Duration;
 
-use thadam_core::{ErrorDomain, ThadamError, codes};
 use serde::Deserialize;
 use serde::de::{self, Deserializer};
+use thadam_core::{ErrorDomain, ThadamError, codes};
 
 /// The most holding or input registers one read may ask for (Modbus limit).
 pub const MAX_REGISTERS_PER_READ: u16 = 125;
@@ -423,8 +423,8 @@ pub fn config_schema() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thadam_core::codes;
     use serde_json::json;
+    use thadam_core::codes;
 
     fn problems_of(value: serde_json::Value) -> Vec<(&'static str, String)> {
         match ModbusConfig::from_value(&value) {

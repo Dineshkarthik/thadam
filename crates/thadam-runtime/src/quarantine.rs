@@ -27,9 +27,8 @@ use std::sync::{Arc, OnceLock};
 
 use thadam_core::{
     BudgetCategory, BudgetExceeded, ErrorDomain, Event, EventBatch, EventId, FieldDef, FieldType,
-    QUARANTINE_DATASET, Record, ThadamError, SegmentBatch, SegmentSink, Shape, ShapeRef,
-    SinkContext, Sym, TimeDomain, Times, Timestamp, Utf8Bytes, Value, WalEpoch, WalPos, WalRange,
-    codes,
+    QUARANTINE_DATASET, Record, SegmentBatch, SegmentSink, Shape, ShapeRef, SinkContext, Sym,
+    ThadamError, TimeDomain, Times, Timestamp, Utf8Bytes, Value, WalEpoch, WalPos, WalRange, codes,
 };
 use thadam_transform::RejectedRaw;
 
@@ -561,8 +560,8 @@ mod tests {
     use crate::status::ComponentKind;
     use async_trait::async_trait;
     use bytes::Bytes;
-    use thadam_core::{Attributes, DiskBudget, Reject, Shutdown, SinkId, SourceId, SystemClock};
     use std::sync::Mutex;
+    use thadam_core::{Attributes, DiskBudget, Reject, Shutdown, SinkId, SourceId, SystemClock};
 
     #[derive(Default)]
     struct FakeState {
@@ -877,7 +876,11 @@ mod tests {
         let mut attrs = Attributes::new();
         attrs.insert("topic", "a/b");
         let raw = RejectedRaw {
-            error: ThadamError::permanent(ErrorDomain::Decode, codes::DECODE_INVALID_PAYLOAD, "bad"),
+            error: ThadamError::permanent(
+                ErrorDomain::Decode,
+                codes::DECODE_INVALID_PAYLOAD,
+                "bad",
+            ),
             dataset: Some(Sym::from("d")),
             source: SourceId::new("src"),
             epoch: WalEpoch::new(9),

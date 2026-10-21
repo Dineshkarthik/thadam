@@ -8,12 +8,12 @@ mod support;
 
 use std::time::Duration;
 
-use thadam_core::Shutdown;
 use serde_json::{Value, json};
 use support::{
     TestNodes, TestServer, bad_sensor_value, collect_until, nodes_json, open_source, payload,
     spin_ticks, start_server,
 };
+use thadam_core::Shutdown;
 use tokio::sync::Mutex;
 
 const T: Duration = Duration::from_secs(10);

@@ -2,8 +2,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use thadam_config::json_schema;
 use serde_json::Value;
+use thadam_config::json_schema;
 
 #[test]
 fn schema_snapshot() {

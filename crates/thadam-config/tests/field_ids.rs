@@ -469,7 +469,9 @@ mod thadam_arrow_integration {
                 continue;
             }
             let arrow_ok = DatasetSchema::builder("x")
-                .field(thadam_core::FieldDef::new("a", thadam_core::FieldType::F32).with_field_id(id))
+                .field(
+                    thadam_core::FieldDef::new("a", thadam_core::FieldType::F32).with_field_id(id),
+                )
                 .build()
                 .is_ok();
             assert_eq!(config_ok, arrow_ok, "field id {id}");

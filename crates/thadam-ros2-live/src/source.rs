@@ -15,8 +15,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use thadam_core::{
-    AckHandle, AckMode, BatchLimits, Clock, RawBatch, RawMessage, ThadamError, SchemaStore,
-    Shutdown, Source, SourceBatch, SourceCapabilities, SourceContext, SourceId,
+    AckHandle, AckMode, BatchLimits, Clock, RawBatch, RawMessage, SchemaStore, Shutdown, Source,
+    SourceBatch, SourceCapabilities, SourceContext, SourceId, ThadamError,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -206,7 +206,10 @@ impl Source for Ros2LiveSource {
         Ok(())
     }
 
-    async fn next_batch(&mut self, limits: BatchLimits) -> Result<Option<SourceBatch>, ThadamError> {
+    async fn next_batch(
+        &mut self,
+        limits: BatchLimits,
+    ) -> Result<Option<SourceBatch>, ThadamError> {
         match self.phase {
             Phase::Created => return Err(Self::state_error("next_batch called before open")),
             Phase::Closed => return Ok(None),

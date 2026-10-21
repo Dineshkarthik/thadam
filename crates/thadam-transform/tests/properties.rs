@@ -8,9 +8,9 @@ use std::collections::{HashMap, HashSet};
 
 use common::*;
 use proptest::prelude::*;
+use serde_json::json;
 use thadam_core::{Event, Value, ValueType, WalPos};
 use thadam_transform::{Chain, ChainLimits, ChainSpec};
-use serde_json::json;
 
 const TYPES: [&str; 10] = [
     "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64",

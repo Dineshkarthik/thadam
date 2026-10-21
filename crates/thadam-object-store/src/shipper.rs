@@ -22,11 +22,11 @@ use std::time::{Duration, Instant};
 use object_store::{
     Error as StoreError, GetOptions, GetRange, ObjectStore, ObjectStoreExt, PutMode, PutOptions,
 };
+use sha2::{Digest, Sha256};
 use thadam_core::{
-    Classify, ConnectorMetric, MetricsRecorder, ThadamError, ServiceContext, Shutdown,
+    Classify, ConnectorMetric, MetricsRecorder, ServiceContext, Shutdown, ThadamError,
 };
 use thadam_segments::{LocalRetention, SegmentCatalog, SegmentId, SegmentRecord};
-use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
 use tokio::task::{JoinError, JoinSet};
 

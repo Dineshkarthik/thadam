@@ -9,8 +9,8 @@ use std::io;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use thadam_core::WalEpoch;
 use serde_json::{Value, json};
+use thadam_core::WalEpoch;
 
 use crate::cursor::CURSOR_FORMAT_VERSION;
 use crate::error::WalError;

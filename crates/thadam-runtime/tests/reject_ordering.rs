@@ -14,8 +14,8 @@ mod common;
 use async_trait::async_trait;
 use common::*;
 use thadam_core::{
-    BuildContext, ErrorDomain, Reject, ThadamError, SegmentBatch, SegmentSink, SegmentSinkFactory,
-    SinkContext, WalPos, WalRange, codes,
+    BuildContext, ErrorDomain, Reject, SegmentBatch, SegmentSink, SegmentSinkFactory, SinkContext,
+    ThadamError, WalPos, WalRange, codes,
 };
 use thadam_runtime::{ExitStatus, Pipeline, failpoints};
 use thadam_testkit::TempDataDir;

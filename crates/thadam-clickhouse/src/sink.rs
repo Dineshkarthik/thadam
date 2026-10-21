@@ -8,8 +8,8 @@ use clickhouse::error::Error as ChError;
 use clickhouse::native::Block;
 use thadam_arrow::{BatchEncoder, DatasetSchema};
 use thadam_core::{
-    BatchId, BatchSink, DeliveryClass, ErrorDomain, ThadamError, SinkBatch, SinkCapabilities,
-    SinkContext, WriteOutcome, codes,
+    BatchId, BatchSink, DeliveryClass, ErrorDomain, SinkBatch, SinkCapabilities, SinkContext,
+    ThadamError, WriteOutcome, codes,
 };
 
 use crate::block::{self, EncodeError};

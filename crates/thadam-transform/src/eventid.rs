@@ -1,7 +1,7 @@
 //! Event id derivation: `xxh3_128` over a canonical, tagged encoding.
 
-use thadam_core::{AssetPath, EventId, Value, WalEpoch, WalPos};
 use smallvec::SmallVec;
+use thadam_core::{AssetPath, EventId, Value, WalEpoch, WalPos};
 use twox_hash::XxHash3_128;
 
 const TAG_POSITIONAL: u8 = 1;

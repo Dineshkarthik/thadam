@@ -8,8 +8,8 @@
 
 use std::path::PathBuf;
 
-use thadam_core::{Timestamp, WalPos, WalRange};
 use serde::{Deserialize, Serialize};
+use thadam_core::{Timestamp, WalPos, WalRange};
 
 /// A segment identifier: the Parquet file name for real files, or
 /// `empty.{dataset}.{epoch:016x}.{first:020}.{last:020}` for coverage

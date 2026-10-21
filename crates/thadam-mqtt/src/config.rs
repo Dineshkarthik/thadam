@@ -4,10 +4,10 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use thadam_core::{AckMode, ErrorDomain, ThadamError, codes};
 use serde::de::{self, Deserializer};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
+use thadam_core::{AckMode, ErrorDomain, ThadamError, codes};
 
 /// Worst-case size of everything in an incoming PUBLISH except the payload:
 /// two topic-length bytes, a topic of up to 65,535 bytes, and the packet id.

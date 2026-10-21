@@ -79,7 +79,10 @@ fn scratch_dir(name: &str) -> Result<PathBuf> {
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_err(|e| BenchError::Run(format!("clock: {e}")))?
         .as_millis();
-    Ok(std::env::temp_dir().join(format!("thadam-bench-{name}-{}-{stamp}", std::process::id())))
+    Ok(std::env::temp_dir().join(format!(
+        "thadam-bench-{name}-{}-{stamp}",
+        std::process::id()
+    )))
 }
 
 fn execute(
@@ -321,7 +324,13 @@ impl Recorder {
     }
 }
 
-fn spawn_thadam(bin: &Path, config: &Path, cwd: &Path, admin_port: u16, log: &Path) -> Result<Proc> {
+fn spawn_thadam(
+    bin: &Path,
+    config: &Path,
+    cwd: &Path,
+    admin_port: u16,
+    log: &Path,
+) -> Result<Proc> {
     let mut cmd = Command::new(bin);
     cmd.args([
         "run",

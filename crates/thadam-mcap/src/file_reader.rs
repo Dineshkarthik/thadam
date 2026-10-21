@@ -302,7 +302,11 @@ impl FileReader {
         })
     }
 
-    fn add_schema(&mut self, header: records::SchemaHeader, data: Bytes) -> Result<(), ThadamError> {
+    fn add_schema(
+        &mut self,
+        header: records::SchemaHeader,
+        data: Bytes,
+    ) -> Result<(), ThadamError> {
         if header.id == 0 {
             return Err(McapError::parse(&self.path, mcap::McapError::InvalidSchemaId).into());
         }

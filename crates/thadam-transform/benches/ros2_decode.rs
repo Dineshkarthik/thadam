@@ -21,10 +21,10 @@ use std::time::Duration;
 use bytes::Bytes;
 use common::*;
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use thadam_core::{SCHEMA_HASH_ATTR, SchemaStore};
-use thadam_transform::{Chain, ChainLimits, ChainSpec};
 use serde_json::{Value, json};
 use std::hint::black_box;
+use thadam_core::{SCHEMA_HASH_ATTR, SchemaStore};
+use thadam_transform::{Chain, ChainLimits, ChainSpec};
 
 const BATCH: usize = 512;
 

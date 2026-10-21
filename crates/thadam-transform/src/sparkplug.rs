@@ -41,12 +41,12 @@
 
 use std::path::Path;
 
+use serde_json::{Map, Value as Json, json};
 use thadam_core::{
-    BirthStore, ErrorDomain, Quality, QualityFlags, QualityStatus, ThadamError, Sym, codes,
+    BirthStore, ErrorDomain, Quality, QualityFlags, QualityStatus, Sym, ThadamError, codes,
 };
 use thadam_sparkplug::decode::{Decoder, MetricValue, Outcome, datatype_name};
 use thadam_sparkplug::topic;
-use serde_json::{Map, Value as Json, json};
 
 use crate::input::RawRecordView;
 

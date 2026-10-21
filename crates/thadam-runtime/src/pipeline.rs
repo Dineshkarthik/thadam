@@ -5,15 +5,15 @@ use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::sync::Arc;
 
+use serde::Serialize;
 use thadam_config::{PipelineSpec, SinkSpec};
 use thadam_core::{
-    BatchSink, BuildContext, DatasetDecl, ErrorDomain, ThadamError, SegmentSink, Service,
-    ServiceContext, SharedObjects, Shutdown, SinkContext, SinkId, Source, SourceFactory, WalPos,
+    BatchSink, BuildContext, DatasetDecl, ErrorDomain, SegmentSink, Service, ServiceContext,
+    SharedObjects, Shutdown, SinkContext, SinkId, Source, SourceFactory, ThadamError, WalPos,
     codes,
 };
 use thadam_transform::Chain;
 use thadam_wal::{CursorState, RecoveryReport, StartFrom, Wal};
-use serde::Serialize;
 use tokio::sync::oneshot;
 use tokio::task::{Id, JoinError, JoinSet};
 
@@ -1105,7 +1105,10 @@ impl Pipeline {
 /// without a cursor pins the whole WAL, and a restart before its first natural
 /// commit must not evaluate `latest` against a later end and skip data. An
 /// empty WAL is committed at 0, which is the same position for `earliest`.
-async fn bootstrap_latest_cursors(wal: &Wal, sinks: &[(String, String)]) -> Result<(), ThadamError> {
+async fn bootstrap_latest_cursors(
+    wal: &Wal,
+    sinks: &[(String, String)],
+) -> Result<(), ThadamError> {
     for (sink, cursor) in sinks {
         if wal.cursor(cursor).is_some() {
             continue;

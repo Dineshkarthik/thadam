@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use thadam_core::{BuildContext, ErrorDomain, ThadamError, Service, ServiceFactory, codes};
+use thadam_core::{BuildContext, ErrorDomain, Service, ServiceFactory, ThadamError, codes};
 
 use crate::config::parse_ship_config;
 use crate::shipper::Shipper;
