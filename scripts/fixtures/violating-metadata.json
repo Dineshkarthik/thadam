@@ -10,7 +10,7 @@
     {"id": "thadam-object-store", "name": "thadam-object-store"},
     {"id": "thadam-mqtt", "name": "thadam-mqtt"},
     {"id": "thadam-testkit", "name": "thadam-testkit"},
-    {"id": "thadam-cli", "name": "thadam-cli"},
+    {"id": "thadam", "name": "thadam"},
     {"id": "tokio", "name": "tokio"},
     {"id": "prost", "name": "prost"},
     {"id": "yaml-bridge", "name": "yaml-bridge"},
@@ -22,7 +22,7 @@
   "workspace_members": [
     "thadam-core", "thadam-config", "thadam-wal", "thadam-transform", "thadam-runtime",
     "thadam-arrow", "thadam-segments", "thadam-object-store", "thadam-mqtt",
-    "thadam-testkit", "thadam-cli"
+    "thadam-testkit", "thadam"
   ],
   "resolve": {
     "nodes": [
@@ -55,7 +55,7 @@
       {"id": "thadam-object-store", "deps": [
         {"pkg": "thadam-runtime", "dep_kinds": [{"kind": null, "target": null}]}
       ]},
-      {"id": "thadam-cli", "deps": [
+      {"id": "thadam", "deps": [
         {"pkg": "thadam-runtime", "dep_kinds": [{"kind": null, "target": null}]},
         {"pkg": "thadam-mqtt", "dep_kinds": [{"kind": null, "target": null}]},
         {"pkg": "thadam-segments", "dep_kinds": [{"kind": null, "target": null}]},

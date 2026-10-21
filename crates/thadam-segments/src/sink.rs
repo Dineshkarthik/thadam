@@ -42,7 +42,7 @@ use async_trait::async_trait;
 use thadam_arrow::{BatchContext, DatasetSchema};
 use thadam_core::{
     BudgetCategory, Clock, ConnectorMetric, DiskBudget, ErrorDomain, Event, MetricsRecorder,
-    Reject, ThadamError, SegmentBatch, SegmentSink, SegmentSinkFactory, SinkContext, Timestamp,
+    Reject, SegmentBatch, SegmentSink, SegmentSinkFactory, SinkContext, ThadamError, Timestamp,
     WalEpoch, WalPos, WalRange, codes,
 };
 
@@ -289,7 +289,10 @@ impl ParquetSegmentSink {
 
     /// Latches the sink dead and returns the error: used for anything that
     /// leaves an open segment in an unknown state.
-    fn latch(&mut self, r: Result<SegmentRecord, ThadamError>) -> Result<SegmentRecord, ThadamError> {
+    fn latch(
+        &mut self,
+        r: Result<SegmentRecord, ThadamError>,
+    ) -> Result<SegmentRecord, ThadamError> {
         match r {
             Err(e) => {
                 self.state = State::Dead;
@@ -923,7 +926,7 @@ impl SegmentSink for ParquetSegmentSink {
     }
 }
 
-/// The `kind: parquet` factory registered by `thadam-cli`.
+/// The `kind: parquet` factory registered by `thadam`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ParquetSegmentSinkFactory;
 

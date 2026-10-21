@@ -7,10 +7,10 @@ Two modes, chosen with `mode`:
 - **`subscribe`** (default): one subscription over the nodes. The server pushes changes, and each publish response becomes one JSON message grouping that response's changes.
 - **`poll`**: every `interval`, one Read service call reads all nodes, and each poll becomes one JSON message carrying every node.
 
-**The source is off by default.** Build `thadam-cli` with the `opcua` Cargo feature:
+**The source is off by default.** Build `thadam` with the `opcua` Cargo feature:
 
 ```console
-$ cargo run -p thadam-cli --features opcua -- run pipeline.yaml
+$ cargo run -p thadam --features opcua -- run pipeline.yaml
 ```
 
 `thadam validate` rejects `kind: opcua` without the feature.

@@ -58,7 +58,7 @@ crate = "target-lexicon"
 allow = ["Apache-2.0 WITH LLVM-exception"]
 
 # MPL-2.0, scoped to the async-opcua crates (owner decision; they are the
-# only MPL crates in the tree and stay out unless thadam-cli is built with
+# only MPL crates in the tree and stay out unless thadam is built with
 # --features opcua). MPL-2.0 is a file-level copyleft: linked as separate
 # compilation units in the thadam binary, and any upstream modification
 # would have to be published.
@@ -99,7 +99,7 @@ crate = "async-opcua-core-namespace"
 allow = ["MPL-2.0"]
 
 # MPL-2.0, scoped to option-ext (owner decision 2026-10-12): pulled in only
-# when thadam-cli is built with --features ros2-live (zenoh-util 1.10.1 ->
+# when thadam is built with --features ros2-live (zenoh-util 1.10.1 ->
 # shellexpand -> dirs -> dirs-sys -> option-ext). File-level copyleft: the
 # thadam binary links it as a separate, unmodified compilation unit.
 [[licenses.exceptions]]

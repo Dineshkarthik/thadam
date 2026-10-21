@@ -7,16 +7,20 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "Pipeline assembly, driver tasks, supervision, recovery, and replay runtime for Thadam"
+readme.workspace = true
+keywords = ["thadam", "runtime", "telemetry", "robotics", "pipeline"]
+categories = ["asynchronous", "concurrency", "science::robotics"]
 
 [dependencies]
 axum = { workspace = true }
 bytes = { workspace = true }
 crc32c = { workspace = true }
 prometheus-client = { workspace = true }
-thadam-config = { path = "../thadam-config" }
+thadam-config = { workspace = true }
 thadam-core = { workspace = true }
-thadam-transform = { path = "../thadam-transform" }
-thadam-wal = { path = "../thadam-wal" }
+thadam-transform = { workspace = true }
+thadam-wal = { workspace = true }
 rustix = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -4,10 +4,13 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+publish = false
 repository.workspace = true
 homepage.workspace = true
 description = "Reproducible benchmark runner for the Thadam edge-capture demo: Mosquitto, the simulator, and thadam run, sampled and summarized as JSON"
+readme.workspace = true
+keywords = ["thadam", "benchmark", "mqtt", "telemetry", "cli"]
+categories = ["command-line-utilities", "development-tools::testing"]
 
 [[bin]]
 name = "thadam-bench"

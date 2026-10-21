@@ -59,7 +59,7 @@
 //! Iceberg file IO is implemented here over the workspace's audited
 //! `object_store` S3 stack: the `iceberg-storage-opendal` alternative pulls
 //! `aws-lc-sys`, which `deny.toml` bans. TLS is rustls + ring only; the
-//! `iceberg` feature is default-off in `thadam-cli`.
+//! `iceberg` feature is default-off in `thadam`.
 
 mod config;
 mod error;

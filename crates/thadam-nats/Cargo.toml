@@ -7,6 +7,10 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "NATS JetStream batch sink connector with message deduplication headers for Thadam"
+readme.workspace = true
+keywords = ["thadam", "nats", "jetstream", "telemetry", "messaging"]
+categories = ["network-programming", "asynchronous"]
 
 [dependencies]
 # `ring` is the only TLS provider (ADR-0020): async-nats's default features

@@ -7,6 +7,10 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "Pure-Rust OPC UA subscription and polling client source connector for Thadam"
+readme.workspace = true
+keywords = ["thadam", "opcua", "opc-ua", "industrial", "telemetry"]
+categories = ["network-programming", "hardware-support", "asynchronous"]
 
 [dependencies]
 async-opcua = { workspace = true, features = ["client"] }

@@ -18,7 +18,7 @@ docker build -f deploy/docker/Dockerfile -t thadam:dev .
 
 - Builder: `rust:1.99.0-bookworm`, matching `rust-toolchain.toml`. Runtime: `debian:bookworm-20261005-slim`, with `ca-certificates` and `curl` added. Both are public Docker Hub tags. The runtime has no OpenSSL dependency.
 - The binary is `thadam`, built with `--locked`, and runs as uid 10001 (user `thadam`).
-- The `FEATURES` build argument sets the Cargo features of `thadam-cli`. It is empty by default, which gives the default feature set (`clickhouse`). `--build-arg FEATURES=opcua` builds the OPC UA source; `thadam validate` accepts `kind: opcua` only in that image. The other optional features (`ros2-live`, `iceberg`) were not built.
+- The `FEATURES` build argument sets the Cargo features of `thadam`. It is empty by default, which gives the default feature set (`clickhouse`). `--build-arg FEATURES=opcua` builds the OPC UA source; `thadam validate` accepts `kind: opcua` only in that image. The other optional features (`ros2-live`, `iceberg`) were not built.
 - Behind a TLS-intercepting proxy, put the proxy's CA bundle at `deploy/docker/secrets/ca.pem` before building. The file is gitignored, is trusted only by the build stage, and is not in the final image. On the verification machine, the edge-capture bundle worked and the host's `/etc/ssl/cert.pem` did not:
 
 ```sh

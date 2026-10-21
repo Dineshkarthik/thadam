@@ -13,7 +13,7 @@
 //! `#[ignore]`d so `cargo nextest run` passes without Docker; run it with
 //!
 //! ```text
-//! cargo nextest run -p thadam-cli --features ros2-live --run-ignored only -E 'binary(ros2_live_docker)'
+//! cargo nextest run -p thadam --features ros2-live --run-ignored only -E 'binary(ros2_live_docker)'
 //! ```
 //!
 //! The `docker` CLI must be available (public image pulls only). Containers

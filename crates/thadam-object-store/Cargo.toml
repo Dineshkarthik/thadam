@@ -7,6 +7,10 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "Shipper of finalized Parquet segments to S3-compatible object storage for Thadam"
+readme.workspace = true
+keywords = ["thadam", "s3", "object-storage", "parquet", "telemetry"]
+categories = ["network-programming", "database", "asynchronous"]
 
 [features]
 # Exposes `thadam_object_store::failpoints` for fault injection in crash tests
@@ -24,7 +28,7 @@ reqwest = { workspace = true }
 # ring crypto provider, which is what reqwest/rustls-no-provider picks up.
 tokio-rustls = { workspace = true }
 thadam-core = { workspace = true }
-thadam-segments = { path = "../thadam-segments" }
+thadam-segments = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

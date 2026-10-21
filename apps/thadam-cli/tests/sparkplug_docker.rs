@@ -19,7 +19,7 @@
 //! `#[ignore]`d so `cargo nextest run` passes without Docker; run it with
 //!
 //! ```text
-//! cargo nextest run -p thadam-cli --run-ignored only -E 'binary(sparkplug_docker)'
+//! cargo nextest run -p thadam --run-ignored only -E 'binary(sparkplug_docker)'
 //! ```
 //!
 //! Image: public Docker Hub `eclipse-mosquitto:2`, pinned by tag (re-pin with
@@ -37,12 +37,12 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use parquet::file::reader::{FileReader, SerializedFileReader};
 use parquet::record::{Field, Row};
 use prost::Message as _;
+use rumqttc::{Client, Event, Incoming, MqttOptions, QoS};
 use thadam_core::QualityFlags;
 use thadam_sparkplug::pb::{
     self, DataType as D,
     payload::{Metric, metric::Value as V},
 };
-use rumqttc::{Client, Event, Incoming, MqttOptions, QoS};
 
 const MQTT_IMAGE: &str = "eclipse-mosquitto:2";
 const LABEL: &str = "thadam-sparkplug-e2e";

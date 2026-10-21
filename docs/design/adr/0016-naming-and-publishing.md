@@ -1,35 +1,39 @@
 # ADR-0016: Naming and publishing
 
-- **Status:** Draft
-- **Date:** 2026-10-14
+- **Status:** Accepted
+- **Date:** 2026-10-14 (accepted 2026-10-20)
 - **Deciders:** Maintainer (@Dineshkarthik)
 
 ## Context
 
-"Thadam" (`thadam`, Tamil: தடம் — track, trail, trace, path) is the selected project identity, but its availability has not been formally recorded. The name is used for the `thadam` binary, the `thadam-*` workspace crates, the Python package (`thadam` in `sdk/python/pyproject.toml`), the repository, and the brand assets (`thadam-assets/`). `thadam-assets/README.md` and `thadam-assets/brand/brand-guidelines.md` both state that final name and trademark clearance must be completed before public launch.
+"Thadam" (`thadam`, Tamil: தடம் — track, trail, trace, path) is the selected project identity. The name is used for the `thadam` binary, the `thadam-*` workspace crates, the Python package (`thadam` in `sdk/python/pyproject.toml`), the repository, and the brand assets (`thadam-assets/`).
 
-Nothing has been published. Every workspace crate is `publish = false`, and no package is on crates.io or PyPI.
+When this ADR was drafted, nothing had been published: every workspace crate was `publish = false`, and no package was on crates.io or PyPI.
 
 ## Decision
 
-- "Thadam" (`thadam`) is the selected name of the project. This ADR stays Draft until final trademark and domain clearance is recorded.
-- Until this ADR is Accepted, every workspace crate stays `publish = false` and no package is published to crates.io or PyPI.
+- "Thadam" (`thadam`) is the name of the project. The registry and GitHub checks below found no conflict. The trademark search was not done; the maintainer accepted that risk on 2026-10-20.
+- The CLI package is named `thadam` (directory `apps/thadam-cli`), so it installs with `cargo install thadam`.
+- Published to crates.io: the `thadam` CLI and the 22 library crates under `crates/` it depends on, all except `thadam-testkit`. `thadam-testkit`, `thadam-simulator`, `thadam-bench`, and `thadam-python` stay `publish = false`.
+- Published to PyPI: the `thadam` Python package built from `sdk/python`.
+- Publishing runs from `.github/workflows/release.yml` on a version tag, through trusted publishing with no stored token, after approval in the `crates-io` and `pypi` GitHub environments. All crates and the Python package share one version.
 - Brand assets in `thadam-assets/` are covered by the repository's Apache-2.0 license. The name and logos are governed by the trademark-use policy in `thadam-assets/README.md`: use them only to refer to Thadam, and never in a way that implies endorsement.
 
 ## Alternatives considered
 
-- **Publish under the current name now.** Not chosen. A published crate or package name is hard to take back, and the clearance checklist below must be recorded first.
-- **Rename the project before clearance.** Not chosen. The name stays provisional until the checks are done. If a check fails, a rename becomes a new decision under a new ADR.
+- **Wait for a trademark search before publishing.** Not chosen (2026-10-20): the registry and GitHub checks found no conflict, and the maintainer accepted the remaining risk.
+- **Keep the CLI package name `thadam-cli`.** Not chosen: `cargo install thadam` matches the binary and the Python package name.
+- **Publish `thadam-testkit` for third-party connector authors.** Not chosen for now: it is only a dev-dependency of the workspace crates, and publishing it would make its API a public surface.
 
 ## Consequences
 
-- The name can stay in code, docs, and the brand kit while the checks run, and nothing has to change before the checks are done.
-- Public launch and the first publish both wait for this ADR to be Accepted.
-- Fixed now: the workspace stays `publish = false`, and the trademark-use policy applies to the name and logos.
+- The name stays in code, docs, and the brand kit.
+- The first publish reserves 23 crate names and one PyPI name for good: a release can be yanked but a name cannot be given back.
+- The trademark-use policy applies to the name and logos.
 
 ## Evidence and validation required
 
-The maintainer must make these checks and record the result before this ADR can be Accepted:
+The checks the maintainer set before acceptance:
 
 1. **crates.io:** availability of the workspace crate names (the `thadam-*` crates and the `thadam` binary crate).
 2. **PyPI:** availability of the package name `thadam` used by `sdk/python/pyproject.toml`.
@@ -38,11 +42,18 @@ The maintainer must make these checks and record the result before this ADR can 
 
 If any check finds a conflict, this ADR is reopened and the name decision is revisited before anything is published.
 
+### Results recorded so far
+
+Checked 2026-10-20 against the public registry APIs. Availability can change until a name is reserved by publishing.
+
+- [x] **crates.io:** `thadam` and all 27 workspace package names (every `thadam-*` crate, including `thadam-cli` and `thadam-python`) return 404 from `https://crates.io/api/v1/crates/<name>`: none is taken.
+- [x] **PyPI:** `thadam` and `thadam-python` return 404 from `https://pypi.org/pypi/<name>/json`: neither is taken.
+- [x] **GitHub:** a repository search for "thadam" returns 86 results, all unrelated (travel, carbon tracking, biomarker, and mobile apps, or personal repositories). Searches for "thadam" with "telemetry", "robotics", or "mqtt" return none; with "data", three unrelated personal repositories.
+- [ ] **Trademark:** not searched. The maintainer accepted this ADR without it on 2026-10-20; a conflict found later reopens the name decision.
+
 ## Revisit when
 
-- Any check in the list above finds a conflicting name or registration.
-- Before the first crate or Python package is published.
-- Before public launch.
+- Any check in the list above, including a later trademark search, finds a conflicting name or registration.
 
 ## References
 

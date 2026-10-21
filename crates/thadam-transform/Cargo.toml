@@ -7,11 +7,15 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "Synchronous transform chain from raw WAL frames to typed event batches for Thadam"
+readme.workspace = true
+keywords = ["thadam", "telemetry", "transform", "robotics", "streaming"]
+categories = ["encoding", "science::robotics"]
 
 [dependencies]
 thadam-core = { workspace = true }
-thadam-ros2-msg = { path = "../thadam-ros2-msg" }
-thadam-sparkplug = { path = "../thadam-sparkplug" }
+thadam-ros2-msg = { workspace = true }
+thadam-sparkplug = { workspace = true }
 bytes = { workspace = true }
 csv = { workspace = true }
 serde = { workspace = true }

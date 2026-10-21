@@ -2,17 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the project is pre-alpha (pre-1.0), any release may contain breaking changes; versioned on-disk formats refuse unknown versions rather than guessing.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the project is pre-1.0 (currently beta), any release may contain breaking changes; versioned on-disk formats refuse unknown versions rather than guessing.
 
 ## [Unreleased]
 
+### Added
+
+- **Release workflow**: `.github/workflows/release.yml` builds the Docker image on `x86_64` and `aarch64`, smoke-tests it, and packages the binary from that image as `thadam-<version>-<target>.tar.gz` with a SHA-256 file. A `v*` tag that matches the workspace version opens a draft GitHub Release with that version's CHANGELOG section as the notes; a manual run builds without releasing. No image is pushed to a registry. The steps are in `CONTRIBUTING.md` ("Releasing").
+- **Open items for 0.1.0**: `docs/design/readiness.md` section 8 lists what remains between the beta and `0.1.0`, with the owner and state of each item.
+- **Field report issue template** for deployments outside the maintainer's own.
+- **Crate metadata**: every workspace package now has a `description`, `keywords`, `categories`, and `readme`.
+- **Ready to publish to crates.io and PyPI (nothing published yet)**: the `thadam` CLI and 22 library crates are publishable (`thadam-testkit`, `thadam-simulator`, `thadam-bench`, and `thadam-python` stay `publish = false`), and internal dependencies carry versions through `[workspace.dependencies]`. The Python package takes its version from Cargo and gains classifiers and project URLs. `release.yml` builds abi3 wheels (Linux `x86_64` and `aarch64`, macOS `arm64`) and an sdist, and on a `v*` tag publishes to crates.io and PyPI through trusted publishing after approval in the `crates-io` and `pypi` GitHub environments. CI runs `cargo publish --workspace --dry-run` (`package`) and `maturin sdist` with `twine check` (`python-package`). The one-time setup is in `CONTRIBUTING.md` ("Releasing").
+
 ### Changed
 
+- **Formatting**: the tree is `cargo fmt` clean again (import order had drifted in about 175 files, which failed the CI `fmt` job).
+- **The CLI package is renamed `thadam-cli` → `thadam`**, so it installs with `cargo install thadam`. The binary name and the `apps/thadam-cli` directory are unchanged; use `-p thadam` in Cargo commands.
+- **ADR-0016 Accepted** (2026-10-20): the crates.io, PyPI, and GitHub name checks found no conflict; no trademark search was done.
+- **Beta**: the project status is now beta in the README, homepage, docs, SECURITY, and CONTRIBUTING. Every crate is version `0.1.0-beta.1`, and the Python package is `0.1.0b1` (PyPI classifier `Development Status :: 4 - Beta`).
 - **Website and docs sync**: marked `ROS 2 live` (`kind: ros2_live`, opt-in `ros2-live` feature) and `Iceberg` (`kind: iceberg`, opt-in `iceberg` feature) as `Available` (experimental) across the homepage, user docs, `readiness.md`, `ARCHITECTURE.md`, and `README.md`; unified the navigation header, typography, sidebar, tables, and code blocks across `/`, `/404.html`, and `/docs/` using `thadam-wordmark-{light,dark}.svg` (`165×28`) and `thadam.css` tokens; fixed `edit-url-template` in `website/docs/book.toml`; synced `thadam validate` outputs in the getting-started guides; added the `S3` and Sparkplug B spike reports to the design index; marked the Python SDK page status; and updated the roadmap and README to reflect OAuth2 401 token refresh in `thadam-iceberg`.
 
-## [0.1.0] - Unreleased (tag pending the ADR-0004 reference-hardware run)
+### Security
 
-**Summary.** Thadam 0.1.0 is an open-source, Rust-first data plane for robotics and industrial telemetry. It accepts messages from MQTT, HTTP, gRPC, MCAP files, Modbus TCP, SocketCAN, OPC UA, and live ROS 2, writes each one to a local write-ahead log before delivery, and sends it to local Parquet segments, S3-compatible object storage, NATS JetStream, Apache Kafka, MQTT, ClickHouse, or Apache Iceberg. The release includes config validation, transform chains, a quarantine for rejected records, replay and MCAP export, an admin API with Prometheus metrics, and Docker and systemd deployment files. Status: pre-alpha. The WAL format is versioned but not frozen, the tag waits for the reference-hardware run, and live ROS 2 and Iceberg are experimental. Detailed status: [docs/design/readiness.md](docs/design/readiness.md) and ARCHITECTURE.md section 21.
+- Bump `rustls-webpki` 0.103.15 → 0.103.16 for RUSTSEC-2026-0382 (certificate verification could accept distrusted intermediates).
+
+## [0.1.0-beta.1] - Unreleased
+
+**Summary.** Thadam 0.1.0-beta.1 is the first beta of an open-source, Rust-first data plane for robotics and industrial telemetry. It accepts messages from MQTT, HTTP, gRPC, MCAP files, Modbus TCP, SocketCAN, OPC UA, and live ROS 2, writes each one to a local write-ahead log before delivery, and sends it to local Parquet segments, S3-compatible object storage, NATS JetStream, Apache Kafka, MQTT, ClickHouse, or Apache Iceberg. The release includes config validation, transform chains, a quarantine for rejected records, replay and MCAP export, an admin API with Prometheus metrics, and Docker and systemd deployment files. Status: beta. The WAL format is versioned but not frozen until `0.1.0`, and live ROS 2 and Iceberg are experimental. Detailed status: [docs/design/readiness.md](docs/design/readiness.md) and ARCHITECTURE.md section 21.
 
 ### Changed
 

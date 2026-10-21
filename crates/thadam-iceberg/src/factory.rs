@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use thadam_core::{BuildContext, ErrorDomain, ThadamError, Service, ServiceFactory, codes};
+use thadam_core::{BuildContext, ErrorDomain, Service, ServiceFactory, ThadamError, codes};
 
 use crate::config::parse_iceberg_config;
 use crate::registrar::Registrar;
@@ -12,7 +12,7 @@ use crate::storage::{S3Io, S3IoFactory, build_s3};
 ///
 /// Configured under `sinks:` (the registrar consumes the named segment
 /// sink's catalog, like the `object_store` shipper), started as a service
-/// after chains are ready. Registered only in `thadam-cli` builds with the
+/// after chains are ready. Registered only in `thadam` builds with the
 /// `iceberg` feature.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct IcebergRegistrarFactory;

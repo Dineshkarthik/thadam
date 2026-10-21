@@ -50,13 +50,13 @@ secrets/ca.pem: ## Optional: CA bundle for TLS-intercepting proxies; used by the
 
 run-native: secrets/admin_token secrets/s3_access_key secrets/s3_secret_key ## Run thadam natively on CONFIG (default thadam/pipeline.local.yaml)
 	@export THADAM_DEMO_S3_AK="$$(cat secrets/s3_access_key)" THADAM_DEMO_S3_SK="$$(cat secrets/s3_secret_key)"; \
-	cargo run --manifest-path "$(WORKSPACE)/Cargo.toml" -p thadam-cli -- \
+	cargo run --manifest-path "$(WORKSPACE)/Cargo.toml" -p thadam -- \
 	  run "./$(CONFIG)" --log-format pretty --admin-bind "$(ADMIN_BIND)"
 
 validate: ## thadam validate both native configs (level 2 with --allow-unresolved)
-	@cargo run --quiet --manifest-path "$(WORKSPACE)/Cargo.toml" -p thadam-cli -- \
+	@cargo run --quiet --manifest-path "$(WORKSPACE)/Cargo.toml" -p thadam -- \
 	  validate "$(CURDIR)/thadam/pipeline.local.yaml"
-	@cargo run --quiet --manifest-path "$(WORKSPACE)/Cargo.toml" -p thadam-cli -- \
+	@cargo run --quiet --manifest-path "$(WORKSPACE)/Cargo.toml" -p thadam -- \
 	  validate --allow-unresolved "$(CURDIR)/thadam/pipeline.s3.local.yaml"
 
 status: ## readyz and /status from the natively running thadam

@@ -61,7 +61,7 @@
   <main id="main">
     <section class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">Pre-alpha &middot; Rust &middot; Apache-2.0</p>
+        <p class="eyebrow">Beta &middot; Rust &middot; Apache-2.0</p>
         <h1>The open data plane for robotics.</h1>
         <p class="lede">Thadam records robotic and industrial telemetry in a local durable log before it acknowledges the source. It then normalizes the data and delivers it to Parquet, S3-compatible object storage, and analytical databases.</p>
         <div class="actions">
@@ -150,7 +150,7 @@
 
     <section class="section" id="status" aria-labelledby="status-heading">
       <h2 id="status-heading">Status</h2>
-      <p>Thadam is pre-alpha. Nothing is published to a package registry, and there are no release binaries yet. <span class="pill">Available</span> means implemented in this repository. <span class="pill pill-progress">In progress</span> means being built. <span class="pill pill-planned">Planned</span> means not started. The <a href="https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md">readiness tracker</a> records how far each part has been verified.</p>
+      <p>Thadam is in beta. Nothing is published to a package registry, and there are no release binaries yet. <span class="pill">Available</span> means implemented in this repository. <span class="pill pill-progress">In progress</span> means being built. <span class="pill pill-planned">Planned</span> means not started. The <a href="https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md">readiness tracker</a> records how far each part has been verified.</p>
       <div class="table-wrap">
         <table>
           <caption>Sources and sinks</caption>
@@ -179,7 +179,7 @@
       <p>The Rust toolchain is pinned by <code>rust-toolchain.toml</code>, and rustup installs it on first use. Linux x86_64 and ARM64 are the durability targets. macOS builds are for development and make no durability claims.</p>
       <pre><code>git clone https://github.com/Dineshkarthik/thadam.git
 cd thadam
-cargo build --release -p thadam-cli
+cargo build --release -p thadam
 ./target/release/thadam version</code></pre>
       <p>Next, follow <a href="/docs/getting-started/first-pipeline.html">your first pipeline</a>.</p>
     </section>

@@ -12,7 +12,7 @@ pub(crate) enum SinkFactory<'a> {
     Service(&'a dyn ServiceFactory),
 }
 
-/// Factories by kind. The binary (`thadam-cli`) is the only place that fills
+/// Factories by kind. The binary (`thadam`) is the only place that fills
 /// one; connector crates never see the runtime.
 ///
 /// Entries under `sinks:` in the configuration resolve against segment sinks,

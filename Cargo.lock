@@ -5279,9 +5279,9 @@ checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -6031,55 +6031,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
-name = "thadam-arrow"
-version = "0.1.0"
-dependencies = [
- "arrow-array 60.0.0",
- "arrow-buffer 60.0.0",
- "arrow-ipc 60.0.0",
- "arrow-schema 60.0.0",
- "bytes",
- "criterion",
- "insta",
- "parquet 60.0.0",
- "proptest",
- "sha2 0.11.0",
- "thadam-core",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "thadam-bench"
-version = "0.1.0"
-dependencies = [
- "clap",
- "humantime",
- "serde",
- "serde-saphyr",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "thadam-can"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "can-dbc",
- "serde",
- "serde_json",
- "socketcan",
- "tempfile",
- "thadam-core",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "thadam-cli"
-version = "0.1.0"
+name = "thadam"
+version = "0.1.0-beta.1"
 dependencies = [
  "assert_cmd",
  "axum",
@@ -6117,8 +6070,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "thadam-arrow"
+version = "0.1.0-beta.1"
+dependencies = [
+ "arrow-array 60.0.0",
+ "arrow-buffer 60.0.0",
+ "arrow-ipc 60.0.0",
+ "arrow-schema 60.0.0",
+ "bytes",
+ "criterion",
+ "insta",
+ "parquet 60.0.0",
+ "proptest",
+ "sha2 0.11.0",
+ "thadam-core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "thadam-bench"
+version = "0.1.0-beta.1"
+dependencies = [
+ "clap",
+ "humantime",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "thadam-can"
+version = "0.1.0-beta.1"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "can-dbc",
+ "serde",
+ "serde_json",
+ "socketcan",
+ "tempfile",
+ "thadam-core",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "thadam-clickhouse"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "arrow-array 60.0.0",
  "arrow-schema 60.0.0",
@@ -6139,7 +6139,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-config"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "bitflags 2.13.2",
  "bytesize",
@@ -6159,7 +6159,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-core"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "bitflags 2.13.2",
@@ -6179,7 +6179,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-grpc"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6205,7 +6205,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-http"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "axum",
@@ -6228,7 +6228,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-iceberg"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "arrow-array 58.4.0",
  "arrow-array 60.0.0",
@@ -6264,7 +6264,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-kafka"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6288,7 +6288,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-mcap"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6307,7 +6307,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-modbus"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6322,7 +6322,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-mqtt"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6345,7 +6345,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-nats"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-nats",
  "async-trait",
@@ -6367,7 +6367,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-object-store"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6391,7 +6391,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-opcua"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-opcua",
  "async-trait",
@@ -6412,7 +6412,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-python"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "arrow-array 59.3.0",
  "arrow-schema 59.3.0",
@@ -6433,7 +6433,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-ros2-live"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6450,7 +6450,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-ros2-msg"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "bytes",
  "criterion",
@@ -6460,7 +6460,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-runtime"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "axum",
@@ -6492,7 +6492,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-segments"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "arrow-array 60.0.0",
  "arrow-buffer 60.0.0",
@@ -6518,7 +6518,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-simulator"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "arrow-array 60.0.0",
  "arrow-schema 60.0.0",
@@ -6541,7 +6541,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-sparkplug"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "prost",
  "prost-build",
@@ -6552,7 +6552,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-testkit"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6563,7 +6563,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-transform"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "bytes",
  "criterion",
@@ -6585,7 +6585,7 @@ dependencies = [
 
 [[package]]
 name = "thadam-wal"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "bytes",
  "crc32c",

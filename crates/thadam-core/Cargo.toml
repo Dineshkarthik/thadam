@@ -7,6 +7,10 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "Canonical in-memory event model, value types, and connector traits for Thadam"
+readme.workspace = true
+keywords = ["thadam", "telemetry", "robotics", "data-plane"]
+categories = ["data-structures", "science::robotics"]
 
 [dependencies]
 async-trait = { workspace = true }

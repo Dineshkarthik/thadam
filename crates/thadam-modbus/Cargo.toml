@@ -7,6 +7,10 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "Modbus TCP register and coil polling source connector for Thadam"
+readme.workspace = true
+keywords = ["thadam", "modbus", "modbus-tcp", "industrial", "telemetry"]
+categories = ["network-programming", "hardware-support", "embedded"]
 
 [dependencies]
 async-trait = { workspace = true }

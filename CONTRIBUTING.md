@@ -1,6 +1,6 @@
 # Contributing to Thadam
 
-Thanks for your interest. Thadam is a young, pre-alpha project with a deliberately high correctness bar — the README explains where it stands — and it is record-first: design decisions are accepted ADRs before major code lands. This guide covers tooling, checks, and process.
+Thanks for your interest. Thadam is a young, beta-stage project with a deliberately high correctness bar — the README explains where it stands — and it is record-first: design decisions are accepted ADRs before major code lands. This guide covers tooling, checks, and process.
 
 ## Development environment
 
@@ -54,12 +54,12 @@ These mirror CI exactly and should pass on Linux x86_64 (and aarch64 when availa
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --exclude thadam-python --all-targets --locked -- -D warnings
-cargo clippy -p thadam-cli --all-features --all-targets --locked -- -D warnings
+cargo clippy -p thadam --all-features --all-targets --locked -- -D warnings
 cargo clippy -p thadam-mqtt --features v5 --all-targets --locked -- -D warnings
 cargo build --workspace --exclude thadam-python --locked
 cargo +1.89 check --workspace --exclude thadam-python --exclude thadam-iceberg --locked
 cargo nextest run --workspace --exclude thadam-python --locked
-cargo nextest run -p thadam-cli --all-features --locked
+cargo nextest run -p thadam --all-features --locked
 scripts/check-deps.sh                      # dependency-direction guard
 scripts/check-deps.sh --self-test          # the guard fails on its violating fixture
 cargo deny --locked check                  # advisories, bans, licenses, sources
@@ -110,6 +110,21 @@ Significant decisions are ADRs in `docs/design/adr/` (process and template: [ADR
 - Anyone may draft; **only the maintainer accepts** (Draft → Proposed → Accepted → Superseded). See [GOVERNANCE.md](GOVERNANCE.md).
 - An accepted ADR is never edited; supersede it with a new one.
 - Decisions that depend on measurements list the required spike/benchmark under "Evidence and validation required" and stay Draft/Proposed until it exists.
+
+## Releasing (maintainer)
+
+What gets published ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md)): the `thadam` CLI and the 22 library crates under `crates/` except `thadam-testkit` go to crates.io, and the `thadam` Python package (`sdk/python`) goes to PyPI. They all share one version. `cargo publish --workspace --dry-run --locked` and `maturin sdist` plus `twine check` run in CI (`package` and `python-package` jobs) and upload nothing.
+
+1. Set the new version in the root `Cargo.toml` twice: in `[workspace.package]`, and in every internal `version = "..."` under `[workspace.dependencies]`. The Python package reads its version from Cargo. Move the `[Unreleased]` entries into the version's section in `CHANGELOG.md` and give it a date (`## [X.Y.Z] - YYYY-MM-DD`; betas are `0.1.0-beta.N`, which PyPI shows as `0.1.0bN`).
+2. Optional dry run: start the `Release` workflow manually (`workflow_dispatch`). It builds and smoke-tests the Docker image and binaries on `x86_64` and `aarch64`, and the Python wheels (Linux `x86_64` and `aarch64`, macOS `arm64`) and sdist. It uploads them as workflow artifacts and publishes nothing.
+3. Push a tag `vX.Y.Z` that matches the version. `.github/workflows/release.yml` builds again and fails if the tag and version differ. It then opens a **draft** GitHub Release with `thadam-X.Y.Z-<target>.tar.gz` and a `.sha256` per architecture, using that version's CHANGELOG section as the notes. The `crates-io` and `pypi` jobs wait for approval in their GitHub environments, then publish.
+4. Review the draft GitHub Release and publish it. No container image is pushed to a registry.
+
+One-time setup before the first tag:
+
+- **GitHub:** create the environments `crates-io` and `pypi` (Settings → Environments), each with the maintainer as a required reviewer and limited to `v*` tags.
+- **PyPI:** add a pending trusted publisher for the project `thadam`: owner `Dineshkarthik`, repository `thadam`, workflow `release.yml`, environment `pypi`. The first upload from the workflow creates the project, so no token is needed.
+- **crates.io:** trusted publishing is configured on crates that already exist. Unless crates.io lets you configure it for a new crate, do the first publish by hand: create an API token with the `publish-new` scope, run `cargo publish --workspace --locked` from the tagged commit with `CARGO_REGISTRY_TOKEN` set, then add a trusted publisher (repository `Dineshkarthik/thadam`, workflow `release.yml`, environment `crates-io`) to each of the 23 crates and revoke the token. Later releases go through the workflow. If the first publish is done by hand, reject the `crates-io` job's approval for that tag.
 
 ## Reporting bugs and requesting features
 

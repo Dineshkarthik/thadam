@@ -64,7 +64,7 @@ Present when a dataset uses `decode: sparkplug_b`. Each sink's chain keeps `<sha
 
 ## Format-status caution
 
-WAL segment headers, `wal.json`, and cursor files carry format versions, and a binary refuses any version it does not know rather than guessing. The WAL format is **versioned but not frozen** until the v0.1.0 tag, which follows the ADR-0004 reference-hardware run ([details](../concepts/wal-and-replay.md#durability-and-fsync-policy)) — expect to re-initialize data directories across some pre-alpha upgrades.
+WAL segment headers, `wal.json`, and cursor files carry format versions, and a binary refuses any version it does not know rather than guessing. The WAL format is **versioned but not frozen** until the v0.1.0 tag, which follows the ADR-0004 reference-hardware run ([details](../concepts/wal-and-replay.md#durability-and-fsync-policy)) — expect to re-initialize data directories across some beta upgrades.
 
 ## What is not here
 

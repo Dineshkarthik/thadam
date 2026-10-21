@@ -1,6 +1,6 @@
 # Sparkplug B decoding
 
-**Status: Available (pre-alpha), with documented limits** ([below](#limits)). `decode: sparkplug_b` is a dataset decoder, not a source: an [MQTT source](mqtt.md) captures the raw `spBv1.0` protobuf messages into the WAL, and the chain decodes them. Design record: the Sparkplug spike in `docs/design/spikes/sparkplug-b-and-opcua-pubsub.md`; the wire schema was written for Thadam from the Sparkplug 3.0.0 specification (chapter 6), not copied from another implementation.
+**Status: Available (beta), with documented limits** ([below](#limits)). `decode: sparkplug_b` is a dataset decoder, not a source: an [MQTT source](mqtt.md) captures the raw `spBv1.0` protobuf messages into the WAL, and the chain decodes them. Design record: the Sparkplug spike in `docs/design/spikes/sparkplug-b-and-opcua-pubsub.md`; the wire schema was written for Thadam from the Sparkplug 3.0.0 specification (chapter 6), not copied from another implementation.
 
 Thadam is a passive consumer: it subscribes and records, and **never publishes** to a Sparkplug namespace (no STATE, no rebirth requests, no commands).
 

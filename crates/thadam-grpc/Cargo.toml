@@ -7,6 +7,10 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "gRPC ingest server source connector with TLS and ack-after-commit for Thadam"
+readme.workspace = true
+keywords = ["thadam", "grpc", "protobuf", "telemetry", "ingest"]
+categories = ["network-programming", "asynchronous"]
 
 [dependencies]
 async-trait = { workspace = true }
