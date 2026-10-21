@@ -44,14 +44,15 @@ brand_files=(
   png/favicon-192.png
   png/favicon-512.png
   png/og-card.png
-  png/thadam-illusion-light-hero.png
-  png/thadam-illusion-dark-hero.png
+  illustrations/thadam-data-plane-light.webp
+  illustrations/thadam-platform-light.webp
   tokens/thadam.css
 )
 for f in "${brand_files[@]}"; do
   mkdir -p "$(dirname "$dist/assets/brand/$f")"
   cp "$brand/$f" "$dist/assets/brand/$f"
 done
+cp "$brand/png/favicon.ico" "$dist/favicon.ico"
 
 python3 - "$dist" "$origin" <<'PY'
 import hashlib

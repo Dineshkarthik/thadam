@@ -63,40 +63,49 @@
       <div class="hero-copy">
         <p class="eyebrow">Beta &middot; Rust &middot; Apache-2.0</p>
         <h1>The open data plane for robotics.</h1>
+        <p class="verbs">Capture. Transform. Buffer. Replay.</p>
         <p class="lede">Thadam records robotic and industrial telemetry in a local durable log before it acknowledges the source. It then normalizes the data and delivers it to Parquet, S3-compatible object storage, and analytical databases.</p>
         <div class="actions">
           <a class="button button-primary" href="/docs/getting-started/installation.html">Get started <span aria-hidden="true">&rarr;</span></a>
-          <a class="button" href="/docs/">Read the docs</a>
+          <a class="button" href="https://github.com/Dineshkarthik/thadam">GitHub</a>
         </div>
       </div>
       <div class="hero-art" aria-hidden="true">
-        <img class="on-light" src="/assets/brand/png/thadam-illusion-light-hero.png" alt="" width="512" height="512">
-        <img class="on-dark" src="/assets/brand/png/thadam-illusion-dark-hero.png" alt="" width="512" height="512">
+        <img src="/assets/brand/illustrations/thadam-data-plane-light.webp" alt="" width="1600" height="901">
       </div>
     </section>
 
     <ul class="features" aria-label="Highlights">
       <li>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
-        <span>Commit before acknowledging</span>
+        <span>Multi-protocol capture</span>
       </li>
       <li>
         <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
-        <span>fsync-backed local log</span>
+        <span>Commit before acknowledging</span>
       </li>
       <li>
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 7.5v9M8.5 19c4 0 5-3 7-6"/></svg>
-        <span>Independent sinks per pipeline</span>
+        <span>Per-sink transform chains</span>
+      </li>
+      <li>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8z"/></svg>
+        <span>Replay from the local log</span>
       </li>
       <li>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>
-        <span>Built for the edge</span>
+        <span>Open source, Apache-2.0</span>
       </li>
     </ul>
 
     <section class="section" id="how" aria-labelledby="how-heading">
-      <h2 id="how-heading">How it works</h2>
-      <p>Accepted messages are committed to one local log. Each sink reads that log through its own chain, so a slow or failed sink is isolated from the others (see <a href="https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0003-execution-and-process-model.md">ADR-0003</a>).</p>
+      <div class="how-intro">
+        <div>
+          <h2 id="how-heading">How it works</h2>
+          <p>Accepted messages are committed to one local log. Each sink reads that log through its own chain, so a slow or failed sink is isolated from the others (see <a href="https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0003-execution-and-process-model.md">ADR-0003</a>).</p>
+        </div>
+        <img src="/assets/brand/illustrations/thadam-platform-light.webp" alt="" width="1200" height="676" loading="lazy">
+      </div>
       <figure class="flow">
         <div class="flow-grid">
           <div class="flow-col">

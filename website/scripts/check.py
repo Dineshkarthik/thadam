@@ -38,8 +38,9 @@ REQUIRED = [
     "assets/brand/png/favicon-192.png",
     "assets/brand/png/favicon-512.png",
     "assets/brand/png/og-card.png",
-    "assets/brand/png/thadam-illusion-light-hero.png",
-    "assets/brand/png/thadam-illusion-dark-hero.png",
+    "assets/brand/illustrations/thadam-data-plane-light.webp",
+    "assets/brand/illustrations/thadam-platform-light.webp",
+    "favicon.ico",
     "site.webmanifest",
 ]
 NOINDEX_PAGES = {"docs/print.html", "docs/404.html", "docs/toc.html"}
