@@ -6,14 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Added
+## [0.1.0-beta.1] - 2026-10-20
 
-- **Release workflow**: `.github/workflows/release.yml` builds the Docker image on `x86_64` and `aarch64`, smoke-tests it, and packages the binary from that image as `thadam-<version>-<target>.tar.gz` with a SHA-256 file. A `v*` tag that matches the workspace version opens a draft GitHub Release with that version's CHANGELOG section as the notes; a manual run builds without releasing. No image is pushed to a registry. The steps are in `CONTRIBUTING.md` ("Releasing").
-- **Open items for 0.1.0**: `docs/design/readiness.md` section 8 lists what remains between the beta and `0.1.0`, with the owner and state of each item.
-- **Field report issue template** for deployments outside the maintainer's own.
-- **Brand assets merged**: `thadam-assets/brand/illustrations/` holds the text-free homepage illustrations as WebP (`thadam-data-plane-light.webp`, `thadam-platform-light.webp`); `thadam-assets/brand/png/favicon.ico` is served at `/favicon.ico`; the monochrome marks and a light social card are stored under `brand/`. `thadam-assets/reference/` keeps the text-baked concept mockups as layout references only; they are never shipped.
-- **Crate metadata**: every workspace package now has a `description`, `keywords`, `categories`, and `readme`.
-- **Ready to publish to crates.io and PyPI (nothing published yet)**: the `thadam` CLI and 22 library crates are publishable (`thadam-testkit`, `thadam-simulator`, `thadam-bench`, and `thadam-python` stay `publish = false`), and internal dependencies carry versions through `[workspace.dependencies]`. The Python package takes its version from Cargo and gains classifiers and project URLs. `release.yml` builds abi3 wheels (Linux `x86_64` and `aarch64`, macOS `arm64`) and an sdist, and on a `v*` tag publishes to crates.io and PyPI through trusted publishing after approval in the `crates-io` and `pypi` GitHub environments. CI runs `cargo publish --workspace --dry-run` (`package`) and `maturin sdist` with `twine check` (`python-package`). The one-time setup is in `CONTRIBUTING.md` ("Releasing").
+**Summary.** Thadam 0.1.0-beta.1 is the first beta of an open-source, Rust-first data plane for robotics and industrial telemetry. It accepts messages from MQTT, HTTP, gRPC, MCAP files, Modbus TCP, SocketCAN, OPC UA, and live ROS 2, writes each one to a local write-ahead log before delivery, and sends it to local Parquet segments, S3-compatible object storage, NATS JetStream, Apache Kafka, MQTT, ClickHouse, or Apache Iceberg. The release includes config validation, transform chains, a quarantine for rejected records, replay and MCAP export, an admin API with Prometheus metrics, and Docker and systemd deployment files. Status: beta. The WAL format is versioned but not frozen until `0.1.0`, and live ROS 2 and Iceberg are experimental. Detailed status: [docs/design/readiness.md](docs/design/readiness.md) and ARCHITECTURE.md section 21.
 
 ### Changed
 
@@ -25,17 +20,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Beta**: the project status is now beta in the README, homepage, docs, SECURITY, and CONTRIBUTING. Every crate is version `0.1.0-beta.1`, and the Python package is `0.1.0b1` (PyPI classifier `Development Status :: 4 - Beta`).
 - **Website and docs sync**: marked `ROS 2 live` (`kind: ros2_live`, opt-in `ros2-live` feature) and `Iceberg` (`kind: iceberg`, opt-in `iceberg` feature) as `Available` (experimental) across the homepage, user docs, `readiness.md`, `ARCHITECTURE.md`, and `README.md`; unified the navigation header, typography, sidebar, tables, and code blocks across `/`, `/404.html`, and `/docs/` using `thadam-wordmark-{light,dark}.svg` (`165×28`) and `thadam.css` tokens; fixed `edit-url-template` in `website/docs/book.toml`; synced `thadam validate` outputs in the getting-started guides; added the `S3` and Sparkplug B spike reports to the design index; marked the Python SDK page status; and updated the roadmap and README to reflect OAuth2 401 token refresh in `thadam-iceberg`.
 - **Project name origin**: the homepage footer and the docs introduction give the Tamil meaning of "Thadam" (தடம், track, trail, trace, path), as recorded in ADR-0016.
-
-### Security
-
-- Bump `rustls-webpki` 0.103.15 → 0.103.16 for RUSTSEC-2026-0382 (certificate verification could accept distrusted intermediates).
-
-## [0.1.0-beta.1] - Unreleased
-
-**Summary.** Thadam 0.1.0-beta.1 is the first beta of an open-source, Rust-first data plane for robotics and industrial telemetry. It accepts messages from MQTT, HTTP, gRPC, MCAP files, Modbus TCP, SocketCAN, OPC UA, and live ROS 2, writes each one to a local write-ahead log before delivery, and sends it to local Parquet segments, S3-compatible object storage, NATS JetStream, Apache Kafka, MQTT, ClickHouse, or Apache Iceberg. The release includes config validation, transform chains, a quarantine for rejected records, replay and MCAP export, an admin API with Prometheus metrics, and Docker and systemd deployment files. Status: beta. The WAL format is versioned but not frozen until `0.1.0`, and live ROS 2 and Iceberg are experimental. Detailed status: [docs/design/readiness.md](docs/design/readiness.md) and ARCHITECTURE.md section 21.
-
-### Changed
-
 - **One website folder**: the homepage and the user documentation now live under `website/` (`website/public/` at `/`, `website/docs/` at `/docs/`). `website/scripts/build.sh` builds one artifact in `website/dist/`, and `check.py` verifies it. The mdBook sources moved from `docs/` with history kept; `docs/` now holds the design records only. Brand assets are consolidated in `thadam-assets/brand/`, replacing `thadam-brand-kit/`. CI builds the site and uploads `website/dist` as an artifact; deployment is not configured here.
 - **Site polish**: the homepage gains a "How it works" diagram, a working "Get started" link, social cards (`og:image`, Twitter card, JSON-LD), and a web app manifest. Docs pages get per-page social metadata, and the docs header links back to the homepage. The mdBook print page is disabled to reduce size. `check.py` enforces a homepage size budget and the new metadata.
 - **Light and dark themes**: the homepage, the 404 page, and the docs share one theme toggle and one saved choice (`mdbook-theme` in local storage). The choice is applied before first paint, and without a choice the site follows the system setting. The docs use graphite for dark mode and warm white for light mode, with brand tokens throughout.
@@ -57,6 +41,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Release workflow**: `.github/workflows/release.yml` builds the Docker image on `x86_64` and `aarch64`, smoke-tests it, and packages the binary from that image as `thadam-<version>-<target>.tar.gz` with a SHA-256 file. A `v*` tag that matches the workspace version opens a draft GitHub Release with that version's CHANGELOG section as the notes; a manual run builds without releasing. No image is pushed to a registry. The steps are in `CONTRIBUTING.md` ("Releasing").
+- **Open items for 0.1.0**: `docs/design/readiness.md` section 8 lists what remains between the beta and `0.1.0`, with the owner and state of each item.
+- **Field report issue template** for deployments outside the maintainer's own.
+- **Brand assets merged**: `thadam-assets/brand/illustrations/` holds the text-free homepage illustrations as WebP (`thadam-data-plane-light.webp`, `thadam-platform-light.webp`); `thadam-assets/brand/png/favicon.ico` is served at `/favicon.ico`; the monochrome marks and a light social card are stored under `brand/`. `thadam-assets/reference/` keeps the text-baked concept mockups as layout references only; they are never shipped.
+- **Crate metadata**: every workspace package now has a `description`, `keywords`, `categories`, and `readme`.
+- **Ready to publish to crates.io and PyPI (nothing published yet)**: the `thadam` CLI and 22 library crates are publishable (`thadam-testkit`, `thadam-simulator`, `thadam-bench`, and `thadam-python` stay `publish = false`), and internal dependencies carry versions through `[workspace.dependencies]`. The Python package takes its version from Cargo and gains classifiers and project URLs. `release.yml` builds abi3 wheels (Linux `x86_64` and `aarch64`, macOS `arm64`) and an sdist, and on a `v*` tag publishes to crates.io and PyPI through trusted publishing after approval in the `crates-io` and `pypi` GitHub environments. CI runs `cargo publish --workspace --dry-run` (`package`) and `maturin sdist` with `twine check` (`python-package`). The one-time setup is in `CONTRIBUTING.md` ("Releasing").
 - **Workspace and guardrails**: eleven-member Cargo workspace (ten library crates plus the CLI), MSRV Rust 1.89, pinned toolchain, `cargo deny` policy, dependency-direction guard, nextest, CI on Linux x86_64 and ARM64.
 - **Design corpus**: `ARCHITECTURE.md`, the ADR set in `docs/design/adr/` (nine accepted on 2026-10-07, including the delivery guarantees and claims register ADR-0011), owner-decision and readiness registers, and five spike reports (S1 WAL, S2 MQTT, D8 record representation, config YAML, filter language).
 - **`thadam-core`**: canonical event model (times with time domains, quality status/flags, hierarchical identity, extended values, shape-shared positional records), error model with stable codes, connector traits (`Source`, `BatchSink`, `SegmentSink`), disk budget, conformance-test utilities in `thadam-testkit`.
@@ -151,6 +141,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Security
 
+- Bump `rustls-webpki` 0.103.15 → 0.103.16 for RUSTSEC-2026-0382 (certificate verification could accept distrusted intermediates).
 - **Listeners**: HTTP, gRPC, and admin listeners cap connections at 1024 and add header (10 s), idle (60 s), and body-read timeouts (30 s ingest, 10 s admin). The gRPC listener also caps at 256 streams per connection and sends HTTP/2 keep-alive pings. Token checks compare SHA-256 digests in constant time. NATS and Iceberg warn when credentials go over non-loopback plaintext.
 - **Untrusted schemas and payloads**: ROS 2 `.msg` flattening is capped at `MAX_SHAPE_FIELDS` and wire-byte sums saturate. `ros2` and `sparkplug_b` decodes honour `max_payload_bytes`. Sparkplug caps total device scopes at 100,000. Iceberg rejects Parquet footers larger than 64 MiB.
 - **File modes**: WAL, segment, catalog, lock, and birth files are created `0600`. An existing `data_dir` is tightened to `0700`, which changes behaviour for group-shared data dirs. The Docker image creates its data dir `0700`, and the systemd unit sets `UMask=0077`, `StateDirectoryMode=0700`, and further hardening.
