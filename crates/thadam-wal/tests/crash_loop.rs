@@ -39,7 +39,9 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use thadam_core::{DiskBudget, RawBatch, RawMessage, SourceId, SystemClock, Timestamp, WalPos};
 use thadam_testkit::SplitMix64;
-use thadam_wal::{ConsumerSpec, CursorState, Frame, Fsync, OnFull, ReadItem, StartFrom, WalOptions};
+use thadam_wal::{
+    ConsumerSpec, CursorState, Frame, Fsync, OnFull, ReadItem, StartFrom, WalOptions,
+};
 
 const CHILD_DIR: &str = "THADAM_WAL_CRASH_CHILD_DIR";
 const CHILD_RUN: &str = "THADAM_WAL_CRASH_CHILD_RUN";

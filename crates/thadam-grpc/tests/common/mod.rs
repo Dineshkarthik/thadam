@@ -4,12 +4,12 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use serde_json::{Value, json};
 use thadam_core::{BatchLimits, Shutdown, Source, SourceBatch, SourceContext, SourceId};
 use thadam_grpc::proto::PublishRequest;
 use thadam_grpc::proto::ingest_client::IngestClient;
 use thadam_grpc::{GrpcConfig, GrpcSource};
 use thadam_testkit::FakeClock;
-use serde_json::{Value, json};
 use tonic::transport::Channel;
 
 pub async fn open(config: Value) -> (GrpcSource, SocketAddr) {

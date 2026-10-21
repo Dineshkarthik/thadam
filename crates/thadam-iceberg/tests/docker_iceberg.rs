@@ -24,14 +24,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
+use sha2::{Digest, Sha256};
+use tempfile::TempDir;
 use thadam_core::{
     BudgetCategory, DiskBudget, Event, EventBatch, EventId, FieldDef, FieldType, Record,
     ServiceContext, Shape, ShapeRef, SharedObjects, Shutdown, SystemClock, TimeDomain, Times,
     Timestamp, Value, WalEpoch, WalPos, WalRange,
 };
 use thadam_segments::{SegmentCatalog, SegmentId, SegmentRecord};
-use sha2::{Digest, Sha256};
-use tempfile::TempDir;
 
 use thadam_arrow::{ArrowOptions, BatchContext, BatchEncoder, DatasetSchema, UnsignedPolicy};
 use thadam_iceberg::IcebergRegistrarFactory;

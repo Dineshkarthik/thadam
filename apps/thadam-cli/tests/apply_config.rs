@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use thadam_testkit::TempDataDir;
 use serde_json::{Value, json};
+use thadam_testkit::TempDataDir;
 
 const RESTART_SH: &str = r#"#!/bin/sh
 # $1 is how a candidate starts: `start` runs it, `fail` exits 1, `silent` starts

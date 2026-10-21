@@ -10,15 +10,15 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use parquet::file::reader::{FileReader, SerializedFileReader};
+use serde_json::{Value, json};
 use thadam_config::MapEnv;
 use thadam_core::{
-    BuildContext, DiskBudget, ErrorDomain, RawBatch, RawMessage, ThadamError, Shutdown, Source,
-    SourceFactory, SourceId, SystemClock, Timestamp, codes,
+    BuildContext, DiskBudget, ErrorDomain, RawBatch, RawMessage, Shutdown, Source, SourceFactory,
+    SourceId, SystemClock, ThadamError, Timestamp, codes,
 };
 use thadam_runtime::{BackoffPolicy, Pipeline, Registry, RuntimeOptions};
 use thadam_testkit::{MemorySource, MemorySourceConfig, TempDataDir};
 use thadam_wal::{OnFull, WalOptions, WalWriter};
-use serde_json::{Value, json};
 
 const ROWS: u64 = 6;
 

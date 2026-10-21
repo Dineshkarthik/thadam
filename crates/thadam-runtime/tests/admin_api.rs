@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use http_body_util::BodyExt;
+use serde_json::Value;
 use thadam_runtime::{AdminConfig, MetricsSink, PrometheusMetrics, router, validate_admin_config};
 use thadam_testkit::TempDataDir;
-use serde_json::Value;
 use tower::ServiceExt;
 
 use crate::common::{Kit, json_n, spec, yaml};
@@ -94,7 +94,11 @@ async fn status_identifies_the_node_build_and_configuration() {
     let status: Value = serde_json::from_str(&body).expect("status should be valid JSON");
     assert_eq!(status["node_id"], "node-1", "{body}");
     assert_eq!(status["pipeline"], "test", "{body}");
-    assert_eq!(status["thadam_version"], env!("CARGO_PKG_VERSION"), "{body}");
+    assert_eq!(
+        status["thadam_version"],
+        env!("CARGO_PKG_VERSION"),
+        "{body}"
+    );
     assert_eq!(status["config_hash"], spec(&y).config_hash_hex(), "{body}");
     assert_eq!(status["config_hash_version"], 1, "{body}");
     assert_eq!(status["previous_config_hash"], Value::Null, "{body}");

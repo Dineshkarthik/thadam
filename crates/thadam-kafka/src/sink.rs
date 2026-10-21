@@ -21,10 +21,6 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use thadam_core::{
-    BatchSink, DeliveryClass, ErrorDomain, Reject, ThadamError, SinkBatch, SinkCapabilities,
-    SinkContext, WriteOutcome, codes,
-};
 use rskafka::BackoffConfig;
 use rskafka::client::error::Error as ClientError;
 use rskafka::client::partition::{
@@ -32,6 +28,10 @@ use rskafka::client::partition::{
 };
 use rskafka::client::{Client, ClientBuilder, Credentials, SaslConfig};
 use rskafka::record::Record;
+use thadam_core::{
+    BatchSink, DeliveryClass, ErrorDomain, Reject, SinkBatch, SinkCapabilities, SinkContext,
+    ThadamError, WriteOutcome, codes,
+};
 use tokio_rustls::rustls::crypto::ring;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 

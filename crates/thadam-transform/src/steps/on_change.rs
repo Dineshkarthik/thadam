@@ -9,7 +9,7 @@
 //!
 //! This is value-based and lossy by design. It is not deduplication.
 
-use thadam_core::{Event, FieldIdx, Payload, ThadamError, ShapeRef, Value};
+use thadam_core::{Event, FieldIdx, Payload, ShapeRef, ThadamError, Value};
 
 use super::state::AssetMap;
 use super::{Compiled, Step, StepCtx, StepResult, config_error};
@@ -238,8 +238,8 @@ impl Step for OnChange {
 mod tests {
     use super::*;
     use crate::testutil::{event, shape, with_ctx, with_ctx_limits};
-    use thadam_core::FieldType;
     use serde_json::json;
+    use thadam_core::FieldType;
 
     fn s() -> ShapeRef {
         shape(&[

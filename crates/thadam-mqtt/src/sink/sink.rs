@@ -19,8 +19,8 @@
 use async_trait::async_trait;
 use bytes::Bytes;
 use thadam_core::{
-    BatchSink, DeliveryClass, ErrorDomain, Event, Reject, ThadamError, SinkBatch, SinkCapabilities,
-    SinkContext, WriteOutcome, codes,
+    BatchSink, DeliveryClass, ErrorDomain, Event, Reject, SinkBatch, SinkCapabilities, SinkContext,
+    ThadamError, WriteOutcome, codes,
 };
 use tokio::task::JoinSet;
 

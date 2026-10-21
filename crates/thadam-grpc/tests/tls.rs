@@ -4,9 +4,9 @@
 mod common;
 
 use common::{config, next, open, publish, test_pki};
+use serde_json::json;
 use thadam_core::{AckOutcome, Source};
 use thadam_grpc::proto::ingest_client::IngestClient;
-use serde_json::json;
 use tonic::Request;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint};
 

@@ -10,8 +10,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use bytes::Bytes;
-use thadam_core::{Clock, RawMessage, Shutdown, Timestamp};
 use serde_json::Value;
+use thadam_core::{Clock, RawMessage, Shutdown, Timestamp};
 use tokio::sync::mpsc;
 
 use crate::config::{CanConfig, Emitter, Unknown};

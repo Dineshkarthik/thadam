@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use thadam_core::{
-    AckMode, AckOutcome, AckStatus, BatchLimits, ErrorDomain, ThadamError, Shutdown, Source,
-    SourceContext, SourceId, codes,
+    AckMode, AckOutcome, AckStatus, BatchLimits, ErrorDomain, Shutdown, Source, SourceContext,
+    SourceId, ThadamError, codes,
 };
 use thadam_testkit::{
     FakeClock, MemorySource, MemorySourceConfig, MemoryUpstream, id_payload, payload_id,
@@ -125,8 +125,9 @@ async fn max_bytes_bounds_a_batch_but_a_single_large_message_still_flows() {
 
 #[tokio::test(start_paused = true)]
 async fn open_failures_are_returned_in_order_then_open_succeeds() {
-    let boom =
-        |n: &str| ThadamError::transient(ErrorDomain::Connector, codes::CONNECTOR_CONNECT_FAILED, n);
+    let boom = |n: &str| {
+        ThadamError::transient(ErrorDomain::Connector, codes::CONNECTOR_CONNECT_FAILED, n)
+    };
     let (mut source, _upstream) = MemorySource::new(MemorySourceConfig {
         open_failures: vec![boom("first"), boom("second")],
         ..MemorySourceConfig::default()

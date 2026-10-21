@@ -11,8 +11,8 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::time::Duration;
 
-use thadam_core::{ErrorDomain, ThadamError, codes};
 use serde::Deserialize;
+use thadam_core::{ErrorDomain, ThadamError, codes};
 
 fn config_error(path: &str, message: impl Into<String>) -> ThadamError {
     ThadamError::permanent(ErrorDomain::Config, codes::CONFIG_INVALID, message)

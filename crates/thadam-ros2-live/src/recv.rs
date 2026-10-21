@@ -272,9 +272,9 @@ mod tests {
     use super::*;
     use crate::transport::TransportError;
     use bytes::Bytes;
-    use thadam_core::SystemClock;
     use std::collections::VecDeque;
     use std::sync::Mutex as StdMutex;
+    use thadam_core::SystemClock;
 
     struct FakeTransport {
         topics: StdMutex<HashMap<String, VecDeque<RawRos2Message>>>,

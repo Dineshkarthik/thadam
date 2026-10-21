@@ -90,7 +90,7 @@ pub use connector::{
     SourceFactory, WriteOutcome,
 };
 pub use dataset::{DatasetDecl, LevelDecl};
-pub use error::{Classify, ErrorContext, ErrorDomain, Reject, Retry, ThadamError, Severity};
+pub use error::{Classify, ErrorContext, ErrorDomain, Reject, Retry, Severity, ThadamError};
 pub use event::{Event, EventBuildError, EventBuilder, EventId, ObjectRef, Payload, RawPayload};
 pub use identity::{
     AssetLevel, AssetPath, AssetPathError, Attributes, MAX_ASSET_LEVELS, SinkId, SourceId,

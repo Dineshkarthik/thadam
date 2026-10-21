@@ -4,9 +4,9 @@
 
 mod common;
 
+use std::sync::Arc;
 use thadam_core::{FieldType, ShapeRef, Timestamp, Value};
 use thadam_ros2_msg::{CompiledMessage, Registry};
-use std::sync::Arc;
 
 use crate::common::{
     Enc, POSE_MSG, POSE_STAMPED_MSG, STAMP_NANOS, STAMP_NANOSEC, STAMP_SEC, TIME_MSG,

@@ -14,8 +14,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use common::*;
 use thadam_core::{
-    BuildContext, ErrorDomain, Reject, ThadamError, SegmentBatch, SegmentSink, SegmentSinkFactory,
-    Shutdown, SinkContext, WalPos, codes,
+    BuildContext, ErrorDomain, Reject, SegmentBatch, SegmentSink, SegmentSinkFactory, Shutdown,
+    SinkContext, ThadamError, WalPos, codes,
 };
 use thadam_runtime::{ExitStatus, Pipeline, Registry, RuntimeOptions, failpoints};
 use thadam_testkit::TempDataDir;

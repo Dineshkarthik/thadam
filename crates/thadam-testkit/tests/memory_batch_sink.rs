@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use thadam_core::{
-    BatchSink, DeliveryClass, DiskBudget, ErrorDomain, Retry, ThadamError, Shutdown, SinkBatch,
-    SinkContext, SinkId, codes,
+    BatchSink, DeliveryClass, DiskBudget, ErrorDomain, Retry, Shutdown, SinkBatch, SinkContext,
+    SinkId, ThadamError, codes,
 };
 use thadam_testkit::{
     FakeClock, Fault, MemoryBatchSink, MemoryBatchSinkConfig, MemoryBatchSinkHandle, test_batch,

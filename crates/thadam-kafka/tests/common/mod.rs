@@ -14,6 +14,10 @@ use std::process::{Command, Output};
 use std::sync::{Arc, Once};
 use std::time::{Duration, Instant};
 
+use rskafka::client::partition::{OffsetAt, UnknownTopicHandling};
+use rskafka::client::{Client, ClientBuilder, Credentials, SaslConfig};
+use rskafka::record::Record as KafkaRecord;
+use tempfile::TempDir;
 use thadam_core::{
     AssetPath, BatchSink, BatchSinkFactory, BuildContext, DatasetDecl, DiskBudget, Event,
     EventBatch, EventId, FieldDef, FieldType, LevelDecl, Record, Shape, ShapeRef, Shutdown,
@@ -21,10 +25,6 @@ use thadam_core::{
     WalPos, WalRange,
 };
 use thadam_kafka::KafkaSinkFactory;
-use rskafka::client::partition::{OffsetAt, UnknownTopicHandling};
-use rskafka::client::{Client, ClientBuilder, Credentials, SaslConfig};
-use rskafka::record::Record as KafkaRecord;
-use tempfile::TempDir;
 use tokio_rustls::rustls::ClientConfig;
 
 use certs::Pki;

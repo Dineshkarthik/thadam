@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use thadam_core::{
     AssetPath, Event, FieldDef, FieldIdx, FieldType, Payload, Quality, QualityFlags, QualityStatus,
-    Record, ThadamError, Shape, ShapeRef, TimeDomain, Times, Timestamp, Value, WalPos,
+    Record, Shape, ShapeRef, ThadamError, TimeDomain, Times, Timestamp, Value, WalPos,
 };
 
 use super::fieldops::step_failed;

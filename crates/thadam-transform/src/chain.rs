@@ -4,11 +4,11 @@ use std::cell::Cell;
 use std::collections::HashSet;
 use std::marker::PhantomData;
 
+use serde_json::Value as Json;
 use thadam_core::{
-    ErrorDomain, EventBatch, Record, ThadamError, SchemaStore, ShapeRef, ShapeRegistry, Sym,
+    ErrorDomain, EventBatch, Record, SchemaStore, ShapeRef, ShapeRegistry, Sym, ThadamError,
     TimeDomain, WalPos, WalRange, codes,
 };
-use serde_json::Value as Json;
 
 use crate::dataset::{Dataset, DatasetStats};
 use crate::decode::parse_json;

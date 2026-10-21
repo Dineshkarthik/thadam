@@ -6,8 +6,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use thadam_core::{ErrorDomain, ThadamError, codes};
 use serde::{Deserialize, Serialize};
+use thadam_core::{ErrorDomain, ThadamError, codes};
 
 use super::topic::{TopicTemplate, TopicTemplateError};
 use crate::config::{DurationSpec, TlsConfig, parse_broker_url};

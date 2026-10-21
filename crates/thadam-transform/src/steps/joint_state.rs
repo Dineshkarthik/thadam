@@ -12,8 +12,8 @@
 use std::collections::HashSet;
 
 use thadam_core::{
-    ErrorDomain, Event, FieldIdx, FieldType, Payload, QualityFlags, QualityStatus, ThadamError,
-    ShapeRef, Sym, Value, codes,
+    ErrorDomain, Event, FieldIdx, FieldType, Payload, QualityFlags, QualityStatus, ShapeRef, Sym,
+    ThadamError, Value, codes,
 };
 
 use super::{Compiled, Step, StepCtx, StepResult, config_error};
@@ -207,8 +207,8 @@ fn mismatch(message: &str) -> ThadamError {
 mod tests {
     use super::*;
     use crate::testutil::{event, shape, with_ctx};
-    use thadam_core::{FieldType, Quality, Timestamp, Value};
     use serde_json::json;
+    use thadam_core::{FieldType, Quality, Timestamp, Value};
 
     fn build(spec: serde_json::Value, shape: &ShapeRef) -> Result<Box<dyn Step>, Vec<ThadamError>> {
         let spec: JointStateSpec = serde_json::from_value(spec).unwrap();

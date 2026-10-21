@@ -4,9 +4,9 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
-use thadam_core::{ErrorDomain, ThadamError, Timestamp, codes};
 use serde::Deserialize;
 use serde::de::{self, Deserializer};
+use thadam_core::{ErrorDomain, ThadamError, Timestamp, codes};
 
 /// A log-time bound, written as an RFC 3339 string (`2026-10-01T12:00:00Z`)
 /// or as integer nanoseconds since the Unix epoch.

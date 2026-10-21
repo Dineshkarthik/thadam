@@ -28,12 +28,12 @@ use arrow_array::types::{
 };
 use arrow_array::{ArrayRef, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
+use sha2::{Digest, Sha256};
 use thadam_arrow::TsUnit;
 use thadam_arrow::columns as envelope;
 use thadam_core::{
-    ErrorDomain, Event, Reject, ThadamError, SegmentSink, SegmentSinkFactory, Value, codes,
+    ErrorDomain, Event, Reject, SegmentSink, SegmentSinkFactory, ThadamError, Value, codes,
 };
-use sha2::{Digest, Sha256};
 
 use crate::config::{self, QuarantineConfig};
 use crate::error::SegmentError;

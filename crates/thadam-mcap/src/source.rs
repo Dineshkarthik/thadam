@@ -43,8 +43,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use thadam_core::{
     AckHandle, AckMode, AckOutcome, AckTarget, AckToken, Attributes, BatchLimits, Clock,
-    ConnectionEpoch, EpochGate, ErrorDomain, RawBatch, RawMessage, ThadamError, SchemaStore,
-    Shutdown, Source, SourceBatch, SourceCapabilities, SourceContext, SourceId, Timestamp, codes,
+    ConnectionEpoch, EpochGate, ErrorDomain, RawBatch, RawMessage, SchemaStore, Shutdown, Source,
+    SourceBatch, SourceCapabilities, SourceContext, SourceId, ThadamError, Timestamp, codes,
 };
 use thadam_ros2_msg::{CompiledMessage, Registry};
 
@@ -623,7 +623,10 @@ impl Source for McapSource {
         Ok(())
     }
 
-    async fn next_batch(&mut self, limits: BatchLimits) -> Result<Option<SourceBatch>, ThadamError> {
+    async fn next_batch(
+        &mut self,
+        limits: BatchLimits,
+    ) -> Result<Option<SourceBatch>, ThadamError> {
         match self.phase {
             Phase::Created => return Err(McapError::State("next_batch called before open").into()),
             Phase::Closed => return Ok(None),

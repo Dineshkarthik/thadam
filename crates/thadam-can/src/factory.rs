@@ -1,6 +1,6 @@
 //! `CanSourceFactory`: how `kind: can` becomes a source.
 
-use thadam_core::{BuildContext, ThadamError, Source, SourceFactory};
+use thadam_core::{BuildContext, Source, SourceFactory, ThadamError};
 
 use crate::config::{CanConfig, config_schema};
 #[cfg(not(target_os = "linux"))]
@@ -70,8 +70,8 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use thadam_core::{SystemClock, codes};
     use serde_json::json;
+    use thadam_core::{SystemClock, codes};
 
     use super::*;
 

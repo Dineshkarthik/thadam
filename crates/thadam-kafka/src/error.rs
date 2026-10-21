@@ -16,9 +16,9 @@
 //!   broker refuses on its own merits: the event is rejected into
 //!   quarantine and the rest of the batch proceeds.
 
-use thadam_core::{ErrorDomain, ThadamError, codes};
 use rskafka::client::error::{Error, ProtocolError, RequestContext, RequestError};
 use rskafka::{BackoffError, ConnectionError, SaslError};
+use thadam_core::{ErrorDomain, ThadamError, codes};
 
 /// What a failed produce request means for the batch the events belong to.
 #[derive(Clone, Debug, PartialEq, Eq)]

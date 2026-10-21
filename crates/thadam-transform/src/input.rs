@@ -2,7 +2,7 @@
 
 use bytes::Bytes;
 use thadam_core::{
-    Attributes, Reject, ThadamError, SourceId, Sym, Timestamp, WalEpoch, WalPos, WalRange,
+    Attributes, Reject, SourceId, Sym, ThadamError, Timestamp, WalEpoch, WalPos, WalRange,
 };
 
 /// One raw WAL record, borrowed.

@@ -16,13 +16,13 @@ use object_store::{
     CopyOptions, GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore,
     PutMultipartOptions, PutOptions, PutPayload, PutResult, Result as StoreResult,
 };
+use sha2::Digest;
+use tempfile::TempDir;
 use thadam_core::{
     BudgetCategory, DiskBudget, Service, ServiceContext, SharedObjects, Shutdown, SystemClock,
     WalEpoch, WalPos, WalRange,
 };
 use thadam_segments::{SegmentCatalog, SegmentId, SegmentRecord};
-use sha2::Digest;
-use tempfile::TempDir;
 
 use crate::config::{
     ConditionalPut, Credentials, RetentionConfig, RetentionMode, RetryConfig, ShipConfig,

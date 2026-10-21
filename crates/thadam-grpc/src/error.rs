@@ -1,6 +1,6 @@
 //! The connector's error type and its mapping into the shared error model.
 
-use thadam_core::{Classify, ErrorDomain, Retry, ThadamError, Severity, codes};
+use thadam_core::{Classify, ErrorDomain, Retry, Severity, ThadamError, codes};
 
 /// Why a gRPC source operation failed.
 ///

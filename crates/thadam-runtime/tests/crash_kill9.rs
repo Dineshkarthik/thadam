@@ -45,9 +45,9 @@ use bytes::Bytes;
 use common::{fast_opts, lock, spec};
 use thadam_core::{
     AckHandle, AckOutcome, AckTarget, AckToken, BatchLimits, BuildContext, Clock, ConnectionEpoch,
-    DiskBudget, EpochGate, ErrorDomain, RawBatch, RawMessage, Reject, ThadamError, SegmentBatch,
-    SegmentSink, SegmentSinkFactory, Shutdown, SinkContext, Source, SourceBatch, SourceContext,
-    SourceFactory, SourceId, SystemClock, Value, WalPos, WalRange, codes,
+    DiskBudget, EpochGate, ErrorDomain, RawBatch, RawMessage, Reject, SegmentBatch, SegmentSink,
+    SegmentSinkFactory, Shutdown, SinkContext, Source, SourceBatch, SourceContext, SourceFactory,
+    SourceId, SystemClock, ThadamError, Value, WalPos, WalRange, codes,
 };
 use thadam_runtime::{Phase, Pipeline, Registry};
 use thadam_testkit::SplitMix64;
@@ -228,7 +228,10 @@ impl Source for FileBrokerSource {
         Ok(())
     }
 
-    async fn next_batch(&mut self, limits: BatchLimits) -> Result<Option<SourceBatch>, ThadamError> {
+    async fn next_batch(
+        &mut self,
+        limits: BatchLimits,
+    ) -> Result<Option<SourceBatch>, ThadamError> {
         // Pacing. Sleeping before dequeuing keeps the future cancel-safe.
         tokio::time::sleep(Duration::from_millis(1)).await;
         let (Some(acks), Some(source_id), Some(clock)) = (&self.acks, &self.source_id, &self.clock)

@@ -33,18 +33,18 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use clickhouse::Client;
+use tempfile::TempDir;
 use thadam_clickhouse::ClickHouseSinkFactory;
 use thadam_core::{
     AssetPath, BatchId, BatchSink, BatchSinkFactory, BuildContext, DatasetDecl, DeliveryClass,
     DiskBudget, ErrorDomain, Event, EventBatch, EventId, FieldDef, FieldType, LevelDecl, Record,
-    Retry, ThadamError, Shape, ShapeRef, SinkBatch, SinkCapabilities, SinkContext, SinkId,
-    SystemClock, TimeDomain, Times, Timestamp, Value, WalEpoch, WalPos, WalRange, WriteOutcome,
+    Retry, Shape, ShapeRef, SinkBatch, SinkCapabilities, SinkContext, SinkId, SystemClock,
+    ThadamError, TimeDomain, Times, Timestamp, Value, WalEpoch, WalPos, WalRange, WriteOutcome,
     codes,
 };
 use thadam_testkit::conformance::batch_sink::{
     self, BatchSinkCase, BatchSinkFixture, BatchSinkProbe, InjectedFault,
 };
-use tempfile::TempDir;
 
 /// The pinned LTS image (public Docker Hub only).
 const IMAGE: &str = "clickhouse/clickhouse-server:26.8.22.13";

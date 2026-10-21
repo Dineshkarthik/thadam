@@ -4,8 +4,8 @@
 use std::collections::HashSet;
 
 use thadam_core::{
-    ErrorDomain, Event, FieldDef, FieldIdx, FieldType, Payload, Record, ThadamError, Shape,
-    ShapeRef, Value, ValueType, codes,
+    ErrorDomain, Event, FieldDef, FieldIdx, FieldType, Payload, Record, Shape, ShapeRef,
+    ThadamError, Value, ValueType, codes,
 };
 
 use super::{Compiled, Step, StepCtx, StepResult, config_error, intern};

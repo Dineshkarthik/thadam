@@ -17,8 +17,8 @@ use arrow_schema::SchemaRef;
 use parquet::arrow::ArrowWriter;
 use parquet::file::metadata::KeyValue;
 use parquet::file::properties::WriterProperties;
-use thadam_core::{Timestamp, WalRange};
 use sha2::{Digest, Sha256};
+use thadam_core::{Timestamp, WalRange};
 
 use crate::catalog::log as fs;
 use crate::catalog::{SegmentCatalog, SegmentId, SegmentRecord};

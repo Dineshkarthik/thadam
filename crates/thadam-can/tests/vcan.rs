@@ -22,13 +22,13 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
+use socketcan::tokio::{CanFdSocket, CanSocket};
+use socketcan::{CanDataFrame, CanFdFrame, CanFrame, EmbeddedFrame as _, ExtendedId, StandardId};
 use thadam_can::{CanConfig, CanSource};
 use thadam_core::{
     BatchLimits, Clock as _, RawMessage, Shutdown, Source, SourceContext, SourceId, SystemClock,
     codes,
 };
-use socketcan::tokio::{CanFdSocket, CanSocket};
-use socketcan::{CanDataFrame, CanFdFrame, CanFrame, EmbeddedFrame as _, ExtendedId, StandardId};
 
 const IFACE: &str = "vcan0";
 const WAIT: Duration = Duration::from_secs(10);

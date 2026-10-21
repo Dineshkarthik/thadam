@@ -7,11 +7,11 @@ use std::process::{Command, Output};
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
+use serde_json::{Value, json};
 use thadam_config::MapEnv;
-use thadam_core::{BuildContext, ErrorDomain, ThadamError, Shutdown, Source, SourceFactory, codes};
+use thadam_core::{BuildContext, ErrorDomain, Shutdown, Source, SourceFactory, ThadamError, codes};
 use thadam_runtime::{Pipeline, Registry, RuntimeOptions};
 use thadam_testkit::{MemorySource, MemorySourceConfig, TempDataDir};
-use serde_json::{Value, json};
 
 fn thadam(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_thadam"))

@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use thadam_core::{
-    BatchId, BatchSink, DeliveryClass, DiskBudget, ErrorDomain, Retry, ThadamError, Shutdown,
-    SinkBatch, SinkContext, SinkId,
+    BatchId, BatchSink, DeliveryClass, DiskBudget, ErrorDomain, Retry, Shutdown, SinkBatch,
+    SinkContext, SinkId, ThadamError,
 };
 
 use crate::FakeClock;

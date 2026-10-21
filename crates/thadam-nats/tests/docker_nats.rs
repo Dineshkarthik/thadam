@@ -27,6 +27,7 @@ use std::time::{Duration, Instant};
 
 use async_nats::jetstream;
 use futures_util::StreamExt;
+use tempfile::TempDir;
 use thadam_core::{
     AssetPath, BatchSink, BatchSinkFactory, BuildContext, DeliveryClass, DiskBudget, ErrorDomain,
     Event, EventBatch, EventId, FieldDef, FieldType, LevelDecl, Record, Retry, Shape, ShapeRef,
@@ -34,7 +35,6 @@ use thadam_core::{
     WalPos, WalRange, codes,
 };
 use thadam_nats::NatsSinkFactory;
-use tempfile::TempDir;
 
 /// The pinned NATS image (public Docker Hub only). Re-pin with
 /// `THADAM_TEST_NATS_IMAGE` when updating.

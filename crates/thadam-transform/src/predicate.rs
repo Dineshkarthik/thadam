@@ -682,11 +682,11 @@ fn apply(test: &Test, op: &Operand<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use thadam_core::{
         AssetPath, EventId, FieldDef, Quality, QualityFlags, Record, ShapeRef, TimeDomain, Times,
         Timestamp, WalPos,
     };
-    use serde_json::json;
 
     fn shape() -> ShapeRef {
         ShapeRef::new(

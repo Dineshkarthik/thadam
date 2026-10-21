@@ -135,7 +135,8 @@ fn export(
 
     let root = spec.pipeline.data_dir.as_path();
     let wal_dir = data_dir::wal_dir(root).map_err(Failure::usage)?;
-    let _lock = thadam_runtime::lock_data_dir(root).map_err(|e| Failure::data_dir(e.to_string()))?;
+    let _lock =
+        thadam_runtime::lock_data_dir(root).map_err(|e| Failure::data_dir(e.to_string()))?;
     check_pipeline(root, &spec.pipeline.name)?;
     let inspection = thadam_wal::inspect(&wal_dir).map_err(|e| wal_failure(&wal_dir, &e))?;
     let node_id = inspection

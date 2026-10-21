@@ -4,12 +4,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use serde_json::Value as Json;
 use thadam_core::{
     AssetPath, ErrorDomain, Event, EventId, FieldDef, FieldType, Quality, QualityFlags, Record,
-    ThadamError, Shape, ShapeRef, ShapeRegistry, SourceId, Sym, TimeDomain, Times, Value, WalPos,
+    Shape, ShapeRef, ShapeRegistry, SourceId, Sym, ThadamError, TimeDomain, Times, Value, WalPos,
     codes,
 };
-use serde_json::Value as Json;
 
 use crate::decode::{Coerce, FieldPlan};
 use crate::dedup::DedupWindow;

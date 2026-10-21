@@ -6,9 +6,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use opcua::types::NodeId;
-use thadam_core::{ErrorDomain, ThadamError, codes};
 use serde::Deserialize;
 use serde::de::{self, Deserializer};
+use thadam_core::{ErrorDomain, ThadamError, codes};
 
 use crate::pki;
 

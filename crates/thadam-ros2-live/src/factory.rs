@@ -1,6 +1,6 @@
 //! `Ros2LiveSourceFactory`: how `kind: ros2_live` becomes a source.
 
-use thadam_core::{BuildContext, ThadamError, Source, SourceFactory};
+use thadam_core::{BuildContext, Source, SourceFactory, ThadamError};
 
 use crate::config::{Ros2LiveConfig, config_schema};
 use crate::source::Ros2LiveSource;
@@ -64,8 +64,8 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use thadam_core::{SystemClock, codes};
     use serde_json::json;
+    use thadam_core::{SystemClock, codes};
 
     use super::*;
 

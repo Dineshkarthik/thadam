@@ -19,8 +19,8 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use thadam_core::{
     AckHandle, AckMode, AckOutcome, AckTarget, AckToken, Attributes, BatchLimits, Clock,
-    ConnectionEpoch, EpochGate, ErrorDomain, RawBatch, RawMessage, ThadamError, Shutdown, Source,
-    SourceBatch, SourceCapabilities, SourceContext, SourceId, codes,
+    ConnectionEpoch, EpochGate, ErrorDomain, RawBatch, RawMessage, Shutdown, Source, SourceBatch,
+    SourceCapabilities, SourceContext, SourceId, ThadamError, codes,
 };
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
@@ -341,7 +341,10 @@ impl Source for MemorySource {
         Ok(())
     }
 
-    async fn next_batch(&mut self, limits: BatchLimits) -> Result<Option<SourceBatch>, ThadamError> {
+    async fn next_batch(
+        &mut self,
+        limits: BatchLimits,
+    ) -> Result<Option<SourceBatch>, ThadamError> {
         let shared = Arc::clone(&self.shared);
         let Some(opened) = &self.opened else {
             return Err(ThadamError::permanent(

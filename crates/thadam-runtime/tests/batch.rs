@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use common::*;
 use thadam_core::{
-    BatchId, BatchSink, DeliveryClass, ErrorDomain, Retry, ThadamError, SinkBatch, SinkCapabilities,
-    SinkContext, WriteOutcome, codes,
+    BatchId, BatchSink, DeliveryClass, ErrorDomain, Retry, SinkBatch, SinkCapabilities,
+    SinkContext, ThadamError, WriteOutcome, codes,
 };
 use thadam_runtime::{ExitStatus, RuntimeOptions, failpoints};
 use thadam_testkit::{Fault, MemoryBatchSinkConfig, TempDataDir};

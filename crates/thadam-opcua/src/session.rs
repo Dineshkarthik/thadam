@@ -37,8 +37,8 @@ use opcua::types::{
     MonitoredItemCreateRequest, MonitoringMode, MonitoringParameters, NotificationMessage,
     ReadValueId, TimestampsToReturn, UAString,
 };
-use thadam_core::{Classify, Clock, RawMessage, Retry, Shutdown, Timestamp};
 use serde_json::{Map, Value};
+use thadam_core::{Classify, Clock, RawMessage, Retry, Shutdown, Timestamp};
 use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
 use tokio_stream::StreamExt;

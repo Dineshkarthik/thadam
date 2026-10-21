@@ -1,10 +1,10 @@
 //! Source-time extraction: units, domains, and skew flagging.
 
-use thadam_core::{
-    Attributes, ErrorDomain, QualityFlags, Record, ThadamError, TimeDomain, Times, Timestamp, Value,
-    codes,
-};
 use serde_json::Value as Json;
+use thadam_core::{
+    Attributes, ErrorDomain, QualityFlags, Record, ThadamError, TimeDomain, Times, Timestamp,
+    Value, codes,
+};
 
 use crate::paths::FieldPath;
 use crate::spec::TimeSpec;

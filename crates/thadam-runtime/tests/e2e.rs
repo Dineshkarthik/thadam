@@ -112,7 +112,11 @@ async fn startup_record_names_the_node_build_and_configuration() {
     assert_eq!(fields["config_hash"], expected_hash, "{line}");
     assert_eq!(fields["config_hash_version"], 1, "{line}");
     assert_eq!(fields["previous_config_hash"], "", "{line}");
-    assert_eq!(fields["thadam_version"], env!("CARGO_PKG_VERSION"), "{line}");
+    assert_eq!(
+        fields["thadam_version"],
+        env!("CARGO_PKG_VERSION"),
+        "{line}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -25,18 +25,18 @@ use async_trait::async_trait;
 use common::broker::{Broker, Kind, Opts, TlsDir};
 use common::certs::Certs;
 use common::{eventually, unique};
+use rumqttc::{AsyncClient, Event as MqttEvent, Incoming, MqttOptions, QoS};
+use serde_json::{Value as Json, json};
 use thadam_core::{
     AssetPath, BatchId, BatchSink, BatchSinkFactory, BuildContext, DatasetDecl, DeliveryClass,
-    DiskBudget, Event, EventBatch, EventId, FieldDef, FieldType, LevelDecl, Record, Retry,
-    ThadamError, Shape, ShapeRef, Shutdown, SinkBatch, SinkCapabilities, SinkContext, SinkId,
-    SystemClock, TimeDomain, Times, Timestamp, Value, WalEpoch, WalPos, WalRange, WriteOutcome,
+    DiskBudget, Event, EventBatch, EventId, FieldDef, FieldType, LevelDecl, Record, Retry, Shape,
+    ShapeRef, Shutdown, SinkBatch, SinkCapabilities, SinkContext, SinkId, SystemClock, ThadamError,
+    TimeDomain, Times, Timestamp, Value, WalEpoch, WalPos, WalRange, WriteOutcome,
 };
 use thadam_mqtt::sink::MqttPublishSinkFactory;
 use thadam_testkit::conformance::batch_sink::{
     self, BatchSinkCase, BatchSinkFixture, BatchSinkProbe, InjectedFault,
 };
-use rumqttc::{AsyncClient, Event as MqttEvent, Incoming, MqttOptions, QoS};
-use serde_json::{Value as Json, json};
 
 const TIMEOUT: Duration = Duration::from_secs(60);
 

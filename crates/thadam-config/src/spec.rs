@@ -11,11 +11,11 @@ use std::fmt;
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
 
-use thadam_core::{FieldDef, QualityStatus};
 use schemars::JsonSchema;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
+use thadam_core::{FieldDef, QualityStatus};
 
 use crate::path::{PathVec, Seg};
 use crate::predicate::Predicate;

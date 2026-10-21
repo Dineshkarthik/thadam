@@ -14,13 +14,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use thadam_core::{
-    AckHandle, AckOutcome, BatchLimits, BuildContext, RawBatch, ThadamError, Shutdown, Source,
-    SourceBatch, SourceContext, SourceId, SystemClock,
-};
-use thadam_mqtt::{MqttConfig, MqttHandle, MqttSource};
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, Outgoing, QoS};
 use serde_json::{Value, json};
+use thadam_core::{
+    AckHandle, AckOutcome, BatchLimits, BuildContext, RawBatch, Shutdown, Source, SourceBatch,
+    SourceContext, SourceId, SystemClock, ThadamError,
+};
+use thadam_mqtt::{MqttConfig, MqttHandle, MqttSource};
 use tokio::task::JoinHandle;
 
 pub fn unique(prefix: &str) -> String {

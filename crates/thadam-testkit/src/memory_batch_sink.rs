@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use thadam_core::{
-    BatchId, BatchSink, DeliveryClass, ErrorDomain, Event, Reject, Retry, ThadamError, SinkBatch,
-    SinkCapabilities, SinkContext, WriteOutcome, codes,
+    BatchId, BatchSink, DeliveryClass, ErrorDomain, Event, Reject, Retry, SinkBatch,
+    SinkCapabilities, SinkContext, ThadamError, WriteOutcome, codes,
 };
 
 use crate::util::lock;

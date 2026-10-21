@@ -10,9 +10,9 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use thadam_core::{ErrorDomain, FieldType, ThadamError, codes};
 use serde::Deserialize;
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
+use thadam_core::{ErrorDomain, FieldType, ThadamError, codes};
 
 /// Everything one chain needs: its datasets and the `transforms:` list.
 #[derive(Clone, Debug, Default, Deserialize)]

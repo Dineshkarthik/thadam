@@ -1,6 +1,6 @@
 //! `ModbusSourceFactory`: how `kind: modbus` becomes a source.
 
-use thadam_core::{BuildContext, ThadamError, Source, SourceFactory};
+use thadam_core::{BuildContext, Source, SourceFactory, ThadamError};
 
 use crate::config::{ModbusConfig, config_schema};
 use crate::source::ModbusSource;
@@ -56,8 +56,8 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use thadam_core::{AckMode, SystemClock, codes};
     use serde_json::json;
+    use thadam_core::{AckMode, SystemClock, codes};
 
     use super::*;
 

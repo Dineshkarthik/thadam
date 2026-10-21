@@ -13,12 +13,12 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use thadam_core::{
-    ErrorDomain, Event, FieldDef, FieldIdx, FieldType, Payload, ThadamError, Shape, ShapeRef, Sym,
-    Value, codes,
-};
 use serde_json::Value as Json;
 use sha2::{Digest, Sha256};
+use thadam_core::{
+    ErrorDomain, Event, FieldDef, FieldIdx, FieldType, Payload, Shape, ShapeRef, Sym, ThadamError,
+    Value, codes,
+};
 
 use super::fieldops::{rebuild, step_failed};
 use super::{Compiled, Step, StepCtx, StepResult, config_error, intern};

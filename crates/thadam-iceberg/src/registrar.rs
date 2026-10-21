@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use iceberg::Catalog;
-use thadam_core::{Classify, Retry, ThadamError, ServiceContext};
+use thadam_core::{Classify, Retry, ServiceContext, ThadamError};
 use thadam_segments::SegmentCatalog;
 
 use crate::config::{CatalogAuth, IcebergConfig};
@@ -449,13 +449,13 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn registrar_rebuilds_catalog_once_on_oauth2_401_and_fails_when_retry_still_401() {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
         use thadam_core::{
             BudgetCategory, DiskBudget, Retry, Service, SharedObjects, Shutdown, SystemClock,
             WalEpoch, WalPos, WalRange, codes,
         };
         use thadam_segments::{SegmentId, SegmentRecord};
-        use std::io::{Read, Write};
-        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let _ = rustls::crypto::ring::default_provider().install_default();
         let seg_dir = tempfile::tempdir().expect("seg dir");

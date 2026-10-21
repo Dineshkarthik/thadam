@@ -4,10 +4,10 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use thadam_core::{ErrorDomain, ThadamError, codes};
-use thadam_ros2_msg::msg::TypeName;
 use serde::Deserialize;
 use serde::de::{self, Deserializer};
+use thadam_core::{ErrorDomain, ThadamError, codes};
+use thadam_ros2_msg::msg::TypeName;
 
 /// A duration written as whole seconds (`10`) or with a unit: `500ms`, `10s`,
 /// `5m`, `1h`.
@@ -328,8 +328,8 @@ pub fn config_schema() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thadam_core::codes;
     use serde_json::json;
+    use thadam_core::codes;
 
     fn problems_of(value: serde_json::Value) -> Vec<(&'static str, String)> {
         match Ros2LiveConfig::from_value(&value) {

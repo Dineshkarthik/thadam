@@ -14,9 +14,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde::Deserialize;
 use thadam_arrow::{ArrowOptions, DatasetSchema, TsUnit, UnsignedPolicy};
 use thadam_core::{DatasetDecl, ErrorDomain, ThadamError, codes};
-use serde::Deserialize;
 
 use crate::error::SegmentError;
 use crate::partition::{dataset_component_ok, node_component_ok};

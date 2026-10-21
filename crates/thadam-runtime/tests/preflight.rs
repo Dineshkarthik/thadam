@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use common::*;
 use thadam_config::{MapEnv, PipelineSpec};
-use thadam_core::{BuildContext, ErrorDomain, ThadamError, SegmentSink, SegmentSinkFactory, codes};
+use thadam_core::{BuildContext, ErrorDomain, SegmentSink, SegmentSinkFactory, ThadamError, codes};
 use thadam_runtime::{Pipeline, Registry, RuntimeOptions};
 use thadam_testkit::TempDataDir;
 

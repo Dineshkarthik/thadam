@@ -12,8 +12,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use thadam_core::{
-    Classify, ErrorDomain, FieldDef, FieldType, MAX_SHAPE_FIELDS, Record, ThadamError, Shape,
-    ShapeRef, codes,
+    Classify, ErrorDomain, FieldDef, FieldType, MAX_SHAPE_FIELDS, Record, Shape, ShapeRef,
+    ThadamError, codes,
 };
 
 use crate::cdr;

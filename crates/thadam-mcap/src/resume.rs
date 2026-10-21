@@ -19,8 +19,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
-use thadam_core::{ErrorDomain, ThadamError, codes, write_atomic};
 use serde::{Deserialize, Serialize};
+use thadam_core::{ErrorDomain, ThadamError, codes, write_atomic};
 
 use crate::error::McapError;
 

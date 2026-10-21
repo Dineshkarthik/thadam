@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use thadam_core::{
     AckOutcome, AckTarget, AckToken, Attributes, BatchLimits, ConnectionEpoch, ConnectorMetric,
-    EpochGate, MetricsRecorder, NoopMetricsRecorder, RawMessage, ThadamError, Sym, Utf8Bytes,
+    EpochGate, MetricsRecorder, NoopMetricsRecorder, RawMessage, Sym, ThadamError, Utf8Bytes,
 };
 use tokio::sync::{Notify, mpsc, watch};
 

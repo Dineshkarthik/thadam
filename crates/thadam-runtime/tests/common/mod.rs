@@ -13,10 +13,10 @@ use bytes::Bytes;
 use thadam_config::{MapEnv, PipelineSpec};
 use thadam_core::{
     AckHandle, AckMode, Attributes, BatchLimits, BatchSink, BatchSinkFactory, BuildContext,
-    ErrorDomain, Event, RawBatch, RawMessage, Reject, ThadamError, SegmentBatch, SegmentSink,
+    ErrorDomain, Event, RawBatch, RawMessage, Reject, SegmentBatch, SegmentSink,
     SegmentSinkFactory, Service, ServiceContext, ServiceFactory, SinkContext, Source, SourceBatch,
-    SourceCapabilities, SourceContext, SourceFactory, SourceId, Timestamp, Value, WalPos, WalRange,
-    codes,
+    SourceCapabilities, SourceContext, SourceFactory, SourceId, ThadamError, Timestamp, Value,
+    WalPos, WalRange, codes,
 };
 use thadam_runtime::{BackoffPolicy, Pipeline, Registry, RunReport, RuntimeOptions};
 use thadam_testkit::{

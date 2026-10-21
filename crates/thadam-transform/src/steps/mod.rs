@@ -4,7 +4,7 @@
 use std::fmt;
 use std::path::Path;
 
-use thadam_core::{ErrorDomain, Event, ThadamError, ShapeRef, ShapeRegistry, Sym, WalPos, codes};
+use thadam_core::{ErrorDomain, Event, ShapeRef, ShapeRegistry, Sym, ThadamError, WalPos, codes};
 
 use crate::limits::ChainLimits;
 use crate::spec::TransformSpec;

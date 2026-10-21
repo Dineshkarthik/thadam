@@ -8,10 +8,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
+use serde_json::{Value, json};
 use thadam_core::{WalPos, WalRange};
 use thadam_segments::catalog::{CatalogInspection, SegmentFile};
 use thadam_wal::{CursorInfo, FrameInfo, RecordInfo, WalError, WalInspection};
-use serde_json::{Value, json};
 
 use crate::data_dir;
 use crate::exit::Exit;

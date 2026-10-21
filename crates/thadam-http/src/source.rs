@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use thadam_core::{
-    AckMode, BatchLimits, Clock, RawBatch, ThadamError, Shutdown, Source, SourceBatch,
-    SourceCapabilities, SourceContext, SourceId,
+    AckMode, BatchLimits, Clock, RawBatch, Shutdown, Source, SourceBatch, SourceCapabilities,
+    SourceContext, SourceId, ThadamError,
 };
 use tokio::task::JoinSet;
 
@@ -142,7 +142,10 @@ impl Source for HttpSource {
         Ok(())
     }
 
-    async fn next_batch(&mut self, limits: BatchLimits) -> Result<Option<SourceBatch>, ThadamError> {
+    async fn next_batch(
+        &mut self,
+        limits: BatchLimits,
+    ) -> Result<Option<SourceBatch>, ThadamError> {
         match self.phase {
             Phase::Created => {
                 return Err(HttpError::State("next_batch called before open").into());

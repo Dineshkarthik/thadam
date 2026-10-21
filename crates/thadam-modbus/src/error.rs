@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use thadam_core::{Classify, ErrorDomain, Retry, ThadamError, Severity, codes};
+use thadam_core::{Classify, ErrorDomain, Retry, Severity, ThadamError, codes};
 
 /// Why a Modbus source operation failed.
 ///

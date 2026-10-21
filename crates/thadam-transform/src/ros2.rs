@@ -37,11 +37,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use serde_json::Value as Json;
 use thadam_core::{
-    Attributes, ErrorDomain, Record, ThadamError, SCHEMA_HASH_ATTR, SchemaStore, Value, codes,
+    Attributes, ErrorDomain, Record, SCHEMA_HASH_ATTR, SchemaStore, ThadamError, Value, codes,
 };
 use thadam_ros2_msg::{CompiledMessage, Registry};
-use serde_json::Value as Json;
 
 /// The `ros2` payload decoder: schema-store reads plus a per-hash compiled
 /// message cache.

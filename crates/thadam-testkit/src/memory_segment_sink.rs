@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use thadam_core::{
-    ErrorDomain, Reject, ThadamError, SegmentBatch, SegmentSink, SinkContext, WalPos, WalRange,
+    ErrorDomain, Reject, SegmentBatch, SegmentSink, SinkContext, ThadamError, WalPos, WalRange,
     codes,
 };
 
@@ -278,8 +278,8 @@ impl SegmentSink for MemorySegmentSink {
 mod tests {
     use super::*;
     use crate::fixtures::{test_segment_batch, test_segment_batch_across};
-    use thadam_core::{DiskBudget, Shutdown, SinkId};
     use std::path::PathBuf;
+    use thadam_core::{DiskBudget, Shutdown, SinkId};
 
     use crate::FakeClock;
 
