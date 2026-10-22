@@ -98,11 +98,19 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: "3.12"
+          python-version: |
+            3.9
+            3.12
+            3.13
       - run: pip install maturin pytest pyarrow
       - run: maturin build -m sdk/python/Cargo.toml --out dist
-      - run: pip install dist/*.whl
-      - run: pytest sdk/python/tests
+      - name: Test the abi3 wheel across Python 3.9, 3.12, and 3.13
+        run: |
+          for py in python3.9 python3.12 python3.13; do
+            "$py" -m venv "$RUNNER_TEMP/venv-$py"
+            "$RUNNER_TEMP/venv-$py/bin/pip" install pytest pyarrow dist/*.whl
+            "$RUNNER_TEMP/venv-$py/bin/pytest" sdk/python/tests
+          done
       - run: cargo clippy -p thadam-python --all-targets --locked -- -D warnings
 
   # Docker Desktop kernels lack CAN, so the vcan tests only run here.

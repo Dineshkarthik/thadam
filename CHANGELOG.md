@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- **Python wheel matrix and classifiers**: `.github/workflows/release.yml` now builds `cp39-abi3` wheels for Linux `musllinux_1_2` (`x86_64`, `aarch64`) and macOS Intel (`x86_64-apple-darwin`) alongside Linux `manylinux_2_28` (`x86_64`, `aarch64`, now built natively on `ubuntu-24.04-arm` and smoke-tested) and macOS `arm64`; `sdk/python/pyproject.toml` lists explicit Python 3.9–3.14 and CPython classifiers; and CI (`python-sdk`) tests the built `abi3` wheel across Python 3.9, 3.12, and 3.13.
 - **Docs sync**: aligned the homepage footer, roadmap, CLI reference, data-directory permissions (`0700` directory, `0600` files), Sparkplug/MCAP/Iceberg size bounds, `website/README.md`, `benchmarks/README.md` (`thadam_wal_commit_seconds` exported), `ARCHITECTURE.md`, `docs/design/readiness.md`, `docs/design/version-inventory.md`, and `CHANGELOG.md` link paths with the current codebase and `ADR-0016` acceptance.
 
 ## [0.1.0-beta.1] - 2026-10-22

@@ -78,10 +78,28 @@ jobs:
         include:
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-          - os: ubuntu-24.04
+            manylinux: "2_28"
+            smoke: host
+          - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
+            manylinux: "2_28"
+            smoke: host
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            manylinux: musllinux_1_2
+            smoke: alpine
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            manylinux: musllinux_1_2
+            smoke: alpine
+          - os: macos-15
+            target: x86_64-apple-darwin
+            manylinux: auto
+            smoke: none
           - os: macos-15
             target: aarch64-apple-darwin
+            manylinux: auto
+            smoke: host
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -94,14 +112,19 @@ jobs:
           maturin-version: v1.15.0
           rust-toolchain: 1.99.0
           target: ${{ matrix.target }}
-          manylinux: "2_28"
-          args: --release --locked --compatibility pypi --out dist -m sdk/python/Cargo.toml
-      - name: Smoke-test the wheel
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --locked --out dist -m sdk/python/Cargo.toml
+      - name: Smoke-test the wheel (host)
+        if: matrix.smoke == 'host'
         run: |
           python3 -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install dist/*.whl
           "$RUNNER_TEMP/venv/bin/python" -c "import thadam"
+      - name: Smoke-test the wheel (Alpine musl)
+        if: matrix.smoke == 'alpine'
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" python:3.12-alpine \
+            sh -c 'pip install --no-deps /dist/*.whl && python -c "import thadam"'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: python-${{ matrix.target }}
