@@ -175,4 +175,4 @@ A `resume.json` that cannot be read or parsed fails the run (`buffer.io` or `buf
 
 ### Performance note
 
-Files stream from disk one chunk at a time (peak memory is one chunk record plus its decompressed form; the reader is safe Rust throughout — no mmap). Chunk reads and decompression run synchronously inside batch pulls; per-chunk cost is small next to a WAL commit.
+Files stream from disk one chunk at a time (peak memory is one chunk record plus its decompressed form, with record and decompressed chunk sizes capped at 64 MiB; the reader is safe Rust throughout — no mmap). Chunk reads and decompression run synchronously inside batch pulls; per-chunk cost is small next to a WAL commit.

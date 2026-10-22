@@ -1,6 +1,6 @@
 # Version inventory
 
-Status: Proposed. The axes come from the architecture review (section 9) and the implementation plan. The compatibility rules are tied to the ADRs named in each row, and each becomes binding when that ADR is accepted. As of 2026-10-07 ADR-0001, 0002, 0012, 0013, and 0020 are Accepted; the WAL and cursor rows depend on ADR-0004, which stays Draft until the S1 re-run on reference hardware.
+Status: Proposed. The axes come from the architecture review (section 9) and the implementation plan. The compatibility rules are tied to the ADRs named in each row, and each becomes binding when that ADR is accepted. As of 2026-10-20 ADR-0001, 0002, 0003, 0006, 0011, 0012, 0013, 0016, 0018, and 0020 are Accepted; the WAL and cursor rows depend on ADR-0004, which stays Draft until the S1 re-run on reference hardware.
 
 Date: 2026-10-07; the `thadam.json`/`wal.json` split was settled with the runtime on 2026-10-08 (PR10, `e2dd744`).
 
@@ -37,7 +37,7 @@ Thadam has many independently versioned artifacts. Without one list, each gets a
 | Metric names and `/status` JSON | `thadam-runtime` | Names in `ARCHITECTURE.md` section 14; JSON schema snapshot | Additive within a release line; renames need a deprecation period **[A]** | Metric-name and `/status` snapshots |
 | CLI commands and exit codes | `apps/thadam-cli` | `thadam --help` snapshot; exit-code table | Exit codes 0, 1, 2, 3, 130 are stable; commands may be added | Exit-code matrix; help snapshot |
 | Simulator oracle and benchmark result JSON | `tools/` | A schema version field in the file | Informational; consumers check the version | Result-schema test |
-| Toolchain and MSRV | workspace, ADR-0020 | `rust-version` (1.89, raised from 1.88 on 2026-10-07 for `serde-saphyr`, ADR-0012) and `rust-toolchain.toml` | Raise only for a dependency requirement, never below the highest dependency MSRV | CI on pinned and MSRV toolchains **[V]** (the MSRV job is not in `ci.yml` yet) |
+| Toolchain and MSRV | workspace, ADR-0020 | `rust-version` (1.89, raised from 1.88 on 2026-10-07 for `serde-saphyr`, ADR-0012; `thadam-iceberg` declares 1.94) and `rust-toolchain.toml` | Raise only for a dependency requirement, never below the highest dependency MSRV | CI on pinned and MSRV toolchains (`msrv` job in `.github/workflows/ci.yml`) |
 
 ## Ownership and change process
 
@@ -47,5 +47,5 @@ Thadam has many independently versioned artifacts. Without one list, each gets a
 ## Open points
 
 - The WAL header size question (stated as 24 bytes with fields summing to 20) is resolved by spike S1 and recorded in ADR-0004: a 24-byte frame header including a reserved word, a 64-byte segment header, and an all-zero 24-byte end-of-data marker. The layout is frozen only when ADR-0004 is accepted, which needs the S1 re-run on x86 NVMe and ARM eMMC.
-- The Parquet field-ID assignment policy is closed in ADR-0013 (PR13): envelope IDs 1 to 99 fixed by `thadam-arrow`, identity level IDs 100 to 199 and declared top-level IDs 1000 to 4,194,303 explicit in configuration, nested IDs derived, IDs never reused after removal. What remains open is the configuration key that carries the explicit IDs and how "never reused" is enforced across edits to the configuration.
+- The Parquet field-ID assignment policy is closed in ADR-0013 (PR13): envelope IDs 1 to 99 fixed by `thadam-arrow`, identity level IDs 100 to 199 and declared top-level IDs 1000 to 4,194,303 explicit in configuration (`datasets[].fields[].id` and `datasets[].identity.<level>.id`), nested IDs derived, IDs never reused after removal. What remains open is how "never reused" is enforced across edits to the configuration.
 - The `_wal_record_idx` lineage column is closed as not written (ADR-0013, PR13); field ID 13 is reserved, so adding it later is additive.

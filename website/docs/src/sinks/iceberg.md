@@ -104,7 +104,7 @@ Images are public Docker Hub images pinned by tag (`chrislusf/seaweedfs:3.81`, `
 
 - A schema change and the segment's append are two commits (schema first), because the Iceberg Rust client in use (0.10.1) cannot put both in one; the order makes a crash between them safe. The schema commit goes straight to the REST update endpoint, with the same authentication and client certificate as the catalog client.
 - Static `catalog_token` is not refreshed: when it expires the catalog answers 401 and the registrar stops with `auth.failed`. With `catalog_credential`, an HTTP 401 triggers one OAuth2 re-exchange and immediate retry before failing with `auth.failed`. Not tested: a real OAuth2 provider (the test token endpoint is the REST fixture's or an in-process mock), token-endpoint client authentication other than `client_id`/`client_secret` in the form body, and managed or cloud catalogs.
-- The footer of every not-yet-registered segment is read (two small ranged reads) to derive the schema change.
+- The footer of every not-yet-registered segment is read (two small ranged reads, rejecting footers larger than 64 MiB) to derive the schema change.
 - Tables are unpartitioned (partition transforms come later; file skipping uses manifest record counts).
 - Column metrics on data files are not populated (row counts only).
 - Datasets must use the `unsigned: signed` Arrow policy (see above).

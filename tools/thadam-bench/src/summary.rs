@@ -14,8 +14,7 @@ pub const SOURCE_MESSAGES: &str = "thadam_source_messages_total";
 pub const SOURCE_BYTES: &str = "thadam_source_bytes_total";
 /// Histogram base for source ack latency.
 pub const SOURCE_ACK: &str = "thadam_source_ack_latency_seconds";
-/// Histogram base for WAL commit latency. Not exported as of this writing;
-/// the runner reports it as `not exported` until it is.
+/// Histogram base for WAL commit latency.
 pub const WAL_COMMIT: &str = "thadam_wal_commit_seconds";
 /// Histogram base for sink batch writes (label `sink`).
 pub const SINK_BATCH_WRITE: &str = "thadam_batch_write_seconds";

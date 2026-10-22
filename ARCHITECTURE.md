@@ -1,6 +1,6 @@
 # Thadam Architecture
 
-Status: CONDITIONALLY READY (verdict and exact blockers: `docs/design/readiness.md`; decisions: `docs/design/owner-decisions.md`). The maintainer accepted ADR-0001, 0002, 0003, 0006, 0011, 0012, 0013, 0018, and 0020 on 2026-10-07, and `docs/design/product-amendments.md` Part A is applied to `product.md`. The WAL was built before ADR-0004 was accepted, by the maintainer's choice, so its on-disk format is versioned but not frozen; the S1 re-run on x86 NVMe and ARM eMMC must still finish before ADR-0004 can be accepted and the format frozen.
+Status: CONDITIONALLY READY (verdict and exact blockers: `docs/design/readiness.md`; decisions: `docs/design/owner-decisions.md`). The maintainer accepted ADR-0001, 0002, 0003, 0006, 0011, 0012, 0013, 0018, and 0020 on 2026-10-07 (and ADR-0016 on 2026-10-20), and `docs/design/product-amendments.md` Part A is applied to `product.md`. The WAL was built before ADR-0004 was accepted, by the maintainer's choice, so its on-disk format is versioned but not frozen; the S1 re-run on x86 NVMe and ARM eMMC must still finish before ADR-0004 can be accepted and the format frozen.
 
 Maintainer decisions B2 (scope), B3 (product defaults), B6 (D5, D6, D8, D9, D10), and B7 (ADR-0012 YAML crate, ADR-0018 filter language), the ADR acceptances, and the EMQX 5.8.x pin were all made on 2026-10-07 and are reflected below. The three spikes have reported: S1 (WAL, `docs/design/spikes/S1-wal.md`), S2 (MQTT, `docs/design/spikes/S2-mqtt.md`), and the D8 record-representation microbenchmark (`docs/design/spikes/D8-record-representation.md`), and the ADR-0012 and ADR-0018 spikes (`docs/design/spikes/ADR-012-yaml.md`, `ADR-018-filter.md`). Their corrections are folded into sections 3 to 6, 10, 11, 14, 19, 21, and 22. The workspace MSRV is Rust 1.89 (raised from 1.88 for `serde-saphyr`). ADR-0004 stays Draft because the S1 re-run on x86 NVMe and ARM eMMC is still required before the on-disk format is frozen; ADR-0007 and ADR-0008 stay Draft by design (M2 and P1).
 
@@ -60,7 +60,7 @@ If capacity tightens, cut in this order: ClickHouse, then live ROS 2. M1 is neve
 
 *(Historical original MVP v0.1 boundary; several connectors, the Python SDK, the Iceberg registrar, and windowing have since been built in the workspace — see [section 21](#21-implementation-sequence) and `docs/design/readiness.md` for current status.)*
 
-GUI, cloud control plane, fleet management, remote configuration, Kubernetes operator, HTTP/gRPC/OPC UA/CAN/Modbus/Kafka/NATS/MQTT-publishing connectors, Iceberg/Delta/Snowflake/BigQuery, windowing and aggregation, joins, watermarks, WASM operators, ML inference, hot config reload, multiple pipelines per process, priority buffer queues, a dynamic plugin system, a schema registry product, application-level encryption at rest (document LUKS or filesystem encryption instead), command and control message transport, a video storage path, a Python SDK, and publishing crates before the naming ADR ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Draft).
+GUI, cloud control plane, fleet management, remote configuration, Kubernetes operator, HTTP/gRPC/OPC UA/CAN/Modbus/Kafka/NATS/MQTT-publishing connectors, Iceberg/Delta/Snowflake/BigQuery, windowing and aggregation, joins, watermarks, WASM operators, ML inference, hot config reload, multiple pipelines per process, priority buffer queues, a dynamic plugin system, a schema registry product, application-level encryption at rest (document LUKS or filesystem encryption instead), command and control message transport, a video storage path, a Python SDK, and publishing crates before the naming ADR ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Accepted 2026-10-20).
 
 ---
 
@@ -707,7 +707,7 @@ All ADRs are in `docs/design/adr/`. Process and template: `0000-adr-process.md` 
 - ADR-0019 Transform semantics (deduplication, deadband, sampling): Reserved. Content is in section 7 and ADR-0011.
 - ADR-0020 Dependency security and toolchain policy: **Accepted** (maintainer, 2026-10-07), with the MSRV floor at Rust 1.89.
 
-Status after 2026-10-07: ADRs 0001, 0002, 0003, 0006, 0011, 0012, 0013, 0018, and 0020 are Accepted. The remaining gate for freezing the WAL v1 format is ADR-0004, which awaits the S1 re-run on x86 NVMe and ARM eMMC.
+Status after 2026-10-20: ADRs 0001, 0002, 0003, 0006, 0011, 0012, 0013, 0016, 0018, and 0020 are Accepted. The remaining gate for freezing the WAL v1 format is ADR-0004, which awaits the S1 re-run on x86 NVMe and ARM eMMC.
 
 ---
 
@@ -804,7 +804,7 @@ Places where the current plans disagreed and how this document resolves them.
 
 Spikes are throwaway experiments whose reports live in `docs/design/spikes/`. Component implementation and verification status is tracked below and in `docs/design/readiness.md`.
 
-### Status (updated 2026-10-14, through `HEAD`)
+### Status (updated 2026-10-22, through `HEAD`)
 
 | Component / milestone | Status |
 |---|---|
@@ -870,8 +870,8 @@ Items from the spike results:
 
 Remaining external dependencies and validation items:
 
-- Maintainer acceptance of ADR-0004 (Draft, after the S1 re-run on x86 NVMe and ARM eMMC) and of ADR-0000 (Proposed; not in the 2026-10-07 acceptance list). ADR-0001, 0002, 0003, 0006, 0011, 0012, 0013, 0018, and 0020 are Accepted (2026-10-07). B2, B3, B6, and B7 are decided (2026-10-07).
+- Maintainer acceptance of ADR-0004 (Draft, after the S1 re-run on x86 NVMe and ARM eMMC) and of ADR-0000 (Proposed; not in the 2026-10-07 acceptance list). ADR-0001, 0002, 0003, 0006, 0011, 0012, 0013, 0018, and 0020 are Accepted (2026-10-07), and [ADR-0016](docs/design/adr/0016-naming-and-publishing.md) is Accepted (2026-10-20, without a trademark search). B2, B3, B6, and B7 are decided (2026-10-07).
 - Part A of `docs/design/product-amendments.md` (A.1 to A.9 and A.11) was applied to `product.md` on 2026-10-13; Parts B and C remain Open.
 - Producer batching is deliberately not assumed (B3); if target-user payload samples later show a batching pattern, this is revisited in ADR-0006.
-- Name clearance ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Draft), reference ARM hardware, CI platform (github.com versus GitHub Enterprise), and ARM64 runner availability.
+- Reference ARM hardware, CI platform (github.com versus GitHub Enterprise), and ARM64 runner availability.
 - The `[V]` items from the maturity review: Lyrical middleware tiers, Zenoh key-expression formats, hiroz interoperability with Jazzy and Humble, license files for `ros2-client`, `r2r`, and the open62541 bindings, legal review of EPL-2.0, DDS-Security support in pure-Rust options, `ntex-mqtt` on Tokio, conditional put on non-AWS, non-MinIO stores, `clickhouse-ext-arrow` type coverage, and Parquet nanosecond timestamp reader support.

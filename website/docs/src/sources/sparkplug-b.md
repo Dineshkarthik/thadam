@@ -98,6 +98,6 @@ Sparkplug DATA carries aliases, and the table that maps them to names was publis
 - **A `seq` gap that spans a restart is not detected.** The `seq` cursor is not persisted (persisting every `seq` would cost an fsync per message): the first message after a restart anchors the cursor, so a gap inside the downtime is invisible. Within a run, gaps are flagged.
 - **A message is decoded only if a dataset in the chain matches it** (see [Configuration](#configuration)).
 - **The birth store is a cache, not the source of truth.** The WAL holds everything it holds. The store can lag the newest committed BIRTH by one crash window; the next BIRTH resyncs it.
-- **Bounded tracked state.** One decoder tracks at most 10,000 `(group, node)` pairs, 1,000 devices per node, and 4,096 metrics per payload; messages that exceed a cap are rejected to quarantine (`decode.too_large`).
+- **Bounded tracked state.** One decoder tracks at most 10,000 `(group, node)` pairs, 1,000 devices per node (100,000 total device scopes across all nodes), and 4,096 metrics per payload, and enforces the chain's `max_payload_bytes` cap (1 MiB); messages that exceed a cap are rejected to quarantine (`decode.too_large`).
 - Sparkplug telemetry is QoS 0 by specification. Thadam has no way to prevent loss at the MQTT level; gaps surface as `SEQUENCE_GAP`.
 - The decoder is covered by unit tests, a `cargo fuzz` target (`thadam-sparkplug`, `decoder_handle`), and an ignored Docker test. There are no throughput benchmarks and no tests against real Sparkplug edge devices.

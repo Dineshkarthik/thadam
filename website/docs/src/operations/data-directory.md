@@ -1,6 +1,6 @@
 # Data directory layout
 
-Everything Thadam must keep between restarts lives under [`pipeline.data_dir`](../configuration/pipeline.md). One data directory serves exactly one pipeline on one node.
+Everything Thadam must keep between restarts lives under [`pipeline.data_dir`](../configuration/pipeline.md). One data directory serves exactly one pipeline on one node. On Unix, `data_dir` is created (or tightened on open) with mode `0700`, and WAL, segment, catalog, lock, schema, and birth files are created with mode `0600` (owner-only).
 
 ```text
 data_dir/

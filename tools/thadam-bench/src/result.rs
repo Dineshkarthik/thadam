@@ -158,7 +158,7 @@ pub struct Throughput {
 pub struct LatencyReport {
     /// Source ack latency, `thadam_source_ack_latency_seconds`.
     pub source_ack: Histogram,
-    /// WAL commit latency, `thadam_wal_commit_seconds`; not exported today.
+    /// WAL commit latency, `thadam_wal_commit_seconds`.
     pub wal_commit: Histogram,
     /// Sink batch write latency, `thadam_batch_write_seconds`, all sinks merged.
     pub sink_batch_write: Histogram,

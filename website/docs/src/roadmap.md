@@ -34,7 +34,7 @@ The `thadam-clickhouse` sink is built, outside the M1 reliability gate: startup 
 
 ## Deliberately not on the roadmap
 
-From the MVP non-goals: GUI, cloud control plane, Kubernetes operator before the single-binary runtime is proven, joins, dynamic plugins, a schema-registry product, application-level encryption at rest (filesystem/LUKS is the documented answer), and publishing crates before [ADR-0016](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0016-naming-and-publishing.md) (Draft) is accepted. Re-evaluated as milestones close, not silently expanded.
+From the MVP non-goals: GUI, cloud control plane, Kubernetes operator before the single-binary runtime is proven, joins, dynamic plugins, a schema-registry product, and application-level encryption at rest (filesystem/LUKS is the documented answer). Re-evaluated as milestones close, not silently expanded.
 
 ## How to influence it
 

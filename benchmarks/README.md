@@ -68,9 +68,9 @@ Scenario fields: `name`, `description`, `duration`, `drain`, `pipeline`,
 - Throughput: deltas of `thadam_source_messages_total` and
   `thadam_source_bytes_total` over the generation window, summed across
   restarts.
-- Latency: p50/p95/p99 from the histogram deltas. `thadam_source_ack_latency_seconds`
-  and `thadam_batch_write_seconds` are read when exported. The WAL commit
-  histogram is not exported by `thadam` today, so that row reads "not exported".
+- Latency: p50/p95/p99 from the histogram deltas. `thadam_source_ack_latency_seconds`,
+  `thadam_wal_commit_seconds`, and `thadam_batch_write_seconds` are read when
+  exported (an absent series reads "not exported").
 - Resources: CPU% and RSS of the `thadam` process, from `ps -o %cpu=,rss=`.
 - Storage: Parquet files and bytes under the sink directory after shutdown.
 - Recovery: milliseconds from SIGKILL until `/readyz` returns 200.

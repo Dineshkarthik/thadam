@@ -161,6 +161,6 @@ Read-only views of a data directory: `wal`, `cursors`, `segments --sink`, and `s
 
 Prints the same help as `--help` for the binary or a subcommand (`thadam help run`).
 
-## Roadmap subcommands (planned)
+## Roadmap flags (planned)
 
-`product.md` and ARCHITECTURE.md section 21 sketch additional tooling **not implemented today**: `--suggest-schema` on `thadam inspect`, and benchmark tooling (`tools/thadam-bench`, not a CLI subcommand). This page will grow with them.
+`product.md` and ARCHITECTURE.md section 21 sketch additional CLI flags **not implemented today**: `--suggest-schema` on `thadam inspect` and `--speed` on `thadam replay` (benchmark runs live in the standalone `tools/thadam-bench` workspace tool rather than a `thadam` subcommand). This page will grow with them.

@@ -30,7 +30,7 @@ mdbook build website/docs         # user docs only, into website/docs/book/
 
 1. `dist/` is wiped and `public/` is copied to its root.
 2. `mdbook build` writes the docs to `dist/docs/`.
-3. The brand files the site uses (logos, icon, favicon PNGs, the dark hero PNG, the two `illustrations/*.webp` homepage images, `tokens/thadam.css`) are copied from `thadam-assets/brand/` to `dist/assets/brand/`, and `png/favicon.ico` is copied to `dist/favicon.ico`. `thadam-assets/reference/` holds concept mockups that are never shipped.
+3. The brand files the site uses (logos, wordmarks, marks, icon, favicon PNGs, `og-card.png`, the two `illustrations/*.webp` homepage images, `tokens/thadam.css`) are copied from `thadam-assets/brand/` to `dist/assets/brand/`, and `png/favicon.ico` is copied to `dist/favicon.ico`. `thadam-assets/reference/` holds concept mockups that are never shipped.
 4. The two favicon copies in `docs/theme/` are compared byte-for-byte with `thadam-assets/brand/`, and the build fails on drift.
 5. A small Python step adds canonical and `og:url` tags to docs pages, writes `sitemap.xml`, and appends the sitemap line to `robots.txt`.
 6. `check.py` verifies the result: required files, titles and viewport meta, every local link, `#fragment` anchor, and image resolving, canonicals, no `localhost` links, no internal `PR[0-9]+` tokens in visible text, and the sitemap matching the pages.
