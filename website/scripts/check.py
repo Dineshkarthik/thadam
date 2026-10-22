@@ -19,6 +19,7 @@ REPO = WEBSITE.parent
 DIST = WEBSITE / "dist"
 DOCS = DIST / "docs"
 BRAND = REPO / "thadam-assets" / "brand"
+VERSIONS_JSON = WEBSITE / "docs" / "versions.json"
 ORIGIN = os.environ.get("SITE_ORIGIN", "https://thadam.dineshkarthik.me").rstrip("/")
 
 REQUIRED = [
@@ -43,7 +44,29 @@ REQUIRED = [
     "favicon.ico",
     "site.webmanifest",
 ]
-NOINDEX_PAGES = {"docs/print.html", "docs/404.html", "docs/toc.html"}
+NOINDEX_INNER_PAGES = {"print.html", "404.html", "toc.html"}
+FRAGMENT_INNER_PAGES = {"toc.html"}
+VERSION_ID_RE = re.compile(r"^[0-9A-Za-z._-]+$")
+RESERVED_DOCS_NAMES = {
+    "cli",
+    "concepts",
+    "configuration",
+    "design",
+    "getting-started",
+    "operations",
+    "sdk",
+    "sinks",
+    "sources",
+    "transforms",
+    "theme",
+    "fonts",
+    "css",
+    "index.html",
+    "introduction.html",
+    "toc.html",
+    "404.html",
+    "print.html",
+}
 HOMEPAGE_BUDGET_BYTES = 30 * 1024
 REQUIRED_CSS_SELECTORS = [".flow-grid", ".flow-node", ".flow-link", ".features", ".hero-art img", ".theme-toggle", "img.on-dark", ".pill-progress"]
 FORBIDDEN_CLAIMS = [
@@ -67,7 +90,6 @@ STATUS_WORDS = ("Available", "In progress", "Planned")
 STATUS_LINE_RE = re.compile(r"\bStatus:\s*([^.\n]+)")
 PR_TOKEN_RE = re.compile(r"\bPR[0-9]+\b")
 HEX_RE = re.compile(r"#(?:[0-9A-Fa-f]{3}){1,2}\b")
-FRAGMENT_PAGES = {"docs/toc.html"}
 FAVICON_GUARDS = {
     "favicon-*.svg": "svg/thadam-icon-light.svg",
     "favicon-*.png": "png/favicon-192.png",
@@ -161,6 +183,9 @@ class PageParser(HTMLParser):
         self.json_ld = []
         self.in_json_ld = False
         self._ld_buffer = ""
+        self.has_version_select = False
+        self.in_version_select = False
+        self.version_options = []
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
@@ -195,6 +220,17 @@ class PageParser(HTMLParser):
                 self.refs.append(("src", a["src"]))
             if a.get("srcset"):
                 self.refs.append(("srcset", a["srcset"]))
+        elif tag == "select":
+            if "data-version-select" in a:
+                self.has_version_select = True
+                self.in_version_select = True
+        elif tag == "option" and self.in_version_select:
+            val = a.get("value")
+            if val:
+                self.version_options.append(val)
+                self.refs.append(("option", val))
+            else:
+                self.version_options.append("")
 
     def handle_endtag(self, tag):
         if tag == "title":
@@ -202,6 +238,8 @@ class PageParser(HTMLParser):
         if tag == "script" and self.in_json_ld:
             self.json_ld.append(self._ld_buffer)
             self.in_json_ld = False
+        if tag == "select" and self.in_version_select:
+            self.in_version_select = False
 
     def handle_data(self, data):
         if self.in_title:
@@ -210,12 +248,76 @@ class PageParser(HTMLParser):
             self._ld_buffer += data
 
 
+def load_versions(errors):
+    if not VERSIONS_JSON.is_file():
+        errors.append("missing website/docs/versions.json")
+        return []
+    try:
+        data = json.loads(VERSIONS_JSON.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        errors.append(f"versions.json invalid JSON: {exc}")
+        return []
+    versions = data.get("versions") if isinstance(data, dict) else None
+    if not isinstance(versions, list) or not versions:
+        errors.append("versions.json: 'versions' must be a non-empty list")
+        return []
+    seen_ids = set()
+    latest_count = 0
+    valid_ids = []
+    for idx, item in enumerate(versions):
+        if not isinstance(item, dict):
+            errors.append(f"versions.json: entry {idx} is not an object")
+            continue
+        v_id = item.get("id")
+        label = item.get("label")
+        ref = item.get("ref")
+        if not isinstance(v_id, str) or not v_id.strip():
+            errors.append(f"versions.json: entry {idx} missing non-empty string 'id'")
+            continue
+        if not isinstance(label, str) or not label.strip():
+            errors.append(f"versions.json: entry '{v_id}' missing non-empty string 'label'")
+        if not isinstance(ref, str) or not ref.strip():
+            errors.append(f"versions.json: entry '{v_id}' missing non-empty string 'ref'")
+        if not VERSION_ID_RE.match(v_id):
+            errors.append(f"versions.json: id '{v_id}' does not match {VERSION_ID_RE.pattern}")
+        if v_id in RESERVED_DOCS_NAMES:
+            errors.append(f"versions.json: id '{v_id}' collides with reserved docs name")
+        if v_id in seen_ids:
+            errors.append(f"versions.json: duplicate id '{v_id}'")
+        else:
+            seen_ids.add(v_id)
+            valid_ids.append(v_id)
+        if item.get("latest") is True:
+            latest_count += 1
+    if latest_count != 1:
+        errors.append(f"versions.json: expected exactly one 'latest: true' entry, found {latest_count}")
+    return valid_ids
+
+
+def docs_book_rel(rel, version_ids):
+    if not rel.startswith("docs/"):
+        return None, None
+    after_docs = rel[len("docs/"):]
+    first, sep, rest = after_docs.partition("/")
+    if sep and first in version_ids:
+        return first, rest
+    return None, after_docs
+
+
 def docs_expected(rel):
     if rel in ("index.html", "introduction.html"):
         return "/docs/"
     if rel.endswith("/index.html"):
         return "/docs/" + rel[: -len("index.html")]
     return "/docs/" + rel[: -len(".html")]
+
+
+def docs_version_expected(version_id, rel):
+    if rel in ("index.html", "introduction.html"):
+        return f"/docs/{version_id}/"
+    if rel.endswith("/index.html"):
+        return f"/docs/{version_id}/" + rel[: -len("index.html")]
+    return f"/docs/{version_id}/" + rel[: -len(".html")]
 
 
 def resolve(page_dir_rel, target):
@@ -241,17 +343,26 @@ def main():
         print(f"missing {DIST}; run website/scripts/build.sh first", file=sys.stderr)
         return 1
 
+    version_ids = load_versions(errors)
+    version_id_set = set(version_ids)
+
     for rel in REQUIRED:
         if not (DIST / rel).is_file():
             errors.append(f"missing required file: {rel}")
 
-    for pattern, brand_rel in FAVICON_GUARDS.items():
-        copies = sorted(DOCS.glob(pattern))
-        if not copies:
-            errors.append(f"docs has no hashed {pattern} favicon")
-        for copy in copies:
-            if copy.read_bytes() != (BRAND / brand_rel).read_bytes():
-                errors.append(f"{copy.relative_to(DIST)} differs from thadam-assets/brand/{brand_rel}")
+    for v_id in version_ids:
+        if not (DOCS / v_id / "index.html").is_file():
+            errors.append(f"missing required versioned docs file: docs/{v_id}/index.html")
+
+    for docs_root in [DOCS, *(DOCS / v_id for v_id in version_ids)]:
+        rel_root = docs_root.relative_to(DIST).as_posix()
+        for pattern, brand_rel in FAVICON_GUARDS.items():
+            copies = sorted(docs_root.glob(pattern))
+            if not copies:
+                errors.append(f"{rel_root} has no hashed {pattern} favicon")
+            for copy in copies:
+                if copy.read_bytes() != (BRAND / brand_rel).read_bytes():
+                    errors.append(f"{copy.relative_to(DIST)} differs from thadam-assets/brand/{brand_rel}")
 
     pages = sorted(DIST.rglob("*.html"))
     parsed_pages = []
@@ -267,8 +378,11 @@ def main():
     for page, text, parser in parsed_pages:
         rel = page.relative_to(DIST).as_posix()
         page_dir_rel = page.parent.relative_to(DIST)
+        version_id, inner_rel = docs_book_rel(rel, version_id_set)
+        is_fragment_page = inner_rel in FRAGMENT_INNER_PAGES
+        is_docs_page = inner_rel is not None and inner_rel not in NOINDEX_INNER_PAGES
 
-        if rel not in FRAGMENT_PAGES:
+        if not is_fragment_page:
             if not parser.title.strip():
                 errors.append(f"{rel}: empty <title>")
             if not parser.viewport:
@@ -280,7 +394,6 @@ def main():
                 json.loads(block)
             except json.JSONDecodeError as exc:
                 errors.append(f"{rel}: JSON-LD does not parse: {exc}")
-        is_docs_page = rel.startswith("docs/") and rel not in NOINDEX_PAGES
         if rel in ("index.html", "404.html") or is_docs_page:
             visible = VisibleText()
             visible.feed(text)
@@ -299,20 +412,50 @@ def main():
                 errors.append("index.html: missing JSON-LD")
             if parser.og_image is None:
                 errors.append("index.html: og:image missing")
-        if rel.startswith("docs/") and rel not in NOINDEX_PAGES and "og:title" not in text:
-            errors.append(f"{rel}: missing og:title")
+        if is_docs_page:
+            if "og:title" not in text:
+                errors.append(f"{rel}: missing og:title")
+            if not parser.has_version_select or "data-version-select" not in text:
+                errors.append(f"{rel}: missing data-version-select")
+            elif not parser.version_options or any(not opt for opt in parser.version_options):
+                errors.append(f"{rel}: data-version-select missing valid <option value=...> entries")
         if HEX_RE.search(text) and rel == "index.html":
             errors.append(f"{rel}: hex colour outside the tokens")
-        if any(token in text for token in ("THADAM_CANONICAL", "__SITE_ORIGIN__", "__ASSET_VERSION__")):
+        if any(
+            token in text
+            for token in (
+                "THADAM_CANONICAL",
+                "THADAM_VERSION_SELECT",
+                "THADAM_VERSION_BANNER",
+                "__SITE_ORIGIN__",
+                "__ASSET_VERSION__",
+            )
+        ):
             errors.append(f"{rel}: unreplaced build placeholder")
-        if rel.startswith("docs/") and rel not in NOINDEX_PAGES:
-            expected_url = ORIGIN + docs_expected(rel[len("docs/"):])
-            if parser.canonical != expected_url:
-                errors.append(f"{rel}: canonical is {parser.canonical!r}, expected {expected_url!r}")
-            if parser.canonical and parser.canonical.endswith(".html"):
-                errors.append(f"{rel}: canonical must be extensionless")
-            if parser.canonical:
-                expected_docs.add(docs_expected(rel[len("docs/"):]))
+        if is_docs_page:
+            if version_id is None:
+                expected_url = ORIGIN + docs_expected(inner_rel)
+                if parser.canonical != expected_url:
+                    errors.append(f"{rel}: canonical is {parser.canonical!r}, expected {expected_url!r}")
+                if parser.og_url != expected_url:
+                    errors.append(f"{rel}: og:url is {parser.og_url!r}, expected {expected_url!r}")
+                if parser.canonical and parser.canonical.endswith(".html"):
+                    errors.append(f"{rel}: canonical must be extensionless")
+                if parser.og_url and parser.og_url.endswith(".html"):
+                    errors.append(f"{rel}: og:url must be extensionless")
+                if parser.canonical:
+                    expected_docs.add(docs_expected(inner_rel))
+            else:
+                expected_og = ORIGIN + docs_version_expected(version_id, inner_rel)
+                expected_canon = (ORIGIN + docs_expected(inner_rel)) if (DOCS / inner_rel).is_file() else expected_og
+                if parser.canonical != expected_canon:
+                    errors.append(f"{rel}: canonical is {parser.canonical!r}, expected {expected_canon!r}")
+                if parser.og_url != expected_og:
+                    errors.append(f"{rel}: og:url is {parser.og_url!r}, expected {expected_og!r}")
+                if parser.canonical and parser.canonical.endswith(".html"):
+                    errors.append(f"{rel}: canonical must be extensionless")
+                if parser.og_url and parser.og_url.endswith(".html"):
+                    errors.append(f"{rel}: og:url must be extensionless")
         elif rel == "index.html":
             if parser.canonical != ORIGIN + "/":
                 errors.append(f"{rel}: canonical is {parser.canonical!r}, expected {ORIGIN + '/'!r}")
@@ -387,7 +530,10 @@ def main():
     if homepage_bytes > HOMEPAGE_BUDGET_BYTES:
         errors.append(f"homepage HTML plus site.css is {homepage_bytes} bytes; budget is {HOMEPAGE_BUDGET_BYTES}")
 
-    for css in [DIST / "assets" / "site.css", *DOCS.glob("theme/custom-*.css")]:
+    css_files = [DIST / "assets" / "site.css", *DOCS.glob("theme/custom-*.css")]
+    for v_id in version_ids:
+        css_files.extend((DOCS / v_id).glob("theme/custom-*.css"))
+    for css in css_files:
         if css.is_file() and HEX_RE.search(css.read_text(encoding="utf-8")):
             errors.append(f"{css.relative_to(DIST)}: hex colour outside the tokens")
 

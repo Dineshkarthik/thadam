@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-version user documentation**: `website/docs/versions.json` declares published documentation versions; `website/scripts/build.sh` builds the latest docs at `/docs/` and version-pinned books at `/docs/<version>/` (from the working tree or via `git archive <ref>` paired with the current `website/docs/theme/`), injects a header version switcher (`data-version-select`) and a notice banner on non-latest versions, and points versioned page canonicals to their latest `/docs/` counterparts; `website/scripts/check.py` verifies `versions.json`, versioned routes, switcher targets, and canonicals.
+
 ### Changed
 
 - **Docs sync**: aligned the homepage footer, roadmap, CLI reference, data-directory permissions (`0700` directory, `0600` files), Sparkplug/MCAP/Iceberg size bounds, `website/README.md`, `benchmarks/README.md` (`thadam_wal_commit_seconds` exported), `ARCHITECTURE.md`, `docs/design/readiness.md`, `docs/design/version-inventory.md`, and `CHANGELOG.md` link paths with the current codebase and `ADR-0016` acceptance.

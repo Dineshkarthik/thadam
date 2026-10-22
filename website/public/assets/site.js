@@ -52,6 +52,16 @@
     apply(next);
   });
 
+  document.addEventListener("change", function (event) {
+    var target = event.target;
+    if (!target || !target.matches || !target.matches("[data-version-select]")) {
+      return;
+    }
+    if (target.value) {
+      window.location.href = target.value;
+    }
+  });
+
   document.addEventListener("DOMContentLoaded", function () {
     var buttons = document.querySelectorAll("[data-theme-toggle]");
     for (var i = 0; i < buttons.length; i++) {

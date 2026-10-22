@@ -159,6 +159,59 @@ html:not(.js) {
   text-transform: uppercase;
 }
 
+.thadam-version-select {
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--table-border-color);
+  border-radius: 999px;
+  background: var(--quote-bg);
+  color: var(--fg);
+  font-family: var(--mono-font);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.thadam-version-select:hover {
+  border-color: var(--icons);
+}
+
+.thadam-version-select:focus,
+.thadam-version-select:focus-visible {
+  outline: 2px solid var(--thadam-signal-orange);
+  outline-offset: 2px;
+}
+
+.thadam-version-banner {
+  margin-inline: calc(0px - var(--page-padding));
+  padding: 0.55rem var(--page-padding);
+  border-bottom: 1px solid var(--table-border-color);
+  border-inline-start: 3px solid var(--thadam-signal-orange);
+  background: var(--quote-bg);
+  color: var(--fg);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.thadam-version-banner a {
+  color: var(--fg);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--thadam-signal-orange);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+}
+
+.thadam-version-banner a:hover {
+  text-decoration-thickness: 3px;
+}
+
+.thadam-version-banner a:focus-visible {
+  outline: 2px solid var(--thadam-signal-orange);
+  outline-offset: 2px;
+}
+
 .thadam-site-nav {
   display: flex;
   flex-wrap: wrap;
@@ -491,6 +544,7 @@ table tbody tr:hover td {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .thadam-version-select,
   .theme-toggle,
   .theme-toggle::after {
     transition: none;

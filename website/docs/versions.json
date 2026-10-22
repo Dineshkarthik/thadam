@@ -1,0 +1,10 @@
+{
+  "versions": [
+    {
+      "id": "0.1.0-beta.1",
+      "label": "0.1.0-beta.1 (latest)",
+      "ref": "WORKTREE",
+      "latest": true
+    }
+  ]
+}

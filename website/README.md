@@ -7,7 +7,7 @@ This folder builds the whole public site into one artifact, `website/dist/`.
 | Path | Served at | What it is |
 |---|---|---|
 | `public/` | `/` | Homepage (`index.html`), `404.html`, `robots.txt`, `assets/site.css` |
-| `docs/` | `/docs/` | mdBook user documentation: `book.toml`, `src/` (pages and `SUMMARY.md`), `theme/` (overrides and the two favicon copies) |
+| `docs/` | `/docs/` and `/docs/<version>/` | mdBook user documentation: `book.toml`, `versions.json` (version manifest), `src/` (pages and `SUMMARY.md`), `theme/` (overrides and the two favicon copies) |
 | `scripts/` | n/a | `build.sh`, `preview.sh`, `check.py` |
 | `dist/` | n/a | Generated output, gitignored. This is the deploy artifact. |
 
@@ -29,11 +29,11 @@ mdbook build website/docs         # user docs only, into website/docs/book/
 ## How `dist/` is composed
 
 1. `dist/` is wiped and `public/` is copied to its root.
-2. `mdbook build` writes the docs to `dist/docs/`.
+2. `mdbook build` writes the latest working-tree docs to `dist/docs/`, then builds each entry in `docs/versions.json` into `dist/docs/<version>/` (copying `docs/src/` when `ref` is `"WORKTREE"`, or extracting `website/docs/src/` from git via `git archive <ref>` and pairing it with the current `docs/theme/`).
 3. The brand files the site uses (logos, wordmarks, marks, icon, favicon PNGs, `og-card.png`, the two `illustrations/*.webp` homepage images, `tokens/thadam.css`) are copied from `thadam-assets/brand/` to `dist/assets/brand/`, and `png/favicon.ico` is copied to `dist/favicon.ico`. `thadam-assets/reference/` holds concept mockups that are never shipped.
 4. The two favicon copies in `docs/theme/` are compared byte-for-byte with `thadam-assets/brand/`, and the build fails on drift.
-5. A small Python step adds canonical and `og:url` tags to docs pages, writes `sitemap.xml`, and appends the sitemap line to `robots.txt`.
-6. `check.py` verifies the result: required files, titles and viewport meta, every local link, `#fragment` anchor, and image resolving, canonicals, no `localhost` links, no internal `PR[0-9]+` tokens in visible text, and the sitemap matching the pages.
+5. A small Python step injects the header version switcher (`data-version-select`) and past-version notice banner (`latest: false`), adds canonical and `og:url` tags to docs pages (versioned `/docs/<version>/<page>` pages point `<link rel="canonical">` to the latest `/docs/<page>` counterpart when present), writes `sitemap.xml` (covering `/` and canonical `/docs/` pages), and appends the sitemap line to `robots.txt`.
+6. `check.py` verifies the result: `docs/versions.json` schema and version directories, required files, titles and viewport meta, every local link, `#fragment` anchor, version-switcher `<option>` target, and image resolving, canonicals, no `localhost` links, no internal `PR[0-9]+` tokens in visible text, and the sitemap matching the pages.
 
 ## Adding a docs page
 
@@ -41,6 +41,14 @@ mdbook build website/docs         # user docs only, into website/docs/book/
 2. Add it to `docs/src/SUMMARY.md` in the right section. Pages not listed there are not built.
 3. Link to other docs pages with relative `.md` paths. Link to repository documents (ARCHITECTURE, ADRs, readiness) with absolute GitHub URLs, because they are not part of the site.
 4. Run `website/scripts/build.sh`.
+
+## Adding a documentation version
+
+Published documentation versions are declared in `docs/versions.json`:
+
+1. Change the previous release entry's `ref` from `"WORKTREE"` to its git tag (for example `"v0.1.0-beta.1"`), drop `" (latest)"` from its `label`, and set `"latest": false`.
+2. Prepend the new release entry with `"id": "<version>"`, `"label": "<version> (latest)"`, `"ref": "WORKTREE"`, and `"latest": true` (exactly one entry may have `"latest": true`).
+3. Run `website/scripts/build.sh` to build `/docs/` and `/docs/<version>/` and run `check.py`.
 
 ## Updating brand assets
 
