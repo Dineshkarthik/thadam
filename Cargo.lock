@@ -5639,9 +5639,9 @@ dependencies = [
 
 [[package]]
 name = "sha2"
-version = "0.11.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
+checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.1",
@@ -6082,7 +6082,7 @@ dependencies = [
  "insta",
  "parquet 60.0.0",
  "proptest",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "thadam-core",
  "thiserror 2.0.21",
 ]
@@ -6151,7 +6151,7 @@ dependencies = [
  "serde-saphyr",
  "serde_json",
  "serde_path_to_error",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "tempfile",
  "thadam-arrow",
  "thadam-core",
@@ -6169,7 +6169,7 @@ dependencies = [
  "proptest",
  "rustix 1.1.5",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "smallvec",
  "tempfile",
  "thiserror 2.0.21",
@@ -6189,7 +6189,7 @@ dependencies = [
  "rustls-pki-types",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "tempfile",
  "thadam-core",
  "thadam-testkit",
@@ -6216,7 +6216,7 @@ dependencies = [
  "rustls-pki-types",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "tempfile",
  "thadam-core",
  "thadam-testkit",
@@ -6247,7 +6247,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "tempfile",
  "thadam-arrow",
  "thadam-core",
@@ -6378,7 +6378,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "tempfile",
  "thadam-core",
  "thadam-segments",
@@ -6474,7 +6474,7 @@ dependencies = [
  "rustix 1.1.5",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "tempfile",
  "thadam-config",
  "thadam-core",
@@ -6506,7 +6506,7 @@ dependencies = [
  "rustix 1.1.5",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "tempfile",
  "thadam-arrow",
  "thadam-core",
@@ -6573,7 +6573,7 @@ dependencies = [
  "serde",
  "serde-saphyr",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "smallvec",
  "tempfile",
  "thadam-core",
