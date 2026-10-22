@@ -10,3 +10,4 @@ website/docs/book/
 docs/book/
 examples/**/data/
 thadam-assets/brand/reference/
+.cursor/
