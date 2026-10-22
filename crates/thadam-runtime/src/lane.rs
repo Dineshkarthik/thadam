@@ -22,6 +22,9 @@ pub(crate) struct ChainBatch {
     /// The rewind generation the batch was read in; the driver drops batches
     /// from older generations.
     pub generation: u64,
+    /// The chain has read the WAL to its end and sends nothing more unless the
+    /// driver rewinds it. Carries no events; `origin` is a placeholder.
+    pub eof: bool,
 }
 
 /// Where the driver asks the chain to restart reading, after a sink lost its
@@ -50,6 +53,7 @@ impl ChainBatch {
             rejects: Vec::new(),
             hold: None,
             generation: 0,
+            eof: false,
         }
     }
 }

@@ -505,6 +505,9 @@ impl ChainTask {
         }
         self.component.running();
 
+        // At WAL end the chain stays until the driver is finished: its last
+        // append may still fail and rewind the chain.
+        let mut at_end = false;
         loop {
             let item = tokio::select! {
                 biased;
@@ -519,11 +522,21 @@ impl ChainTask {
                     self.warm_to(rw.from.saturating_sub(1), None).await?;
                     reader.seek(WalPos::new(rw.from));
                     tracing::warn!(sink = %self.cfg.sink_id, from = rw.from, "chain rewound by its driver");
+                    at_end = false;
                     continue;
                 }
-                item = reader.next(self.cfg.read_bytes) => item.map_err(|e| wal_error(&e))?,
+                item = reader.next(self.cfg.read_bytes), if !at_end => item.map_err(|e| wal_error(&e))?,
             };
-            let Some(item) = item else { break };
+            let Some(item) = item else {
+                let mut eof = ChainBatch::empty(WalRange::single(epoch, WalPos::ZERO));
+                eof.generation = generation;
+                eof.eof = true;
+                if !self.send(eof, 1).await {
+                    break;
+                }
+                at_end = true;
+                continue;
+            };
             match item {
                 ReadItem::Gap(g) => {
                     let range = g.range();
@@ -543,6 +556,7 @@ impl ChainTask {
                         rejects: Vec::new(),
                         hold: self.chain.hold(),
                         generation,
+                        eof: false,
                     };
                     if !self.send(batch, 1).await {
                         break;
@@ -580,6 +594,7 @@ impl ChainTask {
                             rejects,
                             hold: self.chain.hold(),
                             generation,
+                            eof: false,
                         };
                         if !self.send(batch, bytes).await {
                             stop = true;

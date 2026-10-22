@@ -537,6 +537,9 @@ impl BatchDriver {
             tokio::select! {
                 msg = self.rx.recv() => {
                     let Some(mut env) = msg else { break };
+                    if env.item.eof {
+                        break;
+                    }
                     let bytes = env.bytes();
                     if !self.add(env.take(), bytes).await? {
                         stopped = true;

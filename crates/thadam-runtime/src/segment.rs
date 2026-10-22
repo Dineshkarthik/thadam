@@ -589,6 +589,9 @@ impl SegmentDriver {
                     if env.item.generation != self.generation {
                         continue;
                     }
+                    if env.item.eof {
+                        break;
+                    }
                     let mut env = env;
                     let ok = self.on_batch(env.take()).await?;
                     drop(env);

@@ -383,6 +383,7 @@ pub async fn replay(
                         rejects: Vec::new(),
                         hold: None,
                         generation: 0,
+                        eof: false,
                     };
                     let (datasets, meta) = split(&mut cb);
                     report.events += meta.len() as u64;

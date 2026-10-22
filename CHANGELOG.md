@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the project is pre-1.0 (currently beta), any release may contain breaking changes; versioned on-disk formats refuse unknown versions rather than guessing.
 
-## [0.1.0-beta.1] - 2026-10-20
+## [0.1.0-beta.1] - 2026-10-22
 
 **Summary.** Thadam 0.1.0-beta.1 is the first beta of an open-source, Rust-first data plane for robotics and industrial telemetry. It accepts messages from MQTT, HTTP, gRPC, MCAP files, Modbus TCP, SocketCAN, OPC UA, and live ROS 2, writes each one to a local write-ahead log before delivery, and sends it to local Parquet segments, S3-compatible object storage, NATS JetStream, Apache Kafka, MQTT, ClickHouse, or Apache Iceberg. The release includes config validation, transform chains, a quarantine for rejected records, replay and MCAP export, an admin API with Prometheus metrics, and Docker and systemd deployment files. Status: beta. The WAL format is versioned but not frozen until `0.1.0`, and live ROS 2 and Iceberg are experimental. Detailed status: [docs/design/readiness.md](docs/design/readiness.md) and ARCHITECTURE.md section 21.
 
@@ -136,6 +136,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **`quarantine.format: ndjson`** (`thadam-config`): `thadam validate` rejects it as reserved instead of accepting it and failing at run; the schema description says so.
 - **Segments and tasks**: a failed directory fsync no longer records a segment as Deleted, so the delete is retried. Dropped MQTT acks are counted and warned about. Panics in the MQTT and live ROS 2 background tasks are logged. The quarantine docs and schema match the staging-file cursor release.
 - **Simulator and MQTT docs**: the simulator image builds from a clean clone. The MQTT docs example no longer uses an unsupported `1d` duration.
+- **Sink append failing during drain**: a transient append failure after the chain had read the WAL to its end could drop the rewind, so the run exited `Ok` with nothing delivered (the cursor stayed put, so the data replayed on the next start). The chain now waits for its sink driver at WAL end and is rewound, within the existing drain timeout.
+- **CI**: `fuzz-smoke` builds for the GNU target (the prebuilt cargo-fuzz defaulted to musl, which sanitizers reject), and the `can-vcan` tests run serially because they share `vcan0`.
 
 ### Security
 
