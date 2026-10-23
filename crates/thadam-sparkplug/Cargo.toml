@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Sparkplug B wire schema (prost), topic namespace parser, and the stateful BIRTH/alias/seq decoder behind dataset `decode: sparkplug_b`"
-readme.workspace = true
+readme = "README.md"
 keywords = ["thadam", "sparkplug", "mqtt", "industrial", "protobuf"]
 categories = ["encoding", "parser-implementations", "network-programming"]
 

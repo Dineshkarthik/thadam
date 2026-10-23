@@ -9,5 +9,6 @@ website/docs/book/
 # Stale mdBook output from before the website/ move; remove once no local build remains.
 docs/book/
 examples/**/data/
+examples/embed-rust/demo-data/
 thadam-assets/brand/reference/
 .cursor/

@@ -42,4 +42,4 @@ Linux ARM64 and x86_64 are supported and are the only durability targets, on ind
 
 ## Where is the Python SDK?
 
-The SDK is implemented in `sdk/python/` (PyO3 and maturin) and documented in the [Python SDK](sdk/python.md) page; build it from a checkout with `maturin develop`. It is not published to any package registry yet: its package version is `0.1.0b1` (Cargo `0.1.0-beta.1`).
+The SDK is published on PyPI as `thadam` (version `0.1.0b1`, matching Cargo `0.1.0-beta.1`) and documented on the [Python SDK](sdk/python.md) page. Install it with `pip install thadam` (prebuilt `abi3` wheels for Linux glibc `x86_64`/`aarch64` and macOS `arm64`; source distribution for other platforms), or build it from `sdk/python/` in a checkout with `maturin develop`. The PyPI package is the Python library only; install the `thadam` CLI with `cargo install thadam --version 0.1.0-beta.1 --locked`.

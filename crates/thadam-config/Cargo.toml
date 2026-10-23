@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "YAML pipeline configuration loading, interpolation, validation, and JSON Schema for Thadam"
-readme.workspace = true
+readme = "README.md"
 keywords = ["thadam", "config", "yaml", "telemetry", "validation"]
 categories = ["config", "parser-implementations"]
 

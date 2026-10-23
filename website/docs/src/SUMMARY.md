@@ -69,6 +69,7 @@
 # SDKs
 
 - [Python](sdk/python.md)
+- [Rust crates](sdk/rust.md)
 
 # Reference
 

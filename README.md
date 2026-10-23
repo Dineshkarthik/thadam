@@ -17,7 +17,7 @@
 
 Thadam is open-source, Rust-first, and edge-native. It is designed to keep capturing data through network outages and downstream downtime, and to replay what it captured when the world comes back.
 
-> **Name status:** "Thadam" is the project name, not a claim of trademark or domain availability ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Accepted; no trademark search has been done). Nothing is published to crates.io or PyPI yet; install from source as described below.
+> **Name status:** "Thadam" is the project name, not a claim of trademark or domain availability ([ADR-0016](docs/design/adr/0016-naming-and-publishing.md), Accepted; no trademark search has been done).
 
 ## Project status: beta
 
@@ -31,7 +31,7 @@ Thadam is under active development. The architecture and the delivery guarantees
 - The MQTT source (`thadam-mqtt`, [ADR-0006](docs/design/adr/0006-mqtt-client.md)): persistent sessions, acknowledge-after-commit, ordered acks, TLS and mTLS, session-loss detection.
 - Other sources: HTTP, gRPC, Modbus TCP, SocketCAN (Linux), and OPC UA (behind the opt-in `opcua` feature). Sparkplug B payloads decode with `decode: sparkplug_b`.
 - Other sinks: Apache Kafka, NATS JetStream, and MQTT publish (`mqtt_publish`), plus ClickHouse (P1, on by default, outside the core v0.1 reliability gate; [ADR-0008](docs/design/adr/0008-clickhouse-sink.md) is still Draft).
-- The Python SDK (`sdk/python`): configuration validation, the config hash, reading segments, and in-process pipelines.
+- The Python SDK (`sdk/python`, on PyPI as `thadam`): configuration validation, the config hash, reading segments, and in-process pipelines.
 - The runtime (`thadam-runtime`) with supervisor, shutdown and crash recovery, the admin HTTP API (`/healthz`, `/readyz`, `/metrics`, `/status`), and Prometheus metrics; `thadam run` and `thadam status` exist at the CLI level.
 - The Parquet segment sink (`thadam-segments`) and the object-store shipper (`thadam-object-store`) — locally durable segments, then oldest-first deterministic-key uploads with startup capability probing and unbounded retry.
 - The seeded demo simulator (`tools/thadam-simulator`) and the `edge-capture` demo stack: a 6-robot MQTT fleet with a per-sample truth oracle, Docker Compose topology (Mosquitto, Toxiproxy, SeaweedFS, Prometheus/Grafana), and a DuckDB exploration script.
@@ -87,7 +87,14 @@ The full architecture is documented in [ARCHITECTURE.md](ARCHITECTURE.md); desig
 
 The only dependency beyond a Rust toolchain is a container runtime for the message broker. Linux x86_64 and ARM64 are the durability targets; macOS is for development only (no durability claims).
 
-**1. Build Thadam.** The toolchain is pinned by `rust-toolchain.toml` and installs automatically:
+**1. Install Thadam.** With Rust 1.89 or newer installed ([rustup](https://rustup.rs)), install the CLI from crates.io (`--version` is required while only pre-releases are published; pass `--features opcua,ros2-live,iceberg` for the opt-in connectors, where `iceberg` requires Rust 1.94):
+
+```bash
+cargo install thadam --version 0.1.0-beta.1 --locked
+thadam version
+```
+
+Or build from source (the toolchain is pinned by `rust-toolchain.toml` and installs automatically):
 
 ```bash
 git clone https://github.com/Dineshkarthik/thadam.git
@@ -96,6 +103,8 @@ cargo build --release -p thadam
 export PATH="$PWD/target/release:$PATH"
 thadam version
 ```
+
+For the Python SDK, run `pip install thadam` (see the [Python SDK docs](https://thadam.dineshkarthik.me/docs/sdk/python)). To embed the Rust libraries, add crates with an exact pre-release pin such as `cargo add thadam-runtime@=0.1.0-beta.1` (see [Rust crates](https://thadam.dineshkarthik.me/docs/sdk/rust)).
 
 **2. Start a local broker.** Mosquitto with persistence enabled (see [ADR-0006](docs/design/adr/0006-mqtt-client.md) for why the settings matter):
 
@@ -158,7 +167,7 @@ thadam validate pipeline.yaml
 thadam run pipeline.yaml
 ```
 
-In a second terminal (set the same `PATH` export from step 1 there), check the admin API and publish a message:
+In a second terminal (if you built from source in step 1, set the same `PATH` export there), check the admin API and publish a message:
 
 ```bash
 thadam status                                  # JSON from the admin API

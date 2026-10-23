@@ -10,7 +10,7 @@ publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Experimental Apache Iceberg table registrar for uploaded Parquet segments in Thadam"
-readme.workspace = true
+readme = "README.md"
 keywords = ["thadam", "iceberg", "parquet", "lakehouse", "telemetry"]
 categories = ["database", "network-programming", "asynchronous"]
 

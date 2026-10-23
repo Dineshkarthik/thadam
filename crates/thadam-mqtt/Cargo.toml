@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "MQTT source connector with persistent sessions, TLS, and ack-after-commit for Thadam"
-readme.workspace = true
+readme = "README.md"
 keywords = ["thadam", "mqtt", "telemetry", "iot", "robotics"]
 categories = ["network-programming", "asynchronous", "science::robotics"]
 

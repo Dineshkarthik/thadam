@@ -1,0 +1,35 @@
+version: 1
+pipeline:
+  name: first-pipeline
+  node_id: node-01
+  data_dir: ./demo-data
+
+sources:
+  - id: broker
+    kind: mqtt
+    config:
+      url: mqtt://localhost:1883
+      client_id: thadam-demo-01          # stable: names the persistent session
+      topics: [{ filter: "robots/+/telemetry", qos: 1 }]
+      ack_mode: on_commit               # ack after the WAL commit
+
+wal:
+  max_disk: 2GiB
+  fsync: { interval: 10ms }
+  on_full: block                        # explicit by design; drop_oldest is the alternative
+
+datasets:
+  - id: telemetry
+    match: { source: broker, topic: "robots/+/telemetry" }
+    decode: json
+    identity: { robot: { id: 100, template: "{topic.1}" } }
+    time: { field: /ts_us, unit: us, domain: utc, max_skew: 5s }
+    fields:
+      - { id: 1000, name: seq,     type: u64, from: /seq, required: true }
+      - { id: 1001, name: temp_c,  type: f32, from: /temp_c }
+
+sinks:
+  - id: local
+    kind: parquet
+    config:
+      datasets: [telemetry]

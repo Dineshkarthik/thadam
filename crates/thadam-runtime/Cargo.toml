@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Pipeline assembly, driver tasks, supervision, recovery, and replay runtime for Thadam"
-readme.workspace = true
+readme = "README.md"
 keywords = ["thadam", "runtime", "telemetry", "robotics", "pipeline"]
 categories = ["asynchronous", "concurrency", "science::robotics"]
 

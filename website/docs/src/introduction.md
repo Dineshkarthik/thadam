@@ -16,7 +16,7 @@ Thadam is open source (Apache-2.0), Rust-first, and designed for the edge: unrel
 
 This book is the user documentation for operators and integrators. It covers:
 
-- [Getting started](getting-started/installation.md): build Thadam and set up a broker.
+- [Getting started](getting-started/installation.md): install Thadam and set up a broker.
 - [Concepts](concepts/architecture-overview.md): the event model, the capture-first WAL, per-sink chains, and the delivery guarantees.
 - [Configuration reference](configuration/index.md): every configuration key with types, defaults, and constraints.
 - [Sources](sources/mqtt.md) and [sinks](sinks/parquet.md): connector-specific options and operational notes.

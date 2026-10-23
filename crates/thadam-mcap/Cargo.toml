@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Resumable MCAP and rosbag2 file replay source connector for Thadam"
-readme.workspace = true
+readme = "README.md"
 keywords = ["thadam", "mcap", "ros2", "rosbag2", "robotics"]
 categories = ["science::robotics", "parser-implementations", "filesystem"]
 

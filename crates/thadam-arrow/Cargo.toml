@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Encoding of Thadam dataset events into Apache Arrow record batches with stable field IDs"
-readme.workspace = true
+readme = "README.md"
 keywords = ["thadam", "arrow", "parquet", "telemetry", "encoding"]
 categories = ["encoding", "database"]
 

@@ -49,7 +49,7 @@
     <nav aria-label="Primary">
       <a href="/docs/">Docs</a>
       <a href="#status">Status</a>
-      <a href="#build">Build</a>
+      <a href="#install">Install</a>
       <a href="https://github.com/Dineshkarthik/thadam">GitHub</a>
       <button type="button" class="theme-toggle" data-theme-toggle hidden aria-label="Switch to dark theme" title="Dark theme">
         <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
@@ -159,7 +159,7 @@
 
     <section class="section" id="status" aria-labelledby="status-heading">
       <h2 id="status-heading">Status</h2>
-      <p>Thadam is in beta. Nothing is published to a package registry, and there are no release binaries yet. <span class="pill">Available</span> means implemented in this repository. <span class="pill pill-progress">In progress</span> means being built. <span class="pill pill-planned">Planned</span> means not started. The <a href="https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md">readiness tracker</a> records how far each part has been verified.</p>
+      <p>Thadam is in beta. The CLI and library crates are on crates.io and the Python SDK is on PyPI as <code>0.1.0-beta.1</code> pre-releases; there are no prebuilt binaries or container images yet. <span class="pill">Available</span> means implemented in this repository. <span class="pill pill-progress">In progress</span> means being built. <span class="pill pill-planned">Planned</span> means not started. The <a href="https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md">readiness tracker</a> records how far each part has been verified.</p>
       <div class="table-wrap">
         <table>
           <caption>Sources and sinks</caption>
@@ -183,14 +183,14 @@
       </div>
     </section>
 
-    <section class="section" id="build" aria-labelledby="build-heading">
-      <h2 id="build-heading">Build from source</h2>
-      <p>The Rust toolchain is pinned by <code>rust-toolchain.toml</code>, and rustup installs it on first use. Linux x86_64 and ARM64 are the durability targets. macOS builds are for development and make no durability claims.</p>
-      <pre><code>git clone https://github.com/Dineshkarthik/thadam.git
-cd thadam
-cargo build --release -p thadam
-./target/release/thadam version</code></pre>
-      <p>Next, follow <a href="/docs/getting-started/first-pipeline.html">your first pipeline</a>.</p>
+    <section class="section" id="install" aria-labelledby="install-heading">
+      <h2 id="install-heading">Install</h2>
+      <p>Install the CLI from crates.io with Rust 1.89 or newer (<code>--version</code> is required while only pre-releases exist). Linux x86_64 and ARM64 are the durability targets. macOS builds are for development and make no durability claims.</p>
+      <pre><code>cargo install thadam --version 0.1.0-beta.1 --locked
+thadam version</code></pre>
+      <p>Install the <a href="/docs/sdk/python.html">Python SDK</a> from PyPI (prebuilt wheels for Linux glibc x86_64/aarch64 and macOS arm64; Python 3.9+):</p>
+      <pre><code>pip install thadam</code></pre>
+      <p>For optional Cargo features (<code>opcua</code>, <code>ros2-live</code>, <code>iceberg</code>), embedding the Rust library crates, or building from source, see <a href="/docs/getting-started/installation.html">installation</a>. Next, follow <a href="/docs/getting-started/first-pipeline.html">your first pipeline</a>.</p>
     </section>
 
     <section class="section" id="changes" aria-labelledby="changes-heading">

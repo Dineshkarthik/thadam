@@ -1,6 +1,6 @@
-# thadam-python
+# thadam
 
-Python SDK for the Thadam edge capture runtime, built with PyO3 and maturin.
+Python SDK for the [Thadam](https://thadam.dineshkarthik.me) edge capture runtime, built with PyO3 and maturin.
 
 - `thadam.validate(path)` — validate a pipeline configuration, returning every
   error and warning with positions and hints.
@@ -13,29 +13,21 @@ Python SDK for the Thadam edge capture runtime, built with PyO3 and maturin.
   Rust-owned Tokio runtime, with the GIL released and graceful shutdown from
   another thread via `stop()`.
 
-## Requirements
-
-- Python >= 3.9, `pyarrow` >= 14 (installed as a dependency)
-- Rust toolchain matching the workspace (`rust-toolchain.toml`) for building
-  from source
-- A CPython build available to PyO3: any `python3` on `PATH` when building
-  from a checkout (`PYO3_PYTHON` to pick a specific one)
-
-## Building from a checkout
+## Install
 
 ```bash
-cd sdk/python
-python3 -m venv .venv
-. .venv/bin/activate
-pip install maturin pytest pyarrow
-maturin develop
-pytest tests
+pip install thadam
 ```
 
-`maturin develop` builds the `thadam._native` cdylib with
-`pyo3/extension-module` (no libpython linked) and installs the package in the
-virtualenv. Cargo's plain `cargo test -p thadam-python` builds without that
-feature (rlib + libpython) so the Rust unit tests run too.
+To pin the current pre-release explicitly:
+
+```bash
+pip install thadam==0.1.0b1
+```
+
+Requires Python >= 3.9; `pyarrow >= 14` is installed as a dependency. Prebuilt `abi3` wheels (CPython 3.9+) are published for Linux glibc (`manylinux_2_28`) on `x86_64` and `aarch64`, and for macOS `arm64` (11.0+). Other platforms (musl/Alpine, macOS Intel, Windows) build from the source distribution and need a Rust toolchain (1.89 or newer).
+
+This package is the Python SDK; the `thadam` command-line tool installs with `cargo install thadam --version 0.1.0-beta.1 --locked`.
 
 ## Examples
 
@@ -101,6 +93,24 @@ except thadam.ThadamError as e:
     print(e.code, e.domain)  # config.invalid config
     print(e.message)
 ```
+
+## Building from a checkout
+
+For contributors working on the SDK from a checkout of the [Thadam repository](https://github.com/Dineshkarthik/thadam), building from source requires the workspace Rust toolchain ([`rust-toolchain.toml`](https://github.com/Dineshkarthik/thadam/blob/main/rust-toolchain.toml)) and a CPython >= 3.9 build on `PATH` (`PYO3_PYTHON` to pick a specific one):
+
+```bash
+cd sdk/python
+python3 -m venv .venv
+. .venv/bin/activate
+pip install maturin pytest pyarrow
+maturin develop
+pytest tests
+```
+
+`maturin develop` builds the `thadam._native` cdylib with
+`pyo3/extension-module` (no libpython linked) and installs the package in the
+virtualenv. Cargo's plain `cargo test -p thadam-python` builds without that
+feature (rlib + libpython) so the Rust unit tests run too.
 
 ## Arrow versions
 

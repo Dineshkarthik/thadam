@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Transport-independent ROS 2 .msg schema parser and XCDR1 payload decoder for Thadam"
-readme.workspace = true
+readme = "README.md"
 keywords = ["thadam", "ros2", "cdr", "robotics", "mcap"]
 categories = ["encoding", "parser-implementations", "science::robotics"]
 

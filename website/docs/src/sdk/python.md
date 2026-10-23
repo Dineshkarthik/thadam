@@ -1,13 +1,16 @@
 # Python SDK
 
-**Status: Available.** Thadam ships a Python SDK built with PyO3 and maturin, at `sdk/python/` in the
+**Status: Available.** Thadam ships a Python SDK built with PyO3 and maturin, published on PyPI as `thadam` (`0.1.0b1`) and at `sdk/python/` in the
 repository. It exposes configuration validation and hashing, reads of the
-Parquet sink's ready segments, and in-process pipeline runs.
+Parquet sink's ready segments, and in-process pipeline runs. This package is the Python SDK only; the `thadam` CLI installs with `cargo install thadam --version 0.1.0-beta.1 --locked`.
 
-- Requires Python 3.9 or newer and `pyarrow` 14 or newer.
-- One wheel per platform covers all supported Pythons (PyO3 `abi3-py39`).
-- Build from a checkout with `maturin develop`; see
-  `sdk/python/README.md` for the commands.
+```bash
+pip install thadam
+```
+
+- Requires Python 3.9 or newer; `pyarrow` 14 or newer is installed as a dependency. Pin the current pre-release with `pip install thadam==0.1.0b1`.
+- Prebuilt `abi3` wheels (`abi3-py39`, one wheel per platform for CPython 3.9+) are published for Linux glibc (`manylinux_2_28`) on `x86_64` and `aarch64`, and for macOS `arm64` (11.0+). Other platforms (musl/Alpine, macOS Intel, Windows) build from the source distribution and require a Rust 1.89+ toolchain.
+- To build from a repository checkout instead, run `maturin develop` in `sdk/python/`; see [`sdk/python/README.md`](https://github.com/Dineshkarthik/thadam/blob/main/sdk/python/README.md) for the contributor commands.
 
 ## `validate(path)`
 

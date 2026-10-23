@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Experimental live ROS 2 topic source connector over rmw_zenoh for Thadam"
-readme.workspace = true
+readme = "README.md"
 keywords = ["thadam", "ros2", "zenoh", "robotics", "cdr"]
 categories = ["science::robotics", "network-programming", "asynchronous"]
 

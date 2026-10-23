@@ -1,0 +1,16 @@
+[package]
+name = "thadam-embed-example"
+version = "0.1.0-beta.1"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[workspace]
+
+[dependencies]
+thadam-config = "=0.1.0-beta.1"
+thadam-core = "=0.1.0-beta.1"
+thadam-mqtt = "=0.1.0-beta.1"
+thadam-runtime = "=0.1.0-beta.1"
+thadam-segments = "=0.1.0-beta.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }

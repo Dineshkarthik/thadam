@@ -9,11 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **Multi-version user documentation**: `website/docs/versions.json` declares published documentation versions; `website/scripts/build.sh` builds the latest docs at `/docs/` and version-pinned books at `/docs/<version>/` (from the working tree or via `git archive <ref>` paired with the current `website/docs/theme/`), injects a header version switcher (`data-version-select`) and a notice banner on non-latest versions, and points versioned page canonicals to their latest `/docs/` counterparts; `website/scripts/check.py` verifies `versions.json`, versioned routes, switcher targets, and canonicals.
+- **Crate READMEs for crates.io**: each publishable library crate has a short README with its install line (`cargo add <crate>@=0.1.0-beta.1`), beta status, and links to docs.rs, the user documentation, and the repository; the `thadam` CLI's crates.io metadata links the user documentation.
+- **Rust crates page**: the user documentation has a "Rust crates" page with the crate table, `=0.1.0-beta.1` pins, and a minimal embedding example.
+- **`examples/embed-rust`**: a standalone example crate, outside the workspace, that embeds the runtime from the crates.io releases.
 
 ### Changed
 
 - **Python wheel matrix and classifiers**: `.github/workflows/release.yml` now builds `cp39-abi3` wheels for Linux `musllinux_1_2` (`x86_64`, `aarch64`) and macOS Intel (`x86_64-apple-darwin`) alongside Linux `manylinux_2_28` (`x86_64`, `aarch64`, now built natively on `ubuntu-24.04-arm` and smoke-tested) and macOS `arm64`; `sdk/python/pyproject.toml` lists explicit Python 3.9–3.14 and CPython classifiers; and CI (`python-sdk`) tests the built `abi3` wheel across Python 3.9, 3.12, and 3.13.
 - **Docs sync**: aligned the homepage footer, roadmap, CLI reference, data-directory permissions (`0700` directory, `0600` files), Sparkplug/MCAP/Iceberg size bounds, `website/README.md`, `benchmarks/README.md` (`thadam_wal_commit_seconds` exported), `ARCHITECTURE.md`, `docs/design/readiness.md`, `docs/design/version-inventory.md`, and `CHANGELOG.md` link paths with the current codebase and `ADR-0016` acceptance.
+- **Install paths**: the README, the installation page in the user documentation, and the homepage now point at `cargo install thadam --version 0.1.0-beta.1 --locked` and `pip install thadam` instead of build-from-source only; the PyPI README leads with installation.
 
 ### Fixed
 

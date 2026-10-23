@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Pure-Rust Apache Kafka batch sink connector with TLS and SASL for Thadam"
-readme.workspace = true
+readme = "README.md"
 keywords = ["thadam", "kafka", "telemetry", "streaming", "messaging"]
 categories = ["network-programming", "asynchronous"]
 

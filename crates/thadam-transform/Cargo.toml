@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Synchronous transform chain from raw WAL frames to typed event batches for Thadam"
-readme.workspace = true
+readme = "README.md"
 keywords = ["thadam", "telemetry", "transform", "robotics", "streaming"]
 categories = ["encoding", "science::robotics"]
 

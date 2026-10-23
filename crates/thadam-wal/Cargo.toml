@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Capture-first write-ahead log with segmented files, durable cursors, and retention for Thadam"
-readme.workspace = true
+readme = "README.md"
 keywords = ["thadam", "wal", "write-ahead-log", "telemetry", "storage"]
 categories = ["database", "filesystem"]
 
