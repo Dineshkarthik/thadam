@@ -347,6 +347,8 @@ impl Writer {
                 let _ = s.reply.send(Err(e));
                 return Ok(0);
             }
+            // Poison first: a caller that sees this error must not be able to submit again.
+            self.poison(e.clone());
             let _ = s.reply.send(Err(e.clone()));
             return Err(e);
         }
