@@ -18,7 +18,7 @@ The binary includes it by default (the `clickhouse` Cargo feature of `thadam`; b
 
 The Native block path is the only vendor-maintained way to insert **dynamically typed** columns: the crate's `Client::insert::<T>()` needs compile-time row types, and Thadam schemas are declared in YAML. `clickhouse-ext-arrow` 0.1.0 would reuse Arrow batches directly but pins `arrow ^58` while this workspace is on `arrow 60` (Arrow majors make `RecordBatch` incompatible), and raw `FORMAT ArrowStream` over HTTP would duplicate the vendor's transport without a measured win (ADR-0008's parity rule prefers the vendor crate until the HTTP-vs-native client benchmark says otherwise). The sink builds each block with the crate's public `BlockBuilder` and `Encode` trait, picking the wire type from the *table's* own column type, so the server's implicit conversion is the identity except for `LowCardinality` (exact), `DateTime64(0)` into `DateTime`, and `String` into `FixedString(n)`; the last two are range- and length-checked in the sink (below).
 
-Known cost: the vendor's `InsertNative` hard-codes block compression off in 0.15.2 (a `FIXME` in the crate), so **`compression: lz4` currently compresses probe responses only**; insert bodies travel uncompressed. The key is accepted so configurations keep working when the crate adds it.
+Known cost: the vendor's `InsertNative` hard-codes block compression off in 0.15.3 (a `FIXME` in the crate), so **`compression: lz4` currently compresses probe responses only**; insert bodies travel uncompressed. The key is accepted so configurations keep working when the crate adds it.
 
 ## Configuration
 

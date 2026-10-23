@@ -10,7 +10,7 @@
 //! - `Client::insert::<T>()` needs compile-time `Row` types, which dynamic
 //!   Thadam schemas cannot provide. The crate's public `native::builder` builds
 //!   blocks column by column at runtime, through the public `Encode` trait: the
-//!   only vendor-maintained dynamic insertion path in 0.15.2. Authentication,
+//!   only vendor-maintained dynamic insertion path in 0.15.3. Authentication,
 //!   timeouts, and error parsing stay inside the vendor's HTTP transport.
 //! - `clickhouse-ext-arrow` 0.1.0 pins `arrow ^58` while the workspace is on
 //!   `arrow 60`; Arrow major versions make `RecordBatch` incompatible, and the
@@ -21,7 +21,7 @@
 //!   rule prefers the vendor crate.
 //!
 //! Known cost: the vendor's `InsertNative` hard-codes block compression off
-//! (a `FIXME` in 0.15.2), so `compression: lz4` shapes probe responses only and
+//! (a `FIXME` in 0.15.3), so `compression: lz4` shapes probe responses only and
 //! insert bodies travel uncompressed until the crate supports it.
 //!
 //! # Contract
