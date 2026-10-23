@@ -5,9 +5,8 @@
 //! on task scheduling or on what other streams drew. `rand_chacha` sequences
 //! are platform-stable.
 
-use rand::Rng;
+use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-use rand_chacha::rand_core::SeedableRng;
 
 /// FNV-1a 64 of the tag; stable across platforms and runs, cheap, and only
 /// ever mixed with the master seed (not a secrecy boundary).

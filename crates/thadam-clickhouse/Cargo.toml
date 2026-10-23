@@ -20,7 +20,7 @@ thadam-arrow = { workspace = true }
 # (ADR-0020; `cargo tree -i aws-lc-sys` must stay empty). Roots come from the OS
 # trust store (`rustls-tls-native-roots`): it also serves private CAs, and it
 # avoids `webpki-roots`, whose CDLA-Permissive-2.0 license `cargo deny` does not allow.
-clickhouse = { version = "0.15.2", default-features = false, features = ["lz4", "rustls-tls-ring", "rustls-tls-native-roots"] }
+clickhouse = { version = "0.15.3", default-features = false, features = ["lz4", "rustls-tls-ring", "rustls-tls-native-roots"] }
 # The type AST (`DateTimePrecision`) the client's `native` module builds on;
 # same 0.1 line the client pins, so the types unify.
 clickhouse-types = "0.1.3"

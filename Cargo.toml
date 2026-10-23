@@ -157,10 +157,9 @@ parquet = { version = "60", default-features = false, features = ["arrow", "snap
 reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls-no-provider"] }
 prost = { version = "0.14.4", default-features = false, features = ["derive", "std"] }
 prost-build = "0.14.4"
-# Simulator (tools/thadam-simulator): 0.9 pairs with the rand_chacha 0.9 already
-# in the lock file (proptest); rand 0.10 is not adopted yet.
-rand = "0.9"
-rand_chacha = "0.9"
+# Simulator (tools/thadam-simulator).
+rand = "0.10"
+rand_chacha = "0.10"
 # No TLS feature on purpose: every one of them pulls rustls-webpki ^0.102.8, which
 # cannot reach the patched 0.103.x (RUSTSEC-2026-0049/-0098/-0099/-0104). TLS is
 # terminated in thadam-mqtt with tokio-rustls + ring (crates/thadam-mqtt/src/tls.rs).
