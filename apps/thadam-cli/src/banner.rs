@@ -34,14 +34,18 @@ pub(crate) fn banner() -> Option<String> {
 }
 
 fn choose(env: &dyn Fn(&str) -> Option<String>, colour: bool) -> Option<Kind> {
-    match env("THADAM_BANNER").as_deref() {
+    let mode = env("THADAM_BANNER");
+    match mode.as_deref() {
         Some("off") => return None,
         Some("blocks") => return Some(Kind::Blocks),
-        Some("image") => return Some(detect_image(env).unwrap_or(Kind::Kitty)),
         _ => {}
     }
+    // Escape-code images are stripped along with colours, so they need colour on.
     if !colour {
         return Some(Kind::Blocks);
+    }
+    if mode.as_deref() == Some("image") {
+        return Some(detect_image(env).unwrap_or(Kind::Kitty));
     }
     if env("TMUX").is_some_and(|v| !v.is_empty())
         || env("TERM")
@@ -197,15 +201,29 @@ mod tests {
             Some(Kind::Blocks)
         );
         assert_eq!(
-            choose(&env_from(&[("THADAM_BANNER", "image")]), false),
+            choose(&env_from(&[("THADAM_BANNER", "image")]), true),
             Some(Kind::Kitty)
         );
         assert_eq!(
             choose(
                 &env_from(&[("THADAM_BANNER", "image"), ("TERM_PROGRAM", "iTerm.app")]),
-                false
+                true
             ),
             Some(Kind::Iterm)
+        );
+        assert_eq!(
+            choose(
+                &env_from(&[
+                    ("THADAM_BANNER", "image"),
+                    ("TMUX", "/tmp/tmux-1000/default")
+                ]),
+                true
+            ),
+            Some(Kind::Kitty)
+        );
+        assert_eq!(
+            choose(&env_from(&[("THADAM_BANNER", "image")]), false),
+            Some(Kind::Blocks)
         );
         assert_eq!(
             choose(
