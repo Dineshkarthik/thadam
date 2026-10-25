@@ -4,11 +4,6 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the project is pre-1.0 (currently beta), any release may contain breaking changes; versioned on-disk formats refuse unknown versions rather than guessing.
 
-## [Unreleased]
-
-### Changed
-
-- **Signed commits replace DCO sign-off**: `CONTRIBUTING.md`, the pull request template, and `AGENTS.md` now require commits signed with `git commit -S` (GPG or SSH, shown as Verified on GitHub) instead of a `Signed-off-by:` line from `git commit -s`.
 
 ## [0.1.0-beta.2] - 2026-10-23
 
@@ -28,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Docs sync**: aligned the homepage footer, roadmap, CLI reference, data-directory permissions (`0700` directory, `0600` files), Sparkplug/MCAP/Iceberg size bounds, `website/README.md`, `benchmarks/README.md` (`thadam_wal_commit_seconds` exported), `ARCHITECTURE.md`, `docs/design/readiness.md`, `docs/design/version-inventory.md`, and `CHANGELOG.md` link paths with the current codebase and `ADR-0016` acceptance.
 - **Install paths**: the README, the installation page in the user documentation, and the homepage now point at `cargo install thadam --version 0.1.0-beta.1 --locked` and `pip install thadam` instead of build-from-source only; the PyPI README leads with installation.
 - **Dependency updates** (Dependabot): GitHub Actions `actions/checkout` v7.0.1, `actions/upload-artifact` v7.0.2, `actions/download-artifact` v8.0.2 (now fails on artifact digest mismatch), `actions/setup-python` v7.0.0, and `taiki-e/install-action` v2.87.29; crates `proptest` 1.12.0, `sha2` 0.11.1, `rustls-native-certs` 0.8.5, `clickhouse` 0.15.3, and `rand` 0.10.3 / `rand_chacha` 0.10.0 in `thadam-simulator`; `tokio` 1.54.1 (was 1.53.2) for RUSTSEC-2026-0386 (unsound `AsyncFd` constructors; Thadam does not call them). `cargo deny check advisories` reports no advisories.
+- **Signed commits replace DCO sign-off**: `CONTRIBUTING.md`, the pull request template, and `AGENTS.md` now require commits signed with `git commit -S` (GPG or SSH, shown as Verified on GitHub) instead of a `Signed-off-by:` line from `git commit -s`.
 
 ### Fixed
 
