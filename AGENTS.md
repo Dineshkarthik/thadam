@@ -2,7 +2,7 @@
 
 Thadam is an open-source, Rust-first data plane for robotics and industrial telemetry, in beta (`0.1.0-beta.N`). The Rust workspace lives in `crates/`, `apps/`, and `sdk/`; the static site lives in `website/`.
 
-Rust build/test gate commands and contribution rules: `CONTRIBUTING.md`; implementation status: `docs/design/readiness.md`.
+Rust build/test gate commands and contribution rules: `CONTRIBUTING.md`; implementation status: `docs/design/readiness.md`. Commits are signed with `git commit -S`, not signed off with `-s`.
 
 ## Website and documentation
 

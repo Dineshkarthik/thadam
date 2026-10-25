@@ -12,9 +12,9 @@
 - [ ] User-facing change — documentation updated in `website/docs/src/` as needed
 - [ ] New or changed public claim — it is consistent with the ADR-0011 claims register (or the register row is added/marked pending evidence)
 
-## Sign-off
+## Signed commits
 
-- [ ] Every commit is signed off with `git commit -s` (Developer Certificate of Origin; see [CONTRIBUTING.md](../CONTRIBUTING.md))
+- [ ] Every commit is signed with `git commit -S` and shows as Verified (see [CONTRIBUTING.md](../CONTRIBUTING.md#signed-commits))
 
 ## Checks
 

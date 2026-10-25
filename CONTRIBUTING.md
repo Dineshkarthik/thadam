@@ -130,15 +130,15 @@ One-time setup before the first tag:
 
 Use the [issue tracker](https://github.com/Dineshkarthik/thadam/issues) — the templates ask for the information that makes reports actionable. For **security issues, do not open a public issue**; see [SECURITY.md](SECURITY.md). Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## Developer Certificate of Origin
+## Signed commits
 
-Every commit must carry a sign-off that certifies the [Developer Certificate of Origin 1.1](https://developercertificate.org/). Create it with `git commit -s`, which adds a `Signed-off-by:` line from your git identity:
+Every commit must be cryptographically signed with a GPG or SSH key that is registered on your GitHub account, so GitHub shows it as **Verified**. Sign with `git commit -S`:
 
 ```bash
-git commit -s -m "Describe the change"
+git commit -S -m "Describe the change"
 ```
 
-The sign-off certifies that you have the right to submit the work under the project's [Apache-2.0 license](LICENSE). Commits without the sign-off line are not accepted; if you forgot, amend the commit with `git commit --amend -s`.
+A `Signed-off-by:` line (`git commit -s`) is not a signature and is not required. Unsigned commits are not accepted; if you forgot, re-sign the last commit with `git commit --amend -S --no-edit`. See GitHub's [commit signature verification](https://docs.github.com/en/authentication/managing-commit-signature-verification) guide to set up a key.
 
 ## License
 

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Signed commits replace DCO sign-off**: `CONTRIBUTING.md`, the pull request template, and `AGENTS.md` now require commits signed with `git commit -S` (GPG or SSH, shown as Verified on GitHub) instead of a `Signed-off-by:` line from `git commit -s`.
+
 ## [0.1.0-beta.2] - 2026-10-23
 
 **Summary.** Thadam 0.1.0-beta.2 is the second beta. It adds a terminal logo banner to the CLI, multi-version user documentation (0.1.0-beta.1 stays readable at `/docs/0.1.0-beta.1/`), crates.io READMEs and a Rust embedding guide, a wider Python wheel matrix (Linux musl and macOS Intel), dependency updates (including `tokio` 1.54.1 for RUSTSEC-2026-0386), and fixes for a WAL writer poison-ordering race and the CI `can-vcan` job. Every crate is version `0.1.0-beta.2` and the Python package is `0.1.0b2`; install and pin lines in the README, crate READMEs, homepage, and user documentation now name `0.1.0-beta.2`.
