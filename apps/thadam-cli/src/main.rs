@@ -15,6 +15,7 @@
 //! 0 ok, 1 runtime failure, 2 invalid configuration or usage, 3 data directory
 //! locked or incompatible, 130 interrupted.
 
+mod banner;
 mod data_dir;
 mod exit;
 mod export;
@@ -32,7 +33,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use thadam_config::{CONFIG_HASH_VERSION, CONFIG_VERSION, ProcessEnv};
 use thadam_runtime::LogFormat;
 
@@ -159,6 +160,17 @@ fn version_text() -> String {
     )
 }
 
+/// Writes the version text, behind the logo banner on an interactive terminal.
+fn write_version(out: &mut std::io::StdoutLock<'static>) -> std::io::Result<()> {
+    match banner::banner() {
+        Some(banner) => {
+            let mut out = anstream::AutoStream::auto(out);
+            write!(out, "{banner}\n{}", version_text())
+        }
+        None => write!(out, "{}", version_text()),
+    }
+}
+
 fn main() -> ExitCode {
     // object_store's reqwest is built `rustls-no-provider` (ADR-0020): the
     // composition root installs the ring provider process-wide, which the
@@ -166,9 +178,20 @@ fn main() -> ExitCode {
     // install would be rejected, so the result is intentionally dropped.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let cli = match Cli::try_parse() {
+    let mut cmd = Cli::command();
+    if let Some(banner) = banner::banner() {
+        cmd = cmd.before_help(banner);
+    }
+    let cli = match cmd
+        .try_get_matches()
+        .and_then(|matches| Cli::from_arg_matches(&matches))
+    {
         Ok(cli) => cli,
         Err(e) => {
+            if e.kind() == clap::error::ErrorKind::DisplayVersion {
+                let _ = write_version(&mut std::io::stdout().lock());
+                return ExitCode::from(Exit::Ok.code());
+            }
             let code = if e.use_stderr() {
                 Exit::InvalidConfig.code()
             } else {
@@ -193,7 +216,7 @@ fn main() -> ExitCode {
             &mut err,
         ),
         Command::Version => {
-            let _ = write!(out, "{}", version_text());
+            let _ = write_version(&mut out);
             Exit::Ok
         }
         Command::Schema => match serde_json::to_string_pretty(&thadam_config::json_schema()) {

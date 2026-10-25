@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Crate READMEs for crates.io**: each publishable library crate has a short README with its install line (`cargo add <crate>@=0.1.0-beta.1`), beta status, and links to docs.rs, the user documentation, and the repository; the `thadam` CLI's crates.io metadata links the user documentation.
 - **Rust crates page**: the user documentation has a "Rust crates" page with the crate table, `=0.1.0-beta.1` pins, and a minimal embedding example.
 - **`examples/embed-rust`**: a standalone example crate, outside the workspace, that embeds the runtime from the crates.io releases.
+- **CLI logo banner**: on an interactive terminal, `thadam --help`, `thadam version`, and `thadam --version` print the Thadam logo and tagline first, as the brand icon in Kitty graphics protocol and iTerm2 terminals and as a block-character mark elsewhere, including inside tmux and screen. Piped output is unchanged, `NO_COLOR` drops colours, and `THADAM_BANNER=off|blocks|image` overrides detection. `thadam --version` now prints the same three lines as `thadam version` (previously one line).
 
 ### Changed
 

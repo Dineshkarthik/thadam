@@ -38,6 +38,8 @@ ros2-live = ["dep:thadam-ros2-live"]
 iceberg = ["dep:thadam-iceberg"]
 
 [dependencies]
+anstream = { workspace = true }
+base64 = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 mcap = { workspace = true }

@@ -45,10 +45,19 @@ fn version_command_and_flag() {
     let stdout = text(&out.stdout);
     assert!(stdout.starts_with("thadam "), "{stdout}");
     assert!(stdout.contains("config version: 1"));
+    assert!(
+        !stdout.contains('█') && !stdout.contains('\x1b'),
+        "{stdout}"
+    );
 
     let flag = thadam(&["--version"]);
     assert_eq!(code(&flag), 0);
-    assert!(text(&flag.stdout).starts_with("thadam "));
+    let flag_stdout = text(&flag.stdout);
+    assert!(flag_stdout.starts_with("thadam "), "{flag_stdout}");
+    assert!(
+        !flag_stdout.contains('█') && !flag_stdout.contains('\x1b'),
+        "{flag_stdout}"
+    );
 }
 
 #[test]
@@ -166,6 +175,10 @@ fn help_is_exit_0() {
     for cmd in ["validate", "version", "schema"] {
         assert!(stdout.contains(cmd), "{stdout}");
     }
+    assert!(
+        !stdout.contains('█') && !stdout.contains('\x1b'),
+        "{stdout}"
+    );
 }
 
 #[test]

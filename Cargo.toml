@@ -102,6 +102,7 @@ hyper-util = { version = "0.1", features = ["http1", "server", "tokio"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 rustls-pemfile = { version = "2", default-features = false, features = ["std"] }
 url = "2.5"
+anstream = "1.0"
 arrow-array = "60"
 prometheus-client = "0.25"
 arrow-buffer = "60"
@@ -127,7 +128,7 @@ socketcan = { version = "4", default-features = false }
 can-dbc = { version = "10", default-features = false }
 # OPC UA DateTime values (thadam-opcua): UTC conversion and RFC 3339 text.
 chrono = { version = "0.4", default-features = false, features = ["alloc"] }
-clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "color"] }
 crc32c = "0.6.8"
 csv = "1.4"
 humantime = "2.4"

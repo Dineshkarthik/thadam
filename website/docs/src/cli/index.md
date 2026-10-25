@@ -94,6 +94,8 @@ config hash version: 1
 
 The binary version plus the configuration-format and config-hash-algorithm versions it understands.
 
+On an interactive terminal, `thadam --help`, `thadam version`, and `thadam --version` print the Thadam logo and the tagline "The open data plane for robotics." before the output shown above. Terminals that support the Kitty graphics protocol or iTerm2 inline images show the brand icon; all other terminals, including tmux and screen, show a block-character mark. Piped or redirected output is exactly as shown above. `THADAM_BANNER=off` turns the logo off, and `THADAM_BANNER=blocks` or `THADAM_BANNER=image` forces a style. `thadam --version` prints the same output as `thadam version`.
+
 ## `thadam run` {#thadam-run}
 
 ```text
