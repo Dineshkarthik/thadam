@@ -22,12 +22,12 @@ pip install thadam
 To pin the current pre-release explicitly:
 
 ```bash
-pip install thadam==0.1.0b1
+pip install thadam==0.1.0b2
 ```
 
-Requires Python >= 3.9; `pyarrow >= 14` is installed as a dependency. Prebuilt `abi3` wheels (CPython 3.9+) are published for Linux glibc (`manylinux_2_28`) on `x86_64` and `aarch64`, and for macOS `arm64` (11.0+). Other platforms (musl/Alpine, macOS Intel, Windows) build from the source distribution and need a Rust toolchain (1.89 or newer).
+Requires Python >= 3.9; `pyarrow >= 14` is installed as a dependency. Prebuilt `abi3` wheels (CPython 3.9+) are published for Linux glibc (`manylinux_2_28`) and musl (`musllinux_1_2`) on `x86_64` and `aarch64`, and for macOS `arm64` (11.0+) and `x86_64`. Other platforms (such as Windows) build from the source distribution and need a Rust toolchain (1.89 or newer).
 
-This package is the Python SDK; the `thadam` command-line tool installs with `cargo install thadam --version 0.1.0-beta.1 --locked`.
+This package is the Python SDK; the `thadam` command-line tool installs with `cargo install thadam --version 0.1.0-beta.2 --locked`.
 
 ## Examples
 

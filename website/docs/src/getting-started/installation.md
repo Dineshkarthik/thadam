@@ -1,6 +1,6 @@
 # Installation
 
-Thadam `0.1.0-beta.1` is published to crates.io (the `thadam` CLI and all 22 library crates) and PyPI (`thadam` `0.1.0b1`; see [ADR-0016](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0016-naming-and-publishing.md)). There are no prebuilt CLI release binaries or published container images yet (see [Deployment](../operations/deployment.md) to build the Docker image locally).
+Thadam `0.1.0-beta.2` is published to crates.io (the `thadam` CLI and all 22 library crates) and PyPI (`thadam` `0.1.0b2`; see [ADR-0016](https://github.com/Dineshkarthik/thadam/blob/main/docs/design/adr/0016-naming-and-publishing.md)). There are no prebuilt CLI release binaries or published container images yet (see [Deployment](../operations/deployment.md) to build the Docker image locally).
 
 ## Supported platforms
 
@@ -13,10 +13,10 @@ The minimum supported Rust version (MSRV) is **1.89** (`thadam-iceberg` requires
 
 ## Install the CLI from crates.io
 
-With a Rust toolchain of version 1.89 or newer installed (for example via [rustup](https://rustup.rs)), install the `thadam` CLI from crates.io. Because only pre-releases are published today, a bare `cargo install thadam` fails; pass `--version 0.1.0-beta.1` explicitly:
+With a Rust toolchain of version 1.89 or newer installed (for example via [rustup](https://rustup.rs)), install the `thadam` CLI from crates.io. Because only pre-releases are published today, a bare `cargo install thadam` fails; pass `--version 0.1.0-beta.2` explicitly:
 
 ```bash
-cargo install thadam --version 0.1.0-beta.1 --locked
+cargo install thadam --version 0.1.0-beta.2 --locked
 ```
 
 The `clickhouse` sink is enabled by default (`--no-default-features` omits it). Enable opt-in connectors with `--features`:
@@ -26,7 +26,7 @@ The `clickhouse` sink is enabled by default (`--no-default-features` omits it). 
 - `iceberg` — the experimental [Apache Iceberg registrar](../sinks/iceberg.md) (`kind: iceberg`, requires Rust **1.94** or newer).
 
 ```bash
-cargo install thadam --version 0.1.0-beta.1 --locked --features opcua,ros2-live,iceberg
+cargo install thadam --version 0.1.0-beta.2 --locked --features opcua,ros2-live,iceberg
 ```
 
 ## Install the Python SDK from PyPI
@@ -35,18 +35,18 @@ cargo install thadam --version 0.1.0-beta.1 --locked --features opcua,ros2-live,
 pip install thadam
 ```
 
-To pin the current pre-release explicitly, run `pip install thadam==0.1.0b1` (`pip` installs `0.1.0b1` without `--pre` because no final release exists yet). Requires Python 3.9 or newer and installs `pyarrow >= 14` as a dependency.
+To pin the current pre-release explicitly, run `pip install thadam==0.1.0b2` (`pip` installs `0.1.0b2` without `--pre` because no final release exists yet). Requires Python 3.9 or newer and installs `pyarrow >= 14` as a dependency.
 
-Prebuilt `abi3` wheels (CPython 3.9+) are published for Linux glibc (`manylinux_2_28`) on `x86_64` and `aarch64`, and for macOS `arm64` (11.0+). Other platforms (musl/Alpine, macOS Intel, Windows) build from the source distribution and require a Rust 1.89+ toolchain.
+Prebuilt `abi3` wheels (CPython 3.9+) are published for Linux glibc (`manylinux_2_28`) and musl (`musllinux_1_2`) on `x86_64` and `aarch64`, and for macOS `arm64` (11.0+) and `x86_64`. Other platforms (such as Windows) build from the source distribution and require a Rust 1.89+ toolchain.
 
 The `thadam` PyPI package is the [Python SDK](../sdk/python.md) (`validate`, `config_hash`, `read_segments`, `Pipeline`, `Diagnostic`, `ThadamError`). It does not install a `thadam` console command; install the CLI with `cargo install` above.
 
 ## Embed the Rust library crates
 
-All 22 Thadam library crates are published on crates.io as a supported embedding path. Pin the exact pre-release version with `=` because Cargo's default caret requirement (`^0.1.0-beta.1`) also accepts later `0.1.0-beta.x` releases, and public APIs can change between pre-releases while the compatibility policy is open:
+All 22 Thadam library crates are published on crates.io as a supported embedding path. Pin the exact pre-release version with `=` because Cargo's default caret requirement (`^0.1.0-beta.2`) also accepts later `0.1.0-beta.x` releases, and public APIs can change between pre-releases while the compatibility policy is open:
 
 ```bash
-cargo add thadam-runtime@=0.1.0-beta.1 thadam-config@=0.1.0-beta.1
+cargo add thadam-runtime@=0.1.0-beta.2 thadam-config@=0.1.0-beta.2
 ```
 
 See [Rust crates](../sdk/rust.md) for the crate list and an in-process pipeline example.
@@ -75,7 +75,7 @@ The binary is `target/release/thadam`. Every crate builds with `#![forbid(unsafe
 
 ```text
 $ thadam version
-thadam 0.1.0-beta.1
+thadam 0.1.0-beta.2
 config version: 1
 config hash version: 1
 ```

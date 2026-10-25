@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-beta.2] - 2026-10-23
+
+**Summary.** Thadam 0.1.0-beta.2 is the second beta. It adds a terminal logo banner to the CLI, multi-version user documentation (0.1.0-beta.1 stays readable at `/docs/0.1.0-beta.1/`), crates.io READMEs and a Rust embedding guide, a wider Python wheel matrix (Linux musl and macOS Intel), dependency updates (including `tokio` 1.54.1 for RUSTSEC-2026-0386), and fixes for a WAL writer poison-ordering race and the CI `can-vcan` job. Every crate is version `0.1.0-beta.2` and the Python package is `0.1.0b2`; install and pin lines in the README, crate READMEs, homepage, and user documentation now name `0.1.0-beta.2`.
+
 ### Added
 
 - **Multi-version user documentation**: `website/docs/versions.json` declares published documentation versions; `website/scripts/build.sh` builds the latest docs at `/docs/` and version-pinned books at `/docs/<version>/` (from the working tree or via `git archive <ref>` paired with the current `website/docs/theme/`), injects a header version switcher (`data-version-select`) and a notice banner on non-latest versions, and points versioned page canonicals to their latest `/docs/` counterparts; `website/scripts/check.py` verifies `versions.json`, versioned routes, switcher targets, and canonicals.
@@ -19,7 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Python wheel matrix and classifiers**: `.github/workflows/release.yml` now builds `cp39-abi3` wheels for Linux `musllinux_1_2` (`x86_64`, `aarch64`) and macOS Intel (`x86_64-apple-darwin`) alongside Linux `manylinux_2_28` (`x86_64`, `aarch64`, now built natively on `ubuntu-24.04-arm` and smoke-tested) and macOS `arm64`; `sdk/python/pyproject.toml` lists explicit Python 3.9–3.14 and CPython classifiers; and CI (`python-sdk`) tests the built `abi3` wheel across Python 3.9, 3.12, and 3.13.
 - **Docs sync**: aligned the homepage footer, roadmap, CLI reference, data-directory permissions (`0700` directory, `0600` files), Sparkplug/MCAP/Iceberg size bounds, `website/README.md`, `benchmarks/README.md` (`thadam_wal_commit_seconds` exported), `ARCHITECTURE.md`, `docs/design/readiness.md`, `docs/design/version-inventory.md`, and `CHANGELOG.md` link paths with the current codebase and `ADR-0016` acceptance.
 - **Install paths**: the README, the installation page in the user documentation, and the homepage now point at `cargo install thadam --version 0.1.0-beta.1 --locked` and `pip install thadam` instead of build-from-source only; the PyPI README leads with installation.
-- **Dependency updates** (Dependabot): GitHub Actions `actions/checkout` v7.0.1, `actions/upload-artifact` v7.0.2, `actions/download-artifact` v8.0.2 (now fails on artifact digest mismatch), `actions/setup-python` v7.0.0, and `taiki-e/install-action` v2.87.29; crates `proptest` 1.12.0, `sha2` 0.11.1, `rustls-native-certs` 0.8.5, `clickhouse` 0.15.3, and `rand` 0.10.3 / `rand_chacha` 0.10.0 in `thadam-simulator`. `cargo deny check advisories` reports no advisories.
+- **Dependency updates** (Dependabot): GitHub Actions `actions/checkout` v7.0.1, `actions/upload-artifact` v7.0.2, `actions/download-artifact` v8.0.2 (now fails on artifact digest mismatch), `actions/setup-python` v7.0.0, and `taiki-e/install-action` v2.87.29; crates `proptest` 1.12.0, `sha2` 0.11.1, `rustls-native-certs` 0.8.5, `clickhouse` 0.15.3, and `rand` 0.10.3 / `rand_chacha` 0.10.0 in `thadam-simulator`; `tokio` 1.54.1 (was 1.53.2) for RUSTSEC-2026-0386 (unsound `AsyncFd` constructors; Thadam does not call them). `cargo deny check advisories` reports no advisories.
 
 ### Fixed
 

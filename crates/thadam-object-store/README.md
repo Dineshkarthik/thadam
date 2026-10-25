@@ -6,15 +6,15 @@ Part of [Thadam](https://thadam.dineshkarthik.me), the open data plane for robot
 
 ## Status
 
-Beta (`0.1.0-beta.1`). Public API may change between pre-releases until the compatibility policy is written; pin the exact version.
+Beta (`0.1.0-beta.2`). Public API may change between pre-releases until the compatibility policy is written; pin the exact version.
 
 ## Install
 
 ```bash
-cargo add thadam-object-store@=0.1.0-beta.1
+cargo add thadam-object-store@=0.1.0-beta.2
 ```
 
-For the command-line tool, run `cargo install thadam --version 0.1.0-beta.1 --locked` instead.
+For the command-line tool, run `cargo install thadam --version 0.1.0-beta.2 --locked` instead.
 
 ## Where it fits
 

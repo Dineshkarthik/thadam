@@ -6,15 +6,15 @@ Part of [Thadam](https://thadam.dineshkarthik.me), the open data plane for robot
 
 ## Status
 
-Beta (`0.1.0-beta.1`), experimental. Public API may change between pre-releases until the compatibility policy is written; pin the exact version. It needs Rust 1.94; the other Thadam crates have a minimum supported Rust version of 1.89. It is an opt-in feature of the `thadam` CLI (`iceberg`).
+Beta (`0.1.0-beta.2`), experimental. Public API may change between pre-releases until the compatibility policy is written; pin the exact version. It needs Rust 1.94; the other Thadam crates have a minimum supported Rust version of 1.89. It is an opt-in feature of the `thadam` CLI (`iceberg`).
 
 ## Install
 
 ```bash
-cargo add thadam-iceberg@=0.1.0-beta.1
+cargo add thadam-iceberg@=0.1.0-beta.2
 ```
 
-For the command-line tool, run `cargo install thadam --version 0.1.0-beta.1 --locked` instead.
+For the command-line tool, run `cargo install thadam --version 0.1.0-beta.2 --locked` instead.
 
 ## Where it fits
 

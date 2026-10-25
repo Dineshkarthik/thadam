@@ -1,10 +1,16 @@
 {
   "versions": [
     {
-      "id": "0.1.0-beta.1",
-      "label": "0.1.0-beta.1 (latest)",
+      "id": "0.1.0-beta.2",
+      "label": "0.1.0-beta.2 (latest)",
       "ref": "WORKTREE",
       "latest": true
+    },
+    {
+      "id": "0.1.0-beta.1",
+      "label": "0.1.0-beta.1",
+      "ref": "v0.1.0-beta.1",
+      "latest": false
     }
   ]
 }

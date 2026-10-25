@@ -87,7 +87,7 @@ Usage: thadam version
 ```
 
 ```text
-thadam 0.1.0-beta.1
+thadam 0.1.0-beta.2
 config version: 1
 config hash version: 1
 ```

@@ -159,7 +159,7 @@
 
     <section class="section" id="status" aria-labelledby="status-heading">
       <h2 id="status-heading">Status</h2>
-      <p>Thadam is in beta. The CLI and library crates are on crates.io and the Python SDK is on PyPI as <code>0.1.0-beta.1</code> pre-releases; there are no prebuilt binaries or container images yet. <span class="pill">Available</span> means implemented in this repository. <span class="pill pill-progress">In progress</span> means being built. <span class="pill pill-planned">Planned</span> means not started. The <a href="https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md">readiness tracker</a> records how far each part has been verified.</p>
+      <p>Thadam is in beta. The CLI and library crates are on crates.io and the Python SDK is on PyPI as <code>0.1.0-beta.2</code> pre-releases; there are no prebuilt binaries or container images yet. <span class="pill">Available</span> means implemented in this repository. <span class="pill pill-progress">In progress</span> means being built. <span class="pill pill-planned">Planned</span> means not started. The <a href="https://github.com/Dineshkarthik/thadam/blob/main/docs/design/readiness.md">readiness tracker</a> records how far each part has been verified.</p>
       <div class="table-wrap">
         <table>
           <caption>Sources and sinks</caption>
@@ -186,9 +186,9 @@
     <section class="section" id="install" aria-labelledby="install-heading">
       <h2 id="install-heading">Install</h2>
       <p>Install the CLI from crates.io with Rust 1.89 or newer (<code>--version</code> is required while only pre-releases exist). Linux x86_64 and ARM64 are the durability targets. macOS builds are for development and make no durability claims.</p>
-      <pre><code>cargo install thadam --version 0.1.0-beta.1 --locked
+      <pre><code>cargo install thadam --version 0.1.0-beta.2 --locked
 thadam version</code></pre>
-      <p>Install the <a href="/docs/sdk/python.html">Python SDK</a> from PyPI (prebuilt wheels for Linux glibc x86_64/aarch64 and macOS arm64; Python 3.9+):</p>
+      <p>Install the <a href="/docs/sdk/python.html">Python SDK</a> from PyPI (prebuilt wheels for Linux glibc and musl on x86_64/aarch64 and macOS arm64/x86_64; Python 3.9+):</p>
       <pre><code>pip install thadam</code></pre>
       <p>For optional Cargo features (<code>opcua</code>, <code>ros2-live</code>, <code>iceberg</code>), embedding the Rust library crates, or building from source, see <a href="/docs/getting-started/installation.html">installation</a>. Next, follow <a href="/docs/getting-started/first-pipeline.html">your first pipeline</a>.</p>
     </section>

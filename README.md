@@ -90,7 +90,7 @@ The only dependency beyond a Rust toolchain is a container runtime for the messa
 **1. Install Thadam.** With Rust 1.89 or newer installed ([rustup](https://rustup.rs)), install the CLI from crates.io (`--version` is required while only pre-releases are published; pass `--features opcua,ros2-live,iceberg` for the opt-in connectors, where `iceberg` requires Rust 1.94):
 
 ```bash
-cargo install thadam --version 0.1.0-beta.1 --locked
+cargo install thadam --version 0.1.0-beta.2 --locked
 thadam version
 ```
 
@@ -104,7 +104,7 @@ export PATH="$PWD/target/release:$PATH"
 thadam version
 ```
 
-For the Python SDK, run `pip install thadam` (see the [Python SDK docs](https://thadam.dineshkarthik.me/docs/sdk/python)). To embed the Rust libraries, add crates with an exact pre-release pin such as `cargo add thadam-runtime@=0.1.0-beta.1` (see [Rust crates](https://thadam.dineshkarthik.me/docs/sdk/rust)).
+For the Python SDK, run `pip install thadam` (see the [Python SDK docs](https://thadam.dineshkarthik.me/docs/sdk/python)). To embed the Rust libraries, add crates with an exact pre-release pin such as `cargo add thadam-runtime@=0.1.0-beta.2` (see [Rust crates](https://thadam.dineshkarthik.me/docs/sdk/rust)).
 
 **2. Start a local broker.** Mosquitto with persistence enabled (see [ADR-0006](docs/design/adr/0006-mqtt-client.md) for why the settings matter):
 

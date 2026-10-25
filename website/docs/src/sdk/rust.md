@@ -1,20 +1,20 @@
 # Rust crates
 
-**Status: Available.** All 22 Thadam library crates and the `thadam` CLI are published on [crates.io](https://crates.io/crates/thadam) as `0.1.0-beta.1` (published 2026-10-22) with API documentation on [docs.rs](https://docs.rs/thadam-runtime), and can be embedded in your own Rust binary or service.
+**Status: Available.** All 22 Thadam library crates and the `thadam` CLI are published on [crates.io](https://crates.io/crates/thadam) as `0.1.0-beta.2` with API documentation on [docs.rs](https://docs.rs/thadam-runtime), and can be embedded in your own Rust binary or service.
 
 ## Version pinning and MSRV
 
-Pin exact versions (`=0.1.0-beta.1`) when depending on Thadam crates. Cargo's default caret requirement (`^0.1.0-beta.1`) on a `0.1.0` pre-release also accepts later `0.1.0` betas, and public APIs can change between pre-releases until the compatibility policy is written.
+Pin exact versions (`=0.1.0-beta.2`) when depending on Thadam crates. Cargo's default caret requirement (`^0.1.0-beta.2`) on a `0.1.0` pre-release also accepts later `0.1.0` betas, and public APIs can change between pre-releases until the compatibility policy is written.
 
 - **MSRV:** Rust **1.89** across the workspace; `thadam-iceberg` requires Rust **1.94**.
 - Add the runtime and only the connector crates your binary uses:
 
 ```bash
-cargo add thadam-runtime@=0.1.0-beta.1 \
-  thadam-config@=0.1.0-beta.1 \
-  thadam-core@=0.1.0-beta.1 \
-  thadam-mqtt@=0.1.0-beta.1 \
-  thadam-segments@=0.1.0-beta.1
+cargo add thadam-runtime@=0.1.0-beta.2 \
+  thadam-config@=0.1.0-beta.2 \
+  thadam-core@=0.1.0-beta.2 \
+  thadam-mqtt@=0.1.0-beta.2 \
+  thadam-segments@=0.1.0-beta.2
 ```
 
 ## Crate map
@@ -56,11 +56,11 @@ Load and interpolate a YAML configuration file with `thadam_config::load_file`. 
 
 ```toml
 [dependencies]
-thadam-config = "=0.1.0-beta.1"
-thadam-core = "=0.1.0-beta.1"
-thadam-mqtt = "=0.1.0-beta.1"
-thadam-runtime = "=0.1.0-beta.1"
-thadam-segments = "=0.1.0-beta.1"
+thadam-config = "=0.1.0-beta.2"
+thadam-core = "=0.1.0-beta.2"
+thadam-mqtt = "=0.1.0-beta.2"
+thadam-runtime = "=0.1.0-beta.2"
+thadam-segments = "=0.1.0-beta.2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 ```
 
