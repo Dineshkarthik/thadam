@@ -132,7 +132,7 @@ clap = { version = "4.6", default-features = false, features = ["std", "derive",
 crc32c = "0.6.8"
 csv = "1.4"
 humantime = "2.4"
-lru = "0.18"
+lru = "0.19"
 # MCAP / rosbag2 file source (thadam-mcap, ADR-0007 stage 2): MIT, Foxglove,
 # pure Rust. Default features keep the zstd and lz4 chunk decompressors,
 # which rosbag2 recordings need.
